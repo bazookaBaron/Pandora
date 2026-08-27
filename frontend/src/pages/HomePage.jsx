@@ -7,21 +7,7 @@ const PLACEHOLDERS = {
     gemini: 'AIzaSy…',
 }
 
-// ── Score ring SVG defs (injected once) ───────────────────────────
-function RingDefs() {
-    return (
-        <svg width="0" height="0" style={{ position: 'absolute' }}>
-            <defs>
-                <linearGradient id="ring-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#818cf8" />
-                    <stop offset="100%" stopColor="#c084fc" />
-                </linearGradient>
-            </defs>
-        </svg>
-    )
-}
-
-function ScoreRing({ id, label, value }) {
+function ScoreRing({ label, value }) {
     const circleRef = useRef(null)
     const CIRCUMFERENCE = 2 * Math.PI * 34
 
@@ -58,7 +44,6 @@ export default function HomePage() {
     const [status, setStatus] = useState({ msg: '', type: '' })
     const [results, setResults] = useState(null)
 
-    // Persist provider/key across sessions
     useEffect(() => {
         const savedProv = sessionStorage.getItem('resumeOpt_provider')
         const savedKey = sessionStorage.getItem('resumeOpt_apiKey')
@@ -84,7 +69,7 @@ export default function HomePage() {
 
         setLoading(true)
         setResults(null)
-        setStatus({ msg: `Tailoring resume with ${provider}… 15-30 s`, type: '' })
+        setStatus({ msg: `Tailoring resume with ${provider}… 15–30 s`, type: '' })
 
         try {
             const res = await fetch('/api/generate', {
@@ -108,25 +93,10 @@ export default function HomePage() {
     return (
         <>
             <Navbar />
-            <RingDefs />
-            <div className="bg-blob blob-1" />
-            <div className="bg-blob blob-2" />
-            <div className="bg-blob blob-3" />
-
             <main className="wrap">
                 {/* Header */}
                 <header className="header">
-                    <div className="logo-mark">
-                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-                            <rect width="32" height="32" rx="8" fill="url(#logo-home)" />
-                            <path d="M10 22V10h4l4 7 4-7h4v12h-3.5v-7.5L19 19h-2.5l-3.5-4.5V22H10z" fill="white" />
-                            <defs>
-                                <linearGradient id="logo-home" x1="0" y1="0" x2="32" y2="32">
-                                    <stop stopColor="#6366f1" /><stop offset="1" stopColor="#a855f7" />
-                                </linearGradient>
-                            </defs>
-                        </svg>
-                    </div>
+                    <div className="logo-mark">R</div>
                     <div>
                         <h1>Resume Optimizer</h1>
                         <p className="subtitle">Paste a job description → get a tailored, ATS-optimized PDF in seconds.</p>
@@ -136,9 +106,6 @@ export default function HomePage() {
                 {/* AI Provider + Key */}
                 <section className="card api-key-section">
                     <label className="field-label">
-                        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" style={{ verticalAlign: '-2px', marginRight: 6, opacity: .6 }}>
-                            <path d="M8 1a4 4 0 0 0-4 4v3H3a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1h-1V5a4 4 0 0 0-4-4zm2.5 7h-5V5a2.5 2.5 0 1 1 5 0v3z" />
-                        </svg>
                         AI Provider &amp; API Key
                     </label>
 
@@ -150,7 +117,7 @@ export default function HomePage() {
                         >
                             <option value="anthropic">Anthropic — Claude Sonnet 4</option>
                             <option value="openai">OpenAI — GPT-4o Mini</option>
-                            <option value="gemini">Google — Gemini 3.6 Flash</option>
+                            <option value="gemini">Google — Gemini 2.5 Flash</option>
                         </select>
                     </div>
 
@@ -164,12 +131,10 @@ export default function HomePage() {
                             autoComplete="off"
                         />
                         <button type="button" className="icon-btn" onClick={() => setShowKey(v => !v)}>
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                {showKey
-                                    ? <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" /></>
-                                    : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></>
-                                }
-                            </svg>
+                            {showKey
+                                ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
+                                : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
+                            }
                         </button>
                     </div>
                     <p className="field-hint">Your key stays in the browser — never stored on the server.</p>
@@ -189,7 +154,7 @@ export default function HomePage() {
 
                 {/* Generate Button */}
                 <button className="primary-btn" onClick={handleGenerate} disabled={loading}>
-                    <svg className="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
                     </svg>
                     <span>{loading ? 'Generating…' : 'Generate & Download Resume'}</span>
@@ -204,9 +169,9 @@ export default function HomePage() {
                     <section className="results">
                         <h2 className="section-title">Match Scorecard</h2>
                         <div className="score-grid">
-                            <ScoreRing id="keyword" label="Keyword Match" value={results.metrics.keywordMatchPercent ?? 0} />
-                            <ScoreRing id="ats" label="ATS Pass Chance" value={results.metrics.atsPassChancePercent ?? 0} />
-                            <ScoreRing id="human" label="Human Screen" value={results.metrics.humanScreenChancePercent ?? 0} />
+                            <ScoreRing label="Keyword Match" value={results.metrics.keywordMatchPercent ?? 0} />
+                            <ScoreRing label="ATS Pass Chance" value={results.metrics.atsPassChancePercent ?? 0} />
+                            <ScoreRing label="Human Screen" value={results.metrics.humanScreenChancePercent ?? 0} />
                         </div>
 
                         <div className="detail-block card">

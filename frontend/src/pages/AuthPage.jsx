@@ -3,21 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 
-function Logo() {
-    return (
-        <svg width="40" height="40" viewBox="0 0 32 32" fill="none">
-            <rect width="32" height="32" rx="8" fill="url(#logo-auth)" />
-            <path d="M10 22V10h4l4 7 4-7h4v12h-3.5v-7.5L19 19h-2.5l-3.5-4.5V22H10z" fill="white" />
-            <defs>
-                <linearGradient id="logo-auth" x1="0" y1="0" x2="32" y2="32">
-                    <stop stopColor="#6366f1" />
-                    <stop offset="1" stopColor="#a855f7" />
-                </linearGradient>
-            </defs>
-        </svg>
-    )
-}
-
 function PwStrengthBar({ password }) {
     let score = 0
     if (password.length >= 8) score++
@@ -30,13 +15,13 @@ function PwStrengthBar({ password }) {
         { pct: '25%', color: '#f87171', text: 'Weak' },
         { pct: '50%', color: '#fb923c', text: 'Fair' },
         { pct: '75%', color: '#facc15', text: 'Good' },
-        { pct: '100%', color: '#34d399', text: 'Strong 🎉' },
+        { pct: '100%', color: '#4ade80', text: 'Strong' },
     ]
     const level = levels[score]
 
     if (!password) return null
     return (
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: 6 }}>
             <div className="pw-strength">
                 <div className="pw-strength-bar" style={{ width: level.pct, background: level.color }} />
             </div>
@@ -112,17 +97,28 @@ export default function AuthPage() {
         )
     }
 
+    const handleGoogleLogin = async () => {
+        setLoading(true)
+        clearStatus()
+        const { error } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo: `${window.location.origin}/`,
+            },
+        })
+        if (error) {
+            setStatus({ msg: error.message, type: 'error' })
+            setLoading(false)
+        }
+        // On success, Supabase redirects to Google — no need to setLoading(false)
+    }
+
     return (
         <div className="auth-wrap">
-            {/* Blobs */}
-            <div className="bg-blob blob-1" />
-            <div className="bg-blob blob-2" />
-            <div className="bg-blob blob-3" />
-
-            <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 420, margin: '0 auto' }}>
+            <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 400, margin: '0 auto' }}>
                 {/* Logo */}
                 <div className="auth-logo">
-                    <Logo />
+                    <div className="logo-mark">R</div>
                     <div>
                         <h1 className="auth-brand">Resume Optimizer</h1>
                         <p className="auth-tagline">AI-Powered ATS Tailoring</p>
@@ -142,6 +138,14 @@ export default function AuthPage() {
                             onClick={() => { setTab('signup'); clearStatus() }}
                         >Create Account</button>
                     </div>
+
+                    {/* Google OAuth Button */}
+                    <button className="google-btn" onClick={handleGoogleLogin} disabled={loading} type="button">
+                        <GoogleIcon />
+                        Continue with Google
+                    </button>
+
+                    <div className="or-divider">or</div>
 
                     {/* Login Form */}
                     {tab === 'login' && (
@@ -172,7 +176,6 @@ export default function AuthPage() {
                                 </button>
                             </div>
                             <button type="submit" className="primary-btn auth-submit-btn" disabled={loading}>
-                                <LoginIcon />
                                 <span>{loading ? 'Signing In…' : 'Sign In'}</span>
                                 {loading && <div className="spinner" />}
                             </button>
@@ -211,7 +214,6 @@ export default function AuthPage() {
                                 <PwStrengthBar password={signupPw} />
                             </div>
                             <button type="submit" className="primary-btn auth-submit-btn" disabled={loading}>
-                                <SignupIcon />
                                 <span>{loading ? 'Creating…' : 'Create Account'}</span>
                                 {loading && <div className="spinner" />}
                             </button>
@@ -234,33 +236,28 @@ export default function AuthPage() {
     )
 }
 
-// ── Inline micro-icons ─────────────────────────────────────────────
+// ── Micro-icons ───────────────────────────────────────────────────────
 function EyeIcon({ open }) {
     return open ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
             <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
             <line x1="1" y1="1" x2="23" y2="23" />
         </svg>
     ) : (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
         </svg>
     )
 }
 
-function LoginIcon() {
+function GoogleIcon() {
     return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" />
-        </svg>
-    )
-}
-
-function SignupIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6" />
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
         </svg>
     )
 }

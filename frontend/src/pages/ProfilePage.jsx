@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import Navbar from '../components/Navbar'
@@ -17,7 +17,7 @@ function getInitials(user) {
 function stringToColor(str = '') {
     let hash = 0
     for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash)
-    const colors = ['#6366f1', '#8b5cf6', '#a855f7', '#ec4899', '#06b6d4', '#10b981', '#f59e0b']
+    const colors = ['#22d3ee', '#f472b6', '#4ade80', '#facc15', '#a78bfa', '#fb923c', '#60a5fa']
     return colors[Math.abs(hash) % colors.length]
 }
 
@@ -32,12 +32,12 @@ function PwStrengthBar({ password }) {
         { pct: '25%', color: '#f87171', text: 'Weak' },
         { pct: '50%', color: '#fb923c', text: 'Fair' },
         { pct: '75%', color: '#facc15', text: 'Good' },
-        { pct: '100%', color: '#34d399', text: 'Strong 🎉' },
+        { pct: '100%', color: '#4ade80', text: 'Strong' },
     ]
     const level = levels[score]
     if (!password) return null
     return (
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: 6 }}>
             <div className="pw-strength">
                 <div className="pw-strength-bar" style={{ width: level.pct, background: level.color }} />
             </div>
@@ -70,6 +70,7 @@ export default function ProfilePage() {
         : '—'
 
     const provider = user?.app_metadata?.provider || 'email'
+    const isOAuth = provider !== 'email'
 
     const handleChangePassword = async (e) => {
         e.preventDefault()
@@ -95,7 +96,6 @@ export default function ProfilePage() {
         } else {
             setEditNameOpen(false)
             setNameStatus({ msg: '', type: '' })
-            // Reload to refresh user metadata from context
             window.location.reload()
         }
     }
@@ -108,10 +108,6 @@ export default function ProfilePage() {
     return (
         <>
             <Navbar />
-            <div className="bg-blob blob-1" />
-            <div className="bg-blob blob-2" />
-            <div className="bg-blob blob-3" />
-
             <main className="wrap profile-wrap">
                 {/* Hero */}
                 <div className="profile-hero">
@@ -151,50 +147,52 @@ export default function ProfilePage() {
                     </div>
                     <div className="profile-divider" />
                     <div className="profile-field">
-                        <span className="profile-field-label">Provider</span>
+                        <span className="profile-field-label">Auth Provider</span>
                         <span className="profile-field-value" style={{ textTransform: 'capitalize' }}>{provider}</span>
                     </div>
                 </section>
 
-                {/* Security */}
-                <section className="card profile-card">
-                    <h2 className="profile-section-title">Security</h2>
-                    <form onSubmit={handleChangePassword}>
-                        <div className="form-group">
-                            <label className="field-label">New Password</label>
-                            <div className="pw-row">
-                                <input
-                                    type={showNewPw ? 'text' : 'password'}
-                                    className="input-field"
-                                    placeholder="Min. 8 characters"
-                                    minLength={8}
-                                    value={newPw}
-                                    onChange={e => setNewPw(e.target.value)}
-                                />
-                                <button type="button" className="icon-btn" onClick={() => setShowNewPw(v => !v)}>
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
-                                    </svg>
-                                </button>
+                {/* Security — only show for email/password accounts */}
+                {!isOAuth && (
+                    <section className="card profile-card">
+                        <h2 className="profile-section-title">Security</h2>
+                        <form onSubmit={handleChangePassword}>
+                            <div className="form-group">
+                                <label className="field-label">New Password</label>
+                                <div className="pw-row">
+                                    <input
+                                        type={showNewPw ? 'text' : 'password'}
+                                        className="input-field"
+                                        placeholder="Min. 8 characters"
+                                        minLength={8}
+                                        value={newPw}
+                                        onChange={e => setNewPw(e.target.value)}
+                                    />
+                                    <button type="button" className="icon-btn" onClick={() => setShowNewPw(v => !v)}>
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                <PwStrengthBar password={newPw} />
                             </div>
-                            <PwStrengthBar password={newPw} />
-                        </div>
-                        <button
-                            type="submit"
-                            className="primary-btn"
-                            disabled={pwLoading}
-                            style={{ width: 'auto', padding: '12px 28px', fontSize: '.9rem' }}
-                        >
-                            <span>{pwLoading ? 'Updating…' : 'Update Password'}</span>
-                            {pwLoading && <div className="spinner" />}
-                        </button>
-                        {pwStatus.msg && (
-                            <div className={`auth-status auth-status--${pwStatus.type}`} style={{ marginTop: 12 }}>
-                                {pwStatus.msg}
-                            </div>
-                        )}
-                    </form>
-                </section>
+                            <button
+                                type="submit"
+                                className="primary-btn"
+                                disabled={pwLoading}
+                                style={{ width: 'auto', padding: '10px 24px' }}
+                            >
+                                <span>{pwLoading ? 'Updating…' : 'Update Password'}</span>
+                                {pwLoading && <div className="spinner" />}
+                            </button>
+                            {pwStatus.msg && (
+                                <div className={`auth-status auth-status--${pwStatus.type}`} style={{ marginTop: 12 }}>
+                                    {pwStatus.msg}
+                                </div>
+                            )}
+                        </form>
+                    </section>
+                )}
 
                 {/* Danger Zone */}
                 <section className="card profile-card danger-card">
@@ -202,7 +200,7 @@ export default function ProfilePage() {
                     <p className="danger-desc">Sign out from all devices.</p>
                     <div className="danger-actions">
                         <button className="danger-btn" onClick={handleLogout}>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
                             </svg>
                             Sign Out
@@ -239,7 +237,7 @@ export default function ProfilePage() {
                             )}
                             <div className="modal-actions">
                                 <button type="button" className="secondary-btn" onClick={() => setEditNameOpen(false)}>Cancel</button>
-                                <button type="submit" className="primary-btn" disabled={nameLoading} style={{ flex: 1, padding: 12 }}>
+                                <button type="submit" className="primary-btn" disabled={nameLoading} style={{ flex: 1, padding: 10 }}>
                                     <span>{nameLoading ? 'Saving…' : 'Save'}</span>
                                     {nameLoading && <div className="spinner" />}
                                 </button>
