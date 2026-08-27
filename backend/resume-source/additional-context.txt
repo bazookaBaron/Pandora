@@ -1,0 +1,7 @@
+Additional experience not yet reflected in my resume (use only what's relevant to the JD, phrase truthfully, don't force it in if irrelevant):
+
+- Hands-on with AWS Lambda, SQS, SNS, Kafka, RDS, Aurora
+- Built a CDC (change data capture) pipeline via Lambda syncing data between two databases
+- Designed a metadata workflow: stored metadata in Aurora PostgreSQL, ran a scheduled cron Lambda job that queried the metadata every 24hrs and sent schedule-change emails to customers — used Entity Framework (EF) in .NET for this
+- Worked with Generative AI technologies including Prompt Engineering and Retrieval-Augmented Generation (RAG)
+- Hands-on experience with vector databases and search (ChromaDB, pgvector / PostgreSQL RAG)

@@ -1,0 +1,113 @@
+% -------------- Resume ---------------
+\documentclass{resume}
+
+\begin{document}
+
+% --------- Contact Information -----------
+\introduction[
+    fullname={Debopriyo Debnath},
+    email={debnathdebopriyoxv@gmail.com},
+    phone={6000595925},
+    linkedin= {linkedin.com/in/debopriyo-debnath},
+    github={github.com/bazookaBaron}
+]
+
+% --------- Summary -----------
+\summary{Software Engineer with 4.5+ years of experience building scalable backend systems and microservices. Strong in system design, concurrency, and performance optimization, with hands-on experience delivering production-grade systems end-to-end. Proven track record of combining engineering depth with product ownership in fast-paced environments.}
+
+% --------- Skills -----------
+\begin{skillsSection}{Technical Skills}
+    \skillItem[
+        category={Languages},
+        skills={\hspace{26pt}C, CSharp, Python, Java, React, Javascript/Typescript, SQL, C++}
+    ] \\
+    \skillItem[
+        category={Frameworks},
+        skills={\hspace{20pt}NextJs, Dotnet, SpringBoot, Express.js, Angular}
+    ] \\
+    \skillItem[
+        category={Databases},
+        skills={\hspace{28pt}MySQL, PostgreSQL, MongoDB, DynamoDB, Redis}
+    ] \\
+    \skillItem[
+        category={System Design},
+        skills={\hspace{8pt}Microservices, Distributed Systems, Concurrency, Caching}
+    ] \\
+    \skillItem[
+        category={Soft Skills},
+        skills={\hspace{30pt}Project management, Leadership, Excellent Communication}
+    ]
+\end{skillsSection}
+
+% --------- Experience -----------
+\begin{experienceSection}{Professional Experience}
+    \experienceItem[
+      company = {JP Morgan Chase \& Company},
+      location = {Pune, India},
+      roles = {
+        \textbf{Software Engineer II} & 2025--Present \\
+        \textbf{Software Engineer I} & 2022--2025
+      }
+    ]
+    \begin{itemize}
+        \itemsep -6pt {}
+        \item Led the design and implementation of a resilient supplier failover mechanism across multiple GDS providers, reducing booking failures during peak traffic by automatically recovering failed transactions without impacting customer experience.
+        \item Architected scalable booking workflows integrating heterogeneous third-party supplier APIs by introducing extensible validation frameworks, adapter layers, and asynchronous processing for supplier-specific business rules.
+        \item Designed and developed a dynamic pricing engine enabling passenger-level fare calculation, automated client and agency markup computation, FQA handling, and operational remarks, significantly improving booking efficiency and revenue generation.
+        \item Identified critical production pricing defect causing revenue leakage for infant bookings, quantified business impact, collaborated with product stakeholders, and delivered the end-to-end solution from design through production rollout.
+        \item Designed and developed reusable backend components and libraries, enabling consistent patterns across microservices and accelerating new feature development.
+        \item Actively participated in architecture discussions and technical brainstorming, proposing improvements to system design, performance optimization, and operational workflows.
+        \item Investigated and resolved high-severity production incidents by performing distributed log analysis, identifying root causes across microservices and third-party integrations, and implementing resilient exception handling to improve system reliability.
+        \item Led cross-functional initiatives involving engineers, product managers, and external integration teams to drive complex backend features from requirement gathering through architecture, implementation, testing, and production deployment.
+        \item Improved platform resilience by introducing standardized error handling, structured logging, and graceful degradation mechanisms, reducing operational overhead and accelerating incident resolution.
+    \end{itemize}
+    \vspace{-5pt}
+\end{experienceSection}
+
+% --------- Projects -----------
+\begin{experienceSection}{Projects}
+    \projectItem[
+        title={Huegen},
+        duration=Jan 2023 -- Oct 2025,
+        keyHighlight={Huegen is a bootstrapped D2C art and print commerce brand founded and operated end-to-end, specializing in designing, producing, and selling original printed paintings across India.}
+    ]
+    \begin{itemize}
+        \vspace{-0.5em}
+        \itemsep -6pt {}
+        \item Founded and bootstrapped Huegen, a D2C art commerce brand, designing, printing, and selling original artwork across India through a self-built online distribution model.
+        \item Built and optimized end-to-end supply chain and pan-India logistics operations, managing vendor sourcing for raw materials, fulfillment workflows, courier partnerships, and return handling to ensure consistent delivery SLAs.
+        \item Scaled the business to 11L+ ARR with 35\% COGS, maintaining healthy gross margins through cost control, pricing strategy, and vertically integrated production.
+    \end{itemize}
+    \vspace{-3pt}
+    \projectItem[
+        title={Valor},
+        duration=Nov 2025,
+        keyHighlight={Valor is a React Native (Expo) and Convex-based fitness app for tracking macros, scheduling workouts, and competing via realtime leaderboards with automated notifications.}
+    ]
+    \begin{itemize}
+        \vspace{-0.5em}
+        \itemsep -6pt {}
+        \item Built a full-stack fitness and nutrition tracking mobile application using React Native (Expo) and Convex, implementing macro analytics, workout scheduling, progress tracking, and real-time leaderboards with reactive data synchronization across devices.
+        \item Engineered scalable backend logic with Convex functions and cron jobs to power automated notifications (workout reminders, streak alerts), real-time updates, and secure data handling to support concurrent active users and improve retention.
+    \end{itemize}
+\end{experienceSection}
+
+% --------- Education ---------
+\begin{educationSection}{Education}
+\educationItem[
+        university={Indian Institute of Technology (IIT), Patna},
+        graduation={Expected July 2027},
+        grade={Currently Pursuing},
+        program={M.Tech in Artificial Intelligence \& Data Science Engineering},
+    ]
+   \par \vspace{5pt}
+    \educationItem[
+        university={National Institute of Technology (NIT), Silchar},
+        graduation={May 2022},
+        grade={8.87 GPA},
+        program={B.Tech, Computer Science \& Engineering},
+    ]
+\end{educationSection}
+
+\vspace{-12pt}
+\end{document}
