@@ -19,6 +19,13 @@ function stringToColor(str = '') {
     return colors[Math.abs(hash) % colors.length]
 }
 
+const NAV_LINKS = [
+    { to: '/', label: 'Optimizer' },
+    { to: '/dsa', label: 'DSA' },
+    { to: '/lld', label: 'LLD' },
+    { to: '/dashboard', label: 'Dashboard' },
+]
+
 export default function Navbar() {
     const { user, logout } = useAuth()
     const navigate = useNavigate()
@@ -29,6 +36,11 @@ export default function Navbar() {
         navigate('/auth')
     }
 
+    const isActive = (to) => {
+        if (to === '/') return location.pathname === '/'
+        return location.pathname.startsWith(to)
+    }
+
     return (
         <nav className="top-nav">
             <Link to="/" className="nav-brand">
@@ -37,17 +49,22 @@ export default function Navbar() {
             </Link>
 
             <div className="nav-actions">
-                <Link
-                    to="/"
-                    className={`nav-pill${location.pathname === '/' ? ' active' : ''}`}
-                >
-                    Optimizer
-                </Link>
+                {NAV_LINKS.map(link => (
+                    <Link key={link.to} to={link.to} className={`nav-pill${isActive(link.to) ? ' active' : ''}`}>
+                        {link.label}
+                    </Link>
+                ))}
 
-                <Link
-                    to="/profile"
-                    className={`nav-pill${location.pathname === '/profile' ? ' active' : ''}`}
+                {/* Cmd+K hint */}
+                <button
+                    className="nav-pill"
+                    style={{ color: '#52525b', cursor: 'default', pointerEvents: 'none' }}
+                    tabIndex={-1}
                 >
+                    <kbd style={{ fontSize: '0.6rem', border: '1px solid #3f3f46', borderRadius: 3, padding: '0 4px', color: '#52525b' }}>⌘K</kbd>
+                </button>
+
+                <Link to="/profile" className={`nav-pill${isActive('/profile') ? ' active' : ''}`}>
                     <span
                         className="nav-avatar"
                         style={{ background: stringToColor(user?.email), width: 18, height: 18, fontSize: '0.55rem', borderRadius: 3 }}
