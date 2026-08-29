@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import Editor from '@monaco-editor/react'
@@ -9,6 +9,9 @@ import remarkGfm from 'remark-gfm'
 import JSZip from 'jszip'
 import { supabase } from '../../lib/supabase'
 import { useProgress } from '../../lib/useProgress'
+import { useMediaQuery } from '../../lib/useMediaQuery'
+import { useTier } from '../../lib/useTier'
+import { LockedPanel } from '../../components/shared/PaywallGate'
 import Navbar from '../../components/Navbar'
 import FluidCheckbox from '../../components/shared/FluidCheckbox'
 import DifficultyBadge from '../../components/shared/DifficultyBadge'
@@ -43,6 +46,23 @@ function extOf(name = '') { return name.split('.').pop().toLowerCase() }
 function langOf(name = '') { return EXT_LANG[extOf(name)] || 'plaintext' }
 function iconOf(name = '') { return EXT_ICON[extOf(name)] || EXT_ICON.default }
 
+// Detect the entry-point file (the one holding the program's main()).
+// Mirrors the Run button's Java detection, with fallbacks for other languages.
+function findEntryFile(files = []) {
+    const patterns = [
+        /(?:public\s+static|static\s+public)\s+(?:final\s+)?void\s+main\s*\(/, // java
+        /if\s+__name__\s*==\s*['"]__main__['"]/,                               // python
+        /static\s+(?:async\s+)?(?:void|Task|int)\s+Main\s*\(/,                 // c#
+        /func\s+main\s*\(/,                                                    // go
+        /\bint\s+main\s*\(/,                                                   // c / c++
+    ]
+    for (const re of patterns) {
+        const hit = files.find(f => re.test(f.content || ''))
+        if (hit) return hit
+    }
+    return null
+}
+
 function FileTree({ node, depth = 0, onOpen, openFiles, activeFile }) {
     const [collapsed, setCollapsed] = useState({})
     return (
@@ -57,7 +77,10 @@ function FileTree({ node, depth = 0, onOpen, openFiles, activeFile }) {
                 if (isFile) {
                     return (
                         <div key={key}
+                            role="button"
+                            tabIndex={0}
                             onClick={() => onOpen(val.__file)}
+                            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(val.__file) } }}
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 6,
                                 padding: `4px 8px 4px ${12 + depth * 14}px`,
@@ -79,7 +102,10 @@ function FileTree({ node, depth = 0, onOpen, openFiles, activeFile }) {
                 const isOpen = !collapsed[key]
                 return (
                     <div key={key}>
-                        <div onClick={() => setCollapsed(c => ({ ...c, [key]: !c[key] }))}
+                        <div role="button"
+                            tabIndex={0}
+                            onClick={() => setCollapsed(c => ({ ...c, [key]: !c[key] }))}
+                            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCollapsed(c => ({ ...c, [key]: !c[key] })) } }}
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 5,
                                 padding: `4px 8px 4px ${12 + depth * 14}px`,
@@ -101,6 +127,68 @@ function FileTree({ node, depth = 0, onOpen, openFiles, activeFile }) {
     )
 }
 
+// ── Console Panel ─────────────────────────────────────────────────
+// Piston response shape: { run: { stdout, stderr, code, output }, compile?: { stdout, stderr, code } }
+function ConsolePanel({ run, compile, apiError, status, onClose }) {
+    const endRef = useRef(null)
+    useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [run, compile])
+
+    const hasOutput = run?.stdout || run?.stderr || compile?.stderr || compile?.stdout || apiError
+
+    return (
+        <div style={{
+            borderTop: '1px solid #27272a', background: '#0a0a0c', flexShrink: 0,
+            display: 'flex', flexDirection: 'column', maxHeight: 260, minHeight: 120,
+        }}>
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px',
+                borderBottom: '1px solid #1e1e22', background: '#0d0d0f', flexShrink: 0,
+            }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: status === 'running' ? '#facc15' : status === 'done' ? '#4ade80' : '#52525b', flexShrink: 0, transition: 'background 0.3s' }} />
+                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#52525b', textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>Console</span>
+                {run?.code !== undefined && run.code !== 0 && (
+                    <span style={{ fontSize: '0.58rem', color: '#f87171', fontFamily: 'monospace' }}>exit {run.code}</span>
+                )}
+                <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#52525b', cursor: 'pointer', fontSize: '0.75rem', padding: '0 4px' }}>×</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px', fontFamily: 'monospace', fontSize: '0.75rem', lineHeight: 1.6 }}>
+                {status === 'running' && (
+                    <div style={{ color: '#71717a', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#facc15', animation: 'pulse 1s infinite' }} />
+                        Running…
+                    </div>
+                )}
+
+                {/* Piston API-level error (e.g. unsupported language) */}
+                {apiError && (
+                    <pre style={{ color: '#f87171', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[API Error]{`\n`}{apiError}</pre>
+                )}
+
+                {/* Compile stage errors */}
+                {compile?.stderr && (
+                    <pre style={{ color: '#fb923c', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[Compile Error]{`\n`}{compile.stderr}</pre>
+                )}
+                {compile?.stdout && (
+                    <pre style={{ color: '#71717a', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[Compile Output]{`\n`}{compile.stdout}</pre>
+                )}
+
+                {/* Runtime stage */}
+                {run?.stderr && (
+                    <pre style={{ color: '#f87171', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[Runtime Error]{`\n`}{run.stderr}</pre>
+                )}
+                {run?.stdout && (
+                    <pre style={{ color: '#4ade80', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{run.stdout}</pre>
+                )}
+
+                {status === 'done' && !hasOutput && (
+                    <span style={{ color: '#52525b' }}>(no output — program ran successfully with exit code {run?.code ?? '?'})</span>
+                )}
+                <div ref={endRef} />
+            </div>
+        </div>
+    )
+}
+
 // ── Main component ─────────────────────────────────────────────────
 export default function LLDProblemPage() {
     const { slug } = useParams()
@@ -109,7 +197,11 @@ export default function LLDProblemPage() {
     const [notesOpen, setNotesOpen] = useState(false)
     const [notesText, setNotesText] = useState('')
     const [mobileTab, setMobileTab] = useState('requirements') // 'requirements' | 'diagram' | 'code'
+    const [treeOpen, setTreeOpen] = useState(false) // mobile: file-tree strip expanded
     const [copyMsg, setCopyMsg] = useState('')
+    const [runStatus, setRunStatus] = useState('idle') // 'idle' | 'running' | 'done'
+    const [runResult, setRunResult] = useState(null)   // { run, compile, apiError }
+    const [showConsole, setShowConsole] = useState(false)
 
     const { data: problem, isLoading: probLoading } = useQuery({
         queryKey: ['lld-problem', slug],
@@ -124,7 +216,31 @@ export default function LLDProblemPage() {
         },
     })
 
-    const { data: diagrams = [] } = useQuery({
+    const isMobile = useMediaQuery('(max-width: 767px)')
+    const { isFree, limits } = useTier()
+
+    // ── Free-tier deep-link guard ──────────────────────────────────
+    // The list orders problems by created_at desc and reveals only the first
+    // `limits.lld`. Fetch that same ordering (slug only) and lock this page when
+    // the current problem falls beyond the free slice.
+    const { data: orderedSlugs = [], isFetched: orderFetched } = useQuery({
+        queryKey: ['lld-order'],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from('lld_problems')
+                .select('slug')
+                .order('created_at', { ascending: false })
+            if (error) throw error
+            return (data || []).map(r => r.slug)
+        },
+        enabled: isFree,
+        staleTime: 5 * 60 * 1000,
+    })
+
+    const tierIdx = orderedSlugs.indexOf(slug)
+    const lockedByTier = isFree && orderFetched && tierIdx >= 0 && tierIdx >= limits.lld
+
+    const { data: diagrams = [], isFetched: diagramsFetched } = useQuery({
         queryKey: ['lld-diagrams', problem?.id],
         queryFn: async () => {
             const { data, error } = await supabase
@@ -134,7 +250,7 @@ export default function LLDProblemPage() {
             if (error) throw error
             return data || []
         },
-        enabled: !!problem?.id,
+        enabled: !!problem?.id && !lockedByTier,
     })
 
     const { data: codeFiles = [] } = useQuery({
@@ -147,17 +263,22 @@ export default function LLDProblemPage() {
             if (error) throw error
             return data || []
         },
-        enabled: !!problem?.id,
+        enabled: !!problem?.id && !lockedByTier,
     })
 
     const { progressMap, toggleStatus, saveNotes } = useProgress('lld')
     const prog = problem ? progressMap[problem.id] : null
     const isSolved = prog?.status === 'solved'
 
-    // Initialize notes from DB when loaded
-    useMemo(() => {
-        if (prog?.notes && !notesText) setNotesText(prog.notes)
-    }, [prog])
+    // Hydrate notes from the saved progress row once per problem — keyed on the
+    // progress id so a later refetch (e.g. after toggling solved) doesn't clobber
+    // in-progress edits.
+    const hydratedNotesId = useRef(null)
+    useEffect(() => {
+        if (!prog || hydratedNotesId.current === prog.id) return
+        hydratedNotesId.current = prog.id
+        setNotesText(prog.notes || '')
+    }, [prog?.id])
 
     const fileTree = useMemo(() => buildTree(codeFiles), [codeFiles])
 
@@ -170,6 +291,22 @@ export default function LLDProblemPage() {
         setOpenFiles(remaining)
         setActiveFile(remaining.length ? remaining[remaining.length - 1] : null)
     }
+
+    // Auto-open the entry-point file the first time code files arrive so the
+    // editor isn't empty. Guarded so it never overrides a manual selection, only
+    // fires once, and never runs when the page is tier-locked. Does not touch
+    // `treeOpen`, so on mobile the file strip stays collapsed with the entry
+    // file already shown in the editor.
+    const didAutoOpenRef = useRef(false)
+    useEffect(() => {
+        if (didAutoOpenRef.current || lockedByTier) return
+        if (!codeFiles.length || activeFile) return
+        const entry = findEntryFile(codeFiles) || codeFiles[0]
+        if (entry) {
+            didAutoOpenRef.current = true
+            openFile(entry)
+        }
+    }, [codeFiles, lockedByTier])
 
     const copyFile = async () => {
         if (!activeFile) return
@@ -303,6 +440,101 @@ export default function LLDProblemPage() {
                 }}>
                     ⬇ ZIP
                 </button>
+                <button
+                    onClick={async () => {
+                        if (!codeFiles.length || runStatus === 'running') return
+                        setRunStatus('running')
+                        setRunResult(null)
+                        setShowConsole(true)
+                        try {
+                            // Detect dominant language from file extensions
+                            const extCount = {}
+                            codeFiles.forEach(f => {
+                                const ext = extOf(f.filepath || f.filename || '')
+                                extCount[ext] = (extCount[ext] || 0) + 1
+                            })
+                            const dominantExt = Object.entries(extCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'java'
+                            const lang = EXT_LANG[dominantExt] || 'java'
+
+                            // Build files list
+                            let files = codeFiles.map(f => ({
+                                name: (f.filepath || f.filename || '').split('/').pop(),
+                                content: f.content || '',
+                            }))
+
+                            if (lang === 'java') {
+                                // Find file containing main() in any form
+                                const mainRe = /(?:public\s+static|static\s+public)\s+(?:final\s+)?void\s+main\s*\(/
+                                const mainIdx = files.findIndex(f => mainRe.test(f.content))
+                                if (mainIdx >= 0) {
+                                    const [mainFile] = files.splice(mainIdx, 1)
+                                    // Piston requires filename == public class name for Java
+                                    // Extract the public class name from the file
+                                    const classMatch = mainFile.content.match(/public\s+class\s+(\w+)/)
+                                    if (classMatch) {
+                                        mainFile.name = classMatch[1] + '.java'
+                                    }
+                                    files.unshift(mainFile)
+                                }
+                                // Also fix class names for other files so they compile
+                                files = files.map((f, i) => {
+                                    if (i === 0) return f // main file already handled
+                                    const cm = f.content.match(/public\s+class\s+(\w+)/)
+                                    return cm ? { ...f, name: cm[1] + '.java' } : f
+                                })
+                            } else if (lang === 'python') {
+                                const mainIdx = files.findIndex(f => f.content.includes('if __name__'))
+                                if (mainIdx > 0) {
+                                    const [mainFile] = files.splice(mainIdx, 1)
+                                    files.unshift(mainFile)
+                                }
+                            } else if (lang === 'csharp') {
+                                // For C#: find file with static void Main or top-level statements
+                                const mainIdx = files.findIndex(f =>
+                                    /static\s+(?:async\s+)?(?:void|Task)\s+Main\s*\(/.test(f.content) ||
+                                    f.content.includes('Console.WriteLine') // top-level
+                                )
+                                if (mainIdx > 0) {
+                                    const [mainFile] = files.splice(mainIdx, 1)
+                                    files.unshift(mainFile)
+                                }
+                            }
+
+                            const res = await fetch('/api/run', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ language: lang, version: '*', files }),
+                            })
+                            const data = await res.json()
+                            // Log for debugging — check browser console for full response
+                            console.log('[Run] raw response:', data)
+                            if (data.message) {
+                                // API-level error (e.g. no API key, unsupported language)
+                                setRunResult({ apiError: data.message })
+                            } else {
+                                setRunResult({
+                                    run: data.run ?? null,
+                                    compile: data.compile ?? null,
+                                    apiError: null,
+                                })
+                            }
+                        } catch (e) {
+                            setRunResult({ run: { stdout: '', stderr: e.message, code: 1 }, compile: null, apiError: null })
+                        } finally {
+                            setRunStatus('done')
+                        }
+                    }}
+                    disabled={!codeFiles.length || runStatus === 'running'}
+                    style={{
+                        padding: '3px 12px', background: runStatus === 'running' ? 'rgba(74,222,128,0.08)' : 'rgba(74,222,128,0.15)',
+                        border: '1px solid rgba(74,222,128,0.4)', borderRadius: 4,
+                        color: runStatus === 'running' ? '#86efac' : '#4ade80',
+                        cursor: runStatus === 'running' ? 'wait' : 'pointer', fontSize: '0.68rem', fontWeight: 900,
+                        transition: 'all 0.15s',
+                    }}
+                >
+                    {runStatus === 'running' ? '⏳ Running…' : '▶ Run'}
+                </button>
             </div>
 
             {/* File tabs */}
@@ -332,81 +564,140 @@ export default function LLDProblemPage() {
                 </div>
             )}
 
-            {/* Editor area */}
-            <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
-                {/* File tree (left column) */}
-                <div style={{ width: 200, borderRight: '1px solid #27272a', overflowY: 'auto', background: '#0d0d0f', flexShrink: 0 }}>
-                    {codeFiles.length === 0 ? (
-                        <div style={{ padding: 12, color: '#52525b', fontSize: '0.72rem' }}>No code files</div>
-                    ) : (
-                        <FileTree node={fileTree} onOpen={openFile} openFiles={openFiles} activeFile={activeFile} />
+            {/* Editor area — file tree is a left column on desktop, a collapsible top strip on mobile */}
+            <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
+                {/* File tree */}
+                <div style={{
+                    width: isMobile ? '100%' : 200,
+                    borderRight: isMobile ? 'none' : '1px solid #27272a',
+                    borderBottom: isMobile ? '1px solid #27272a' : 'none',
+                    maxHeight: isMobile ? (treeOpen ? 180 : 36) : 'none',
+                    overflowY: 'auto', background: '#0d0d0f', flexShrink: 0,
+                }}>
+                    {isMobile && (
+                        <button onClick={() => setTreeOpen(o => !o)} style={{
+                            width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px',
+                            border: 'none', color: '#a1a1aa', cursor: 'pointer',
+                            fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em',
+                            position: 'sticky', top: 0, background: '#0d0d0f',
+                        }}>
+                            <span style={{ fontSize: '0.6rem' }}>{treeOpen ? '▼' : '▶'}</span>
+                            <span style={{ flexShrink: 0 }}>📁 Files ({codeFiles.length})</span>
+                            {!treeOpen && (
+                                <span style={{ flexShrink: 0, color: '#52525b', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· tap to browse</span>
+                            )}
+                            {activeFile && (
+                                <span style={{ marginLeft: 'auto', minWidth: 0, color: '#f472b6', fontWeight: 700, textTransform: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '42%' }}>
+                                    {(activeFile.filepath || activeFile.filename || '').split('/').pop()}
+                                </span>
+                            )}
+                        </button>
+                    )}
+                    {!isMobile && codeFiles.length > 0 && openFiles.length <= 1 && (
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: 5,
+                            padding: '8px 10px 6px', color: '#52525b', fontSize: '0.68rem',
+                            borderBottom: '1px solid #1a1a1d',
+                        }}>
+                            <span aria-hidden style={{ fontSize: '0.74rem' }}>👆</span>
+                            <span>Click a file to open</span>
+                        </div>
+                    )}
+                    {(!isMobile || treeOpen) && (
+                        codeFiles.length === 0 ? (
+                            <div style={{ padding: 12, color: '#52525b', fontSize: '0.72rem' }}>No code files</div>
+                        ) : (
+                            <FileTree
+                                node={fileTree}
+                                onOpen={(f) => { openFile(f); if (isMobile) setTreeOpen(false) }}
+                                openFiles={openFiles}
+                                activeFile={activeFile}
+                            />
+                        )
                     )}
                 </div>
 
-                {/* Monaco */}
-                <div style={{ flex: 1, overflow: 'hidden' }}>
-                    {activeFile ? (
-                        <Editor
-                            key={activeFile.id}
-                            height="100%"
-                            language={langOf(activeFile.filepath || activeFile.filename || '')}
-                            value={activeFile.content || ''}
-                            theme="vs-dark"
-                            options={{
-                                readOnly: true,
-                                domReadOnly: true,
-                                minimap: { enabled: true },
-                                fontSize: 13,
-                                lineNumbers: 'on',
-                                scrollBeyondLastLine: false,
-                                wordWrap: 'off',
-                                renderWhitespace: 'selection',
-                                folding: true,
-                                bracketPairColorization: { enabled: true },
-                            }}
+                {/* Monaco + Console */}
+                <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ flex: 1, overflow: 'hidden' }}>
+                        {activeFile ? (
+                            <Editor
+                                key={activeFile.id}
+                                height="100%"
+                                language={langOf(activeFile.filepath || activeFile.filename || '')}
+                                value={activeFile.content || ''}
+                                theme="vs-dark"
+                                options={{
+                                    readOnly: true,
+                                    domReadOnly: true,
+                                    minimap: { enabled: true },
+                                    fontSize: 13,
+                                    lineNumbers: 'on',
+                                    scrollBeyondLastLine: false,
+                                    wordWrap: 'off',
+                                    renderWhitespace: 'selection',
+                                    folding: true,
+                                    bracketPairColorization: { enabled: true },
+                                }}
+                            />
+                        ) : (
+                            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#52525b', gap: 8 }}>
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+                                <span style={{ fontSize: '0.78rem' }}>Select a file from the tree</span>
+                            </div>
+                        )}
+                    </div>
+                    {showConsole && (
+                        <ConsolePanel
+                            run={runResult?.run}
+                            compile={runResult?.compile}
+                            apiError={runResult?.apiError}
+                            status={runStatus}
+                            onClose={() => { setShowConsole(false); setRunStatus('idle'); setRunResult(null) }}
                         />
-                    ) : (
-                        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#52525b', gap: 8 }}>
-                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
-                            <span style={{ fontSize: '0.78rem' }}>Select a file from the tree</span>
-                        </div>
                     )}
                 </div>
             </div>
         </div>
     )
 
-    // ── Responsive check (simple CSS media query substitute) ────────
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+    // Only show the Class Diagram pane once the query has resolved AND there's
+    // actually a diagram. While the query is still in flight, treat as no diagram
+    // (Requirements fills the pane) — a late-arriving diagram slots it in.
+    const hasDiagram = diagramsFetched && diagrams.length > 0
+
+    // Mobile tab set depends on whether the diagram pane exists.
+    const mobileTabs = hasDiagram ? ['requirements', 'diagram', 'code'] : ['requirements', 'code']
+    const activeMobileTab = mobileTabs.includes(mobileTab) ? mobileTab : 'requirements'
 
     return (
         <>
             <Navbar />
             <div style={{ height: '100vh', paddingTop: 48, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {/* Problem header bar */}
-                <div style={{ borderBottom: '1px solid #27272a', background: '#0d0d0f', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-                    <Link to="/lld" style={{ color: '#71717a', textDecoration: 'none', fontSize: '0.75rem' }}>← LLD</Link>
-                    <span style={{ color: '#27272a' }}>|</span>
-                    <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: '#fafafa', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{problem.title}</h2>
+                <div style={{ borderBottom: '1px solid #27272a', background: '#0d0d0f', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexWrap: 'wrap', flexShrink: 0 }}>
+                    <Link to="/lld" style={{ color: '#71717a', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← LLD</Link>
+                    <span style={{ color: '#27272a', flexShrink: 0 }}>|</span>
+                    <h2 style={{ fontSize: isMobile ? '0.85rem' : '0.95rem', fontWeight: 900, color: '#fafafa', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{problem.title}</h2>
                     {problem.difficulty && <DifficultyBadge difficulty={problem.difficulty} />}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                         <FluidCheckbox
                             checked={isSolved}
                             onChange={() => toggleStatus(problem.id, prog?.status ?? 'unsolved')}
                         />
                         <span style={{ fontSize: '0.68rem', color: isSolved ? '#f472b6' : '#71717a', fontWeight: 700 }}>
-                            {isSolved ? 'Practiced' : 'Mark practiced'}
+                            {isSolved ? 'Practiced' : (isMobile ? 'Mark' : 'Mark practiced')}
                         </span>
                     </div>
 
-                    {/* Mobile tabs */}
+                    {/* Mobile tabs — own full-width row */}
                     {isMobile && (
-                        <div style={{ display: 'flex', gap: 4 }}>
-                            {['requirements', 'diagram', 'code'].map(t => (
+                        <div style={{ display: 'flex', gap: 4, width: '100%', marginTop: 2 }}>
+                            {mobileTabs.map(t => (
                                 <button key={t} onClick={() => setMobileTab(t)} style={{
-                                    padding: '4px 8px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase',
-                                    background: mobileTab === t ? '#f472b6' : '#27272a',
-                                    color: mobileTab === t ? '#09090b' : '#71717a',
+                                    flex: 1, padding: '5px 8px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase',
+                                    background: activeMobileTab === t ? '#f472b6' : '#27272a',
+                                    color: activeMobileTab === t ? '#09090b' : '#71717a',
                                 }}>
                                     {t.slice(0, 3)}
                                 </button>
@@ -415,20 +706,34 @@ export default function LLDProblemPage() {
                     )}
                 </div>
 
-                {/* Desktop: three-pane resizable layout */}
-                {!isMobile ? (
+                {/* Workspace: locked panel for free deep-links, else 3-pane / mobile tabs */}
+                {lockedByTier ? (
+                    <div style={{ flex: 1, overflow: 'auto' }}>
+                        <LockedPanel
+                            title="This LLD problem is locked on the free tier"
+                            subtitle="Upgrade to unlock all 33 LLD problems."
+                        />
+                    </div>
+                ) : !isMobile ? (
                     <Group direction="horizontal" style={{ flex: 1, overflow: 'hidden' }}>
-                        {/* Left pane: requirements (top) + diagram (bottom) */}
+                        {/* Left pane: requirements (top) + diagram (bottom) — or just
+                            requirements full-height when there's no class diagram. */}
                         <Panel defaultSize={35} minSize={20} style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                            <Group direction="vertical" style={{ flex: 1 }}>
-                                <Panel defaultSize={55} minSize={20} style={{ overflow: 'hidden', background: '#111113' }}>
+                            {hasDiagram ? (
+                                <Group direction="vertical" style={{ flex: 1 }}>
+                                    <Panel defaultSize={55} minSize={20} style={{ overflow: 'hidden', background: '#111113' }}>
+                                        {RequirementsPane}
+                                    </Panel>
+                                    <Separator style={{ height: 4, background: '#27272a', cursor: 'row-resize' }} />
+                                    <Panel defaultSize={45} minSize={15} style={{ overflow: 'hidden', background: '#0d0d0f' }}>
+                                        {DiagramPane}
+                                    </Panel>
+                                </Group>
+                            ) : (
+                                <div style={{ flex: 1, overflow: 'hidden', background: '#111113' }}>
                                     {RequirementsPane}
-                                </Panel>
-                                <Separator style={{ height: 4, background: '#27272a', cursor: 'row-resize' }} />
-                                <Panel defaultSize={45} minSize={15} style={{ overflow: 'hidden', background: '#0d0d0f' }}>
-                                    {DiagramPane}
-                                </Panel>
-                            </Group>
+                                </div>
+                            )}
                         </Panel>
 
                         <Separator style={{ width: 4, background: '#27272a', cursor: 'col-resize' }} />
@@ -441,9 +746,9 @@ export default function LLDProblemPage() {
                 ) : (
                     // Mobile: tab view
                     <div style={{ flex: 1, overflow: 'hidden' }}>
-                        {mobileTab === 'requirements' && <div style={{ height: '100%', overflow: 'auto', background: '#111113' }}>{RequirementsPane}</div>}
-                        {mobileTab === 'diagram' && <div style={{ height: '100%', overflow: 'hidden', background: '#0d0d0f' }}>{DiagramPane}</div>}
-                        {mobileTab === 'code' && <div style={{ height: '100%', overflow: 'hidden' }}>{CodePane}</div>}
+                        {activeMobileTab === 'requirements' && <div style={{ height: '100%', overflow: 'auto', background: '#111113' }}>{RequirementsPane}</div>}
+                        {activeMobileTab === 'diagram' && hasDiagram && <div style={{ height: '100%', overflow: 'hidden', background: '#0d0d0f' }}>{DiagramPane}</div>}
+                        {activeMobileTab === 'code' && <div style={{ height: '100%', overflow: 'hidden' }}>{CodePane}</div>}
                     </div>
                 )}
             </div>

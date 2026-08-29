@@ -1,62 +1,64 @@
-## Pure Brutalist Style
+## Dark Mono Style
 
-Strict black-and-white brutalism — no color, no rounding, no softness. Raw, confrontational, structural. Use when asked for "pure brutalist style".
+Dark zinc blog/dashboard with a monospace terminal feel, cyan + pink color pops, and a subtle scanline texture. Compact, readable, and techy. Use when asked for "dark mono style".
 
 ### Typography
-System monospace stack: `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace`. All text. Headlines uppercase, tracking-widest. Labels in `text-xs font-bold uppercase tracking-widest`.
+System monospace: `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`. Everything monospace. Headlines `font-black tracking-tighter`. Labels `text-[10px] font-bold uppercase tracking-widest`. Small `border-radius: 6px` ("sharp") used everywhere instead of large rounding.
 
 ### Colors
-```
-Background:  #ffffff
-Text:        #000000
-Border:      #000000
-Shadow:      #000000
-Muted text:  rgba(0,0,0,0.72)
-```
-No color accents. Pure black and white only.
-
-### Shadow System
-Three sizes, all hard black offset shadows — no blur:
 ```css
---shadow-lg: 8px 8px 0 0 #000;
---shadow-sm: 5px 5px 0 0 #000;
---shadow-xs: 3px 3px 0 0 #000;
+surface: #09090b;   /* page background — near-black zinc */
+panel:   #18181b;   /* card/component background */
+subtle:  #27272a;   /* borders */
+muted:   #71717a;   /* muted text */
+accent:  #a1a1aa;   /* secondary text */
+bright:  #fafafa;   /* primary text */
+pop:     #22d3ee;   /* cyan — primary accent */
+warm:    #f472b6;   /* pink — secondary accent */
 ```
-Cards: `border: 2px solid #000` + `--shadow-lg`
-Buttons: `border: 2px solid #000` + `--shadow-xs`, hover `translate(0.5px, 0.5px)` + shadow shrinks
 
-### Cards
+### Scanline Texture
+Applied to `body` via a class:
 ```css
-.card { border: 2px solid #000; box-shadow: 8px 8px 0 0 #000; background: #fff; }
-```
-No border-radius (or minimal: 0px). Section panels use `border-4 border-black`. Headers use `border-b-4 border-black`.
-
-### Buttons
-```css
-.btn { border: 2px solid #000; background: #fff; font-weight: 900; uppercase; box-shadow: 3px 3px 0 0 #000; }
-.btn-primary { background: #000; color: #fff; }
-/* hover: translate(0.5px, 0.5px), shadow none */
-/* active: translate(2px, 2px), shadow none */
+.scanline {
+  background-image: repeating-linear-gradient(
+    0deg, transparent, transparent 1px,
+    rgba(255,255,255,0.015) 1px, rgba(255,255,255,0.015) 2px
+  );
+}
 ```
 
-### Layout & Details
-- Sticky header: `border-b-4 border-black bg-white`
-- Small utility bar above nav: `border-b-4 border-black bg-white text-xs uppercase tracking-widest` showing version/status
-- Grids use `gap-px bg-black` to create 1px black grid lines between cells
-- Section dividers: `border-b-4 border-black`
-- Hero: 2-column grid (8-col left content, 4-col right terminal/visual), min-h-600px
-- Feature grids: items divided by `border-r border-black`, hover `bg-neutral-50`
-- Stats: `text-4xl font-light` numbers + `text-sm font-bold uppercase tracking-widest` labels
-- Toasts/modals: `border-4 border-black shadow-brutal bg-white`, icon areas `bg-black text-white`
-- Background: plain `#ffffff` — no textures, no gradients
+### Nav Pills
+Small `rounded-sharp` (6px) pill buttons:
+- Active/current: `bg-pop text-surface` (cyan bg, dark text)
+- Inactive: `border border-subtle bg-panel text-accent hover:text-pop hover:border-pop/30 transition-colors`
+- All: `px-3 py-1.5 text-[11px] font-black uppercase tracking-wider inline-flex items-center gap-2`
+- Include a tiny Font Awesome icon at `text-[9px]`
 
-### Footer
-`bg-neutral-100`, `border-t border-black`. 4-column grid divided by `divide-x divide-black border border-black`. Links prefixed with `>`. Bottom bar `bg-white border-t border-black`, 10px copyright text.
+### Cards / Panels
+`border border-subtle bg-panel rounded-sharp`. Inner content uses `text-bright` for titles, `text-accent` for meta, `text-muted` for body. Breadcrumb tags: `rounded-sharp bg-panel border border-subtle px-2 py-1 text-[10px] font-bold uppercase tracking-widest`.
+
+### Forms / Inputs
+`rounded-sharp border border-subtle bg-panel text-bright placeholder:text-muted`. Focus: `box-shadow: 0 0 0 2px #22d3ee` (no outline, custom glow). Search icon inside left padding.
+
+### Section Headings
+`border-b border-subtle pb-2 mb-4 text-bright font-black uppercase tracking-tight` — subtle bottom border under each section title.
+
+### Sidebar Layout
+2-column: `sidebar-sticky` (`position: sticky; top: 60px`) on the sidebar. Main content `lg:col-span-8` or `3`, sidebar `lg:col-span-4` or `1`.
+
+### Status/Pulse Indicator
+Inline `animate-pulse` dot in cyan next to the logo: `h-1.5 w-1.5 rounded-full bg-pop animate-pulse`.
+
+### Selection
+`::selection { background: #22d3ee; color: #09090b; }`
+
+### Focus Ring
+`a:focus-visible { outline: 2px solid #22d3ee; outline-offset: 2px; border-radius: 4px; }`
 
 ### Implementation
-- Tailwind CDN only — no custom fonts needed (use system monospace)
-- No `border-radius` on structural elements
-- Everything uppercase for labels and nav
-- `selection:bg-black selection:text-white`
+- Font Awesome 6 for small nav icons
+- `border-radius: sharp` = 6px, used via Tailwind `rounded-sharp` custom config
 - `antialiased` on body
-
+- `max-w-7xl` container, `px-4`
+- No Google Fonts — system monospace only

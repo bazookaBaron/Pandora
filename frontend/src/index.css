@@ -624,20 +624,6 @@ h3 {
     flex-shrink: 0;
 }
 
-@keyframes pulse {
-
-    0%,
-    100% {
-        opacity: 1;
-        transform: scale(1);
-    }
-
-    50% {
-        opacity: 0.5;
-        transform: scale(0.8);
-    }
-}
-
 .nav-actions {
     display: flex;
     align-items: center;
@@ -925,6 +911,8 @@ h3 {
 
 .profile-card {
     animation: fadeUp 0.4s ease both;
+    padding: 18px 20px;
+    margin-bottom: 14px;
 }
 
 .profile-section-title {
@@ -936,6 +924,46 @@ h3 {
     border-bottom: 1px solid var(--subtle);
     padding-bottom: 8px;
     margin-bottom: 16px;
+}
+
+/* Tier preview segmented control */
+.profile-segment {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--surface);
+    border: 1px solid var(--subtle);
+    border-radius: var(--radius);
+    max-width: 260px;
+}
+
+.profile-segment-btn {
+    flex: 1;
+    padding: 7px 12px;
+    font-family: inherit;
+    font-size: 0.7rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color var(--transition), background var(--transition);
+}
+
+.profile-segment-btn.is-active {
+    background: var(--panel);
+    color: var(--bright);
+    box-shadow: inset 0 0 0 1px var(--subtle);
+}
+
+.profile-hint {
+    margin-top: 10px;
+    font-size: 0.7rem;
+    color: var(--muted);
+    opacity: 0.8;
 }
 
 .profile-field {
@@ -971,27 +999,8 @@ h3 {
     margin: 0;
 }
 
-/* Danger zone */
-.danger-card {
-    border-color: rgba(248, 113, 113, 0.2) !important;
-}
-
-.danger-title {
-    color: var(--red) !important;
-}
-
-.danger-desc {
-    font-size: 0.82rem;
-    color: var(--muted);
-    margin-bottom: 16px;
-}
-
-.danger-actions {
-    display: flex;
-    gap: 10px;
-}
-
-.danger-btn {
+/* Sign-out row */
+.profile-signout-btn {
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -1001,17 +1010,39 @@ h3 {
     font-family: inherit;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--red);
+    color: var(--warm);
     background: transparent;
-    border: 1px solid rgba(248, 113, 113, 0.3);
+    border: 1px solid rgba(244, 114, 182, 0.3);
     border-radius: var(--radius);
     cursor: pointer;
     transition: background var(--transition), border-color var(--transition);
 }
 
-.danger-btn:hover {
-    background: var(--red-bg);
-    border-color: var(--red);
+.profile-signout-btn:hover {
+    background: var(--warm-dim);
+    border-color: var(--warm);
+}
+
+/* Profile responsive */
+@media (max-width: 767px) {
+    .profile-hero {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 14px;
+    }
+
+    .profile-hero-info {
+        text-align: center;
+    }
+
+    .profile-card {
+        padding: 16px;
+    }
+
+    .profile-segment {
+        max-width: none;
+    }
 }
 
 /* ── Modal ──────────────────────────────────────────────────────────── */

@@ -1,8 +1,13 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { useMediaQuery } from '../lib/useMediaQuery'
+import { useTier } from '../lib/useTier'
 import Navbar from '../components/Navbar'
+
+// ── Helpers ──────────────────────────────────────────────────────────
 
 function getInitials(user) {
     const name =
@@ -46,9 +51,280 @@ function PwStrengthBar({ password }) {
     )
 }
 
+// ── Dashboard sub-components ─────────────────────────────────────────
+
+function RingProgress({ pct, color, size = 72, stroke = 7 }) {
+    const r = (size - stroke) / 2
+    const circ = 2 * Math.PI * r
+    const dash = circ * Math.min(1, pct / 100)
+    return (
+        <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+            <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color + '22'} strokeWidth={stroke} />
+            <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+                strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+                style={{ transition: 'stroke-dasharray 0.8s cubic-bezier(.4,0,.2,1)' }} />
+        </svg>
+    )
+}
+
+function StatCard({ label, value, color, link }) {
+    return (
+        <div style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 10, padding: '14px 18px' }}>
+            <div style={{ fontSize: '1.6rem', fontWeight: 900, color }}>{value}</div>
+            <div style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717a', marginTop: 4 }}>{label}</div>
+            {link && <Link to={link} style={{ fontSize: '0.65rem', color, textDecoration: 'none', marginTop: 6, display: 'block', opacity: 0.7 }}>View →</Link>}
+        </div>
+    )
+}
+
+function ProgressSection({ user }) {
+    const isMobile = useMediaQuery('(max-width: 767px)')
+    const isTablet = useMediaQuery('(max-width: 1023px)')
+
+    const statCols = isMobile ? 'repeat(auto-fill, minmax(120px, 1fr))' : 'repeat(auto-fill, minmax(130px, 1fr))'
+    const ringCols = isMobile ? '1fr' : isTablet ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)'
+    const pairCols = isMobile ? '1fr' : '1fr 1fr'
+    const companyCols = isMobile ? '1fr' : isTablet ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(200px, 1fr))'
+
+    const { data: progressRows = [] } = useQuery({
+        queryKey: ['all-progress', user?.id],
+        queryFn: async () => {
+            if (!user) return []
+            const { data } = await supabase
+                .from('user_problem_progress')
+                .select('problem_type, status, is_bookmarked, updated_at, problem_id')
+                .eq('user_id', user.id)
+                .order('updated_at', { ascending: false })
+            return data || []
+        },
+        enabled: !!user, staleTime: 0, refetchOnMount: 'always', refetchOnWindowFocus: true,
+    })
+
+    const { data: totals = { dsa: 0, lld: 0, hld: 0 } } = useQuery({
+        queryKey: ['problem-totals'],
+        queryFn: async () => {
+            const [{ count: dsa }, { count: lld }, { count: hld }] = await Promise.all([
+                supabase.from('leetcode_company_problems').select('*', { count: 'exact', head: true }),
+                supabase.from('lld_problems').select('*', { count: 'exact', head: true }),
+                supabase.from('hld_questions').select('*', { count: 'exact', head: true }),
+            ])
+            return { dsa: dsa || 0, lld: lld || 0, hld: hld || 0 }
+        },
+        staleTime: 10 * 60 * 1000,
+    })
+
+    const { data: dsaProblems = [] } = useQuery({
+        queryKey: ['dsa-problems-dash'],
+        queryFn: async () => {
+            const { data } = await supabase.from('leetcode_company_problems').select('id, topics, difficulty')
+            return data || []
+        },
+        staleTime: 10 * 60 * 1000,
+    })
+
+    const { data: readiness = [], isLoading: readinessLoading } = useQuery({
+        queryKey: ['company-readiness', user?.id],
+        queryFn: async () => {
+            if (!user) return []
+            const { data, error } = await supabase.rpc('get_company_readiness', { p_user_id: user.id })
+            if (error) return []
+            return data || []
+        },
+        enabled: !!user, staleTime: 0, refetchOnMount: 'always',
+    })
+
+    // Computed
+    const dsaSolved = progressRows.filter(r => r.problem_type === 'dsa' && r.status === 'solved').length
+    const lldSolved = progressRows.filter(r => r.problem_type === 'lld' && r.status === 'solved').length
+    const hldAttempted = progressRows.filter(r => r.problem_type === 'hld' && ['attempted', 'solved'].includes(r.status)).length
+    const dsaPct = totals.dsa ? Math.round((dsaSolved / totals.dsa) * 100) : 0
+    const lldPct = totals.lld ? Math.round((lldSolved / totals.lld) * 100) : 0
+    const hldPct = totals.hld ? Math.round((hldAttempted / totals.hld) * 100) : 0
+
+    const difficulties = ['Easy', 'Medium', 'Hard']
+    const diffColors = { Easy: '#4ade80', Medium: '#facc15', Hard: '#f87171' }
+    const solvedIds = new Set(progressRows.filter(r => r.problem_type === 'dsa' && r.status === 'solved').map(r => r.problem_id))
+    const diffBreakdown = difficulties.map(d => ({
+        d, total: dsaProblems.filter(p => p.difficulty === d).length,
+        done: dsaProblems.filter(p => p.difficulty === d && solvedIds.has(p.id)).length,
+    }))
+
+    const recentActivity = progressRows.filter(r => r.status !== 'unsolved').slice(0, 5)
+
+    const companyMap = {}
+    readiness.forEach(r => {
+        if (!companyMap[r.company_name]) companyMap[r.company_name] = { dsa: null, lld: null }
+        companyMap[r.company_name][r.problem_type] = r
+    })
+    const focusCompanies = Object.entries(companyMap)
+        .filter(([, d]) => (d.dsa?.solved ?? 0) + (d.lld?.solved ?? 0) > 0)
+        .sort(([, a], [, b]) => ((b.dsa?.solved ?? 0) + (b.lld?.solved ?? 0)) - ((a.dsa?.solved ?? 0) + (a.lld?.solved ?? 0)))
+        .slice(0, 12)
+
+    const topicStats = {}
+    dsaProblems.forEach(p => {
+        (p.topics || '').split(',').forEach(t => {
+            const topic = t.trim(); if (!topic) return
+            if (!topicStats[topic]) topicStats[topic] = { total: 0, solved: 0 }
+            topicStats[topic].total++
+            if (solvedIds.has(p.id)) topicStats[topic].solved++
+        })
+    })
+    const weakTopics = Object.entries(topicStats)
+        .filter(([, s]) => s.total >= 5 && s.solved > 0)
+        .sort(([, a], [, b]) => (a.solved / a.total) - (b.solved / b.total))
+        .slice(0, 5)
+
+    const modules = [
+        { label: 'DSA', pct: dsaPct, color: '#22d3ee', solved: dsaSolved, total: totals.dsa, link: '/dsa' },
+        { label: 'LLD', pct: lldPct, color: '#f472b6', solved: lldSolved, total: totals.lld, link: '/lld' },
+        { label: 'HLD', pct: hldPct, color: '#a78bfa', solved: hldAttempted, total: totals.hld, link: '/hld' },
+    ]
+
+    return (
+        <section className="card profile-card">
+            <h2 className="profile-section-title">Progress Overview</h2>
+
+            {/* Stat cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: statCols, gap: 10, marginBottom: 16 }}>
+                <StatCard label="DSA Solved" value={dsaSolved} color="#22d3ee" link="/dsa?status=solved" />
+                <StatCard label="LLD Practiced" value={lldSolved} color="#f472b6" link="/lld" />
+                <StatCard label="HLD Attempted" value={hldAttempted} color="#a78bfa" link="/hld" />
+                <StatCard label="Companies" value={focusCompanies.length} color="#fb923c" />
+            </div>
+
+            {/* Progress rings */}
+            <div style={{ display: 'grid', gridTemplateColumns: ringCols, gap: 10, marginBottom: 16 }}>
+                {modules.map(m => (
+                    <div key={m.label} style={{ background: '#0d0d0f', border: '1px solid #27272a', borderRadius: 10, padding: '16px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                        <div style={{ position: 'relative' }}>
+                            <RingProgress pct={m.pct} color={m.color} />
+                            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 900, color: m.color }}>{m.pct}%</span>
+                            </div>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontWeight: 900, fontSize: '0.78rem', color: '#fafafa' }}>{m.label}</div>
+                            <div style={{ fontSize: '0.65rem', color: '#71717a', marginTop: 2 }}>{m.solved} / {m.total}</div>
+                        </div>
+                        <Link to={m.link} style={{ fontSize: '0.65rem', color: m.color, textDecoration: 'none', opacity: 0.8 }}>Open →</Link>
+                    </div>
+                ))}
+            </div>
+
+            {/* Difficulty + Recent Activity side by side */}
+            <div style={{ display: 'grid', gridTemplateColumns: pairCols, gap: 16, marginBottom: 16 }}>
+                <div style={{ background: '#0d0d0f', border: '1px solid #27272a', borderRadius: 10, padding: '16px 18px' }}>
+                    <h3 style={{ fontSize: '0.72rem', fontWeight: 900, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>DSA Difficulty</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {diffBreakdown.map(({ d, total, done }) => {
+                            const pct = total ? Math.round((done / total) * 100) : 0
+                            return (
+                                <div key={d}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: diffColors[d] }}>{d}</span>
+                                        <span style={{ fontSize: '0.7rem', color: '#71717a' }}>{done}/{total}</span>
+                                    </div>
+                                    <div style={{ height: 5, background: '#27272a', borderRadius: 3, overflow: 'hidden' }}>
+                                        <div style={{ width: `${pct}%`, height: '100%', background: diffColors[d], borderRadius: 3, transition: 'width 0.6s ease' }} />
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+
+                <div style={{ background: '#0d0d0f', border: '1px solid #27272a', borderRadius: 10, padding: '16px 18px' }}>
+                    <h3 style={{ fontSize: '0.72rem', fontWeight: 900, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Recent Activity</h3>
+                    {recentActivity.length === 0 ? (
+                        <p style={{ color: '#52525b', fontSize: '0.78rem' }}>No activity yet.</p>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                            {recentActivity.map((r, i) => {
+                                const typeColor = r.problem_type === 'dsa' ? '#22d3ee' : r.problem_type === 'lld' ? '#f472b6' : '#a78bfa'
+                                const ago = Math.round((Date.now() - new Date(r.updated_at).getTime()) / 60000)
+                                const agoStr = ago < 60 ? `${ago}m ago` : ago < 1440 ? `${Math.round(ago / 60)}h ago` : `${Math.round(ago / 1440)}d ago`
+                                return (
+                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontSize: '0.58rem', fontWeight: 900, textTransform: 'uppercase', color: typeColor, background: typeColor + '18', border: `1px solid ${typeColor}33`, borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>{r.problem_type}</span>
+                                        <span style={{ fontSize: '0.7rem', color: r.status === 'solved' ? '#4ade80' : '#facc15', fontWeight: 700, textTransform: 'uppercase', flexShrink: 0 }}>{r.status}</span>
+                                        <span style={{ fontSize: '0.65rem', color: '#52525b', marginLeft: 'auto', flexShrink: 0 }}>{agoStr}</span>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Weak Topics */}
+            {weakTopics.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                    <h3 style={{ fontSize: '0.72rem', fontWeight: 900, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+                        ⚠️ Weak Topics <span style={{ color: '#52525b', fontWeight: 400, textTransform: 'none' }}>(low solve rate)</span>
+                    </h3>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                        {weakTopics.map(([topic, s]) => (
+                            <Link key={topic} to={`/dsa?q=${encodeURIComponent(topic)}`} style={{ textDecoration: 'none' }}>
+                                <div style={{ background: '#27272a', border: '1px solid #3f3f46', borderRadius: 6, padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 7 }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#fafafa', fontWeight: 700 }}>{topic}</span>
+                                    <span style={{ fontSize: '0.62rem', color: '#f87171', fontWeight: 900 }}>{Math.round((s.solved / s.total) * 100)}%</span>
+                                </div>
+                            </Link>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Focus Companies */}
+            {focusCompanies.length > 0 && (
+                <div>
+                    <h3 style={{ fontSize: '0.72rem', fontWeight: 900, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Focus Companies</h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: companyCols, gap: 8 }}>
+                        {focusCompanies.map(([name, data]) => {
+                            const dsaDone = data.dsa?.solved ?? 0, dsaTotal = data.dsa?.total ?? 0
+                            const lldDone = data.lld?.solved ?? 0, lldTotal = data.lld?.total ?? 0
+                            const overallPct = (dsaTotal + lldTotal) ? Math.round(((dsaDone + lldDone) / (dsaTotal + lldTotal)) * 100) : 0
+                            const pctColor = overallPct > 50 ? '#4ade80' : overallPct > 20 ? '#facc15' : '#71717a'
+                            return (
+                                <div key={name} style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 8, padding: '11px 13px' }}
+                                    onMouseEnter={e => e.currentTarget.style.borderColor = '#3f3f46'}
+                                    onMouseLeave={e => e.currentTarget.style.borderColor = '#27272a'}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                        <span style={{ fontWeight: 900, fontSize: '0.78rem', color: '#fafafa' }}>{name}</span>
+                                        <span style={{ fontSize: '0.68rem', fontWeight: 900, color: pctColor }}>{overallPct}%</span>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 8, marginBottom: 7 }}>
+                                        {dsaTotal > 0 && <Link to={`/dsa/company/${encodeURIComponent(name)}`} style={{ fontSize: '0.6rem', color: '#22d3ee', textDecoration: 'none', fontWeight: 700 }}>DSA {dsaDone}/{dsaTotal}</Link>}
+                                        {lldTotal > 0 && <Link to={`/lld?company=${encodeURIComponent(name)}`} style={{ fontSize: '0.6rem', color: '#f472b6', textDecoration: 'none', fontWeight: 700 }}>LLD {lldDone}/{lldTotal}</Link>}
+                                    </div>
+                                    <div style={{ height: 4, background: '#27272a', borderRadius: 2, overflow: 'hidden' }}>
+                                        <div style={{ width: `${overallPct}%`, height: '100%', background: pctColor, borderRadius: 2, transition: 'width 0.5s' }} />
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {readinessLoading && (
+                <div style={{ display: 'grid', gridTemplateColumns: companyCols, gap: 8, marginTop: 8 }}>
+                    {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} style={{ height: 72, background: '#18181b', borderRadius: 8, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                    ))}
+                </div>
+            )}
+        </section>
+    )
+}
+
+// ── Main page ────────────────────────────────────────────────────────
+
 export default function ProfilePage() {
     const { user, logout } = useAuth()
     const navigate = useNavigate()
+    const { tier, setTier } = useTier()
 
     const [newPw, setNewPw] = useState('')
     const [showNewPw, setShowNewPw] = useState(false)
@@ -105,6 +381,12 @@ export default function ProfilePage() {
         navigate('/auth')
     }
 
+    const freeBadgeStyle = {
+        background: 'rgba(113, 113, 122, 0.12)',
+        color: 'var(--muted)',
+        borderColor: 'rgba(113, 113, 122, 0.25)',
+    }
+
     return (
         <>
             <Navbar />
@@ -120,7 +402,12 @@ export default function ProfilePage() {
                     <div className="profile-hero-info">
                         <h1 className="profile-name">{displayName}</h1>
                         <p className="profile-email">{user?.email}</p>
-                        <span className="profile-badge">Free Plan</span>
+                        <span
+                            className="profile-badge"
+                            style={tier === 'pro' ? undefined : freeBadgeStyle}
+                        >
+                            {tier === 'pro' ? 'Pro' : 'Free'} Plan
+                        </span>
                     </div>
                 </div>
 
@@ -152,7 +439,26 @@ export default function ProfilePage() {
                     </div>
                 </section>
 
-                {/* Security — only show for email/password accounts */}
+                {/* Plan preview (dev) */}
+                <section className="card profile-card">
+                    <h2 className="profile-section-title">Plan preview (dev)</h2>
+                    <div className="profile-segment" role="group" aria-label="Preview tier">
+                        {['free', 'pro'].map(t => (
+                            <button
+                                key={t}
+                                type="button"
+                                className={'profile-segment-btn' + (tier === t ? ' is-active' : '')}
+                                aria-pressed={tier === t}
+                                onClick={() => setTier(t)}
+                            >
+                                {t === 'pro' ? 'Pro' : 'Free'}
+                            </button>
+                        ))}
+                    </div>
+                    <p className="profile-hint">Switch to preview the free-tier paywalled UI.</p>
+                </section>
+
+                {/* Security — only for email/password accounts */}
                 {!isOAuth && (
                     <section className="card profile-card">
                         <h2 className="profile-section-title">Security</h2>
@@ -194,18 +500,18 @@ export default function ProfilePage() {
                     </section>
                 )}
 
-                {/* Danger Zone */}
-                <section className="card profile-card danger-card">
-                    <h2 className="profile-section-title danger-title">Danger Zone</h2>
-                    <p className="danger-desc">Sign out from all devices.</p>
-                    <div className="danger-actions">
-                        <button className="danger-btn" onClick={handleLogout}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-                            </svg>
-                            Sign Out
-                        </button>
-                    </div>
+                {/* Progress Overview */}
+                <ProgressSection user={user} />
+
+                {/* Session */}
+                <section className="card profile-card">
+                    <h2 className="profile-section-title">Session</h2>
+                    <button className="profile-signout-btn" onClick={handleLogout}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                        </svg>
+                        Sign Out
+                    </button>
                 </section>
             </main>
 
@@ -215,7 +521,7 @@ export default function ProfilePage() {
                     className="modal-overlay"
                     onClick={e => { if (e.target === e.currentTarget) setEditNameOpen(false) }}
                 >
-                    <div className="modal-card card">
+                    <div className="modal-card card" style={{ maxWidth: 360, margin: '0 auto' }}>
                         <h3 className="modal-title">Update Display Name</h3>
                         <form onSubmit={handleUpdateName}>
                             <div className="form-group">

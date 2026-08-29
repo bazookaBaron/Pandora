@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import Navbar from '../components/Navbar'
-
-const PLACEHOLDERS = {
-    anthropic: 'sk-ant-api03-…',
-    openai: 'sk-proj-…',
-    gemini: 'AIzaSy…',
-}
+import { useMediaQuery } from '../lib/useMediaQuery'
+import { useTier } from '../lib/useTier'
+import { LockedPanel } from '../components/shared/PaywallGate'
 
 function ScoreRing({ label, value }) {
     const circleRef = useRef(null)
@@ -35,53 +32,82 @@ function ScoreRing({ label, value }) {
     )
 }
 
+// On narrow screens drop the 3-up ring grid to 2-up so 80px rings stay readable
+// without overflowing a stacked panel. (index.css keeps it 3-up otherwise.)
+const denseGrid = { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', justifyItems: 'center', gap: 8 }
+
+function ScorePanel({ title, metrics, accent, isMobile }) {
+    if (!metrics) return null
+    return (
+        <div style={{
+            flex: 1, minWidth: 0, background: '#18181b', border: `1px solid ${accent}33`,
+            borderRadius: 10, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
+            <h3 style={{ fontSize: '0.72rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: accent, margin: 0 }}>
+                {title}
+            </h3>
+            <div className="score-grid" style={{ margin: 0, ...(isMobile ? denseGrid : null) }}>
+                <ScoreRing label="Keyword Match" value={metrics.keywordMatchPercent ?? 0} />
+                <ScoreRing label="ATS Pass" value={metrics.atsPassChancePercent ?? 0} />
+                <ScoreRing label="Human Screen" value={metrics.humanScreenChancePercent ?? 0} />
+            </div>
+        </div>
+    )
+}
+
 export default function HomePage() {
-    const [provider, setProvider] = useState('anthropic')
-    const [apiKey, setApiKey] = useState('')
-    const [showKey, setShowKey] = useState(false)
+    const { limits } = useTier()
+    const isMobile = useMediaQuery('(max-width: 767px)')
+    const [provider, setProvider] = useState('gemini')
+    const [resumeFile, setResumeFile] = useState(null)
     const [jd, setJd] = useState('')
+    const [name, setName] = useState('')
+    const [companyName, setCompanyName] = useState('')
     const [loading, setLoading] = useState(false)
     const [status, setStatus] = useState({ msg: '', type: '' })
     const [results, setResults] = useState(null)
+    const fileInputRef = useRef(null)
 
-    useEffect(() => {
-        const savedProv = sessionStorage.getItem('resumeOpt_provider')
-        const savedKey = sessionStorage.getItem('resumeOpt_apiKey')
-        if (savedProv) setProvider(savedProv)
-        if (savedKey) setApiKey(savedKey)
-    }, [])
+    // Validation
+    const missingFile = !resumeFile
+    const missingJd = !jd.trim()
+    const canSubmit = !missingFile && !missingJd && !loading
 
-    const handleProviderChange = (val) => {
-        setProvider(val)
-        setApiKey('')
-        sessionStorage.setItem('resumeOpt_provider', val)
-        sessionStorage.removeItem('resumeOpt_apiKey')
-    }
-
-    const handleKeyChange = (val) => {
-        setApiKey(val)
-        sessionStorage.setItem('resumeOpt_apiKey', val)
+    const validationMsg = () => {
+        if (missingFile && missingJd) return 'Upload a resume PDF and paste a job description to continue.'
+        if (missingFile) return 'Upload a resume PDF to continue.'
+        if (missingJd) return 'Paste a job description to continue.'
+        return ''
     }
 
     const handleGenerate = async () => {
-        if (!apiKey.trim()) { setStatus({ msg: 'Enter your API key above.', type: 'error' }); return }
-        if (!jd.trim()) { setStatus({ msg: 'Paste a job description first.', type: 'error' }); return }
+        if (!canSubmit) return
 
         setLoading(true)
         setResults(null)
         setStatus({ msg: `Tailoring resume with ${provider}… 15–30 s`, type: '' })
 
         try {
-            const res = await fetch('/api/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ jd, apiKey, provider }),
-            })
-            const data = await res.json()
+            const form = new FormData()
+            form.append('resume', resumeFile)
+            form.append('jd', jd)
+            form.append('provider', provider)
+            if (name.trim()) form.append('name', name.trim())
+            if (companyName.trim()) form.append('companyName', companyName.trim())
+
+            const res = await fetch('/api/generate', { method: 'POST', body: form })
+            let data
+            try {
+                data = await res.json()
+            } catch {
+                throw new Error(
+                    'API server not reachable. In a separate terminal run:  cd frontend && npm run serve'
+                )
+            }
             if (!res.ok) throw new Error(data.error || 'Generation failed.')
 
             downloadPdf(data.pdfBase64, data.filename)
-            setResults({ metrics: data.metrics, filename: data.filename })
+            setResults({ metrics: data.metrics, beforeMetrics: data.beforeMetrics, filename: data.filename })
             setStatus({ msg: `Done! Downloaded as ${data.filename}`, type: 'ok' })
         } catch (err) {
             setStatus({ msg: err.message, type: 'error' })
@@ -89,6 +115,173 @@ export default function HomePage() {
             setLoading(false)
         }
     }
+
+    // Cosmetic hint only — the real download uses `data.filename` from the API,
+    // which is `First_Last_Resume_Company.pdf` (name derived from the uploaded
+    // résumé when the form name is blank). Mirror the server's slug: keep word
+    // chars + hyphens, drop other punctuation, whitespace runs → "_".
+    const slugPart = v => v.trim().normalize('NFKD').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_')
+    const companyPart = companyName.trim() ? slugPart(companyName) : 'Company'
+    const filenamePreview = name.trim()
+        ? `${slugPart(name)}_Resume_${companyPart}.pdf`
+        : `<name from your résumé>_Resume_${companyPart}.pdf`
+
+    const body = (
+        <>
+            {/* Name + Company row */}
+            <section className="card" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+                <div>
+                    <label className="field-label">Your Name <span style={{ color: '#52525b', fontWeight: 400 }}>(for filename)</span></label>
+                    <input
+                        className="input-field"
+                        style={{ padding: '10px 12px', borderRadius: 6, width: '100%', boxSizing: 'border-box', fontSize: '0.9rem' }}
+                        placeholder="e.g. Debopriyo"
+                        value={name}
+                        onChange={e => setName(e.target.value)}
+                    />
+                </div>
+                <div>
+                    <label className="field-label">Target Company <span style={{ color: '#52525b', fontWeight: 400 }}>(for filename)</span></label>
+                    <input
+                        className="input-field"
+                        style={{ padding: '10px 12px', borderRadius: 6, width: '100%', boxSizing: 'border-box', fontSize: '0.9rem' }}
+                        placeholder="e.g. Google"
+                        value={companyName}
+                        onChange={e => setCompanyName(e.target.value)}
+                    />
+                </div>
+                <p style={{ gridColumn: '1/-1', margin: 0, fontSize: '0.7rem', color: '#52525b', overflowWrap: 'anywhere' }}>
+                    Downloaded file will be named: <code style={{ color: '#a78bfa' }}>{filenamePreview}</code>
+                </p>
+            </section>
+
+            {/* Resume Upload */}
+            <section className="card">
+                <label className="field-label">Resume PDF</label>
+                <div
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                        border: `2px dashed ${resumeFile ? '#22d3ee' : '#27272a'}`,
+                        borderRadius: 8, padding: '20px 16px', textAlign: 'center',
+                        cursor: 'pointer', transition: 'border-color 0.2s',
+                        background: resumeFile ? 'rgba(34,211,238,0.04)' : 'transparent',
+                    }}
+                    onMouseEnter={e => { if (!resumeFile) e.currentTarget.style.borderColor = '#3f3f46' }}
+                    onMouseLeave={e => { if (!resumeFile) e.currentTarget.style.borderColor = '#27272a' }}
+                >
+                    {resumeFile ? (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+                            <span style={{ color: '#22d3ee', fontSize: '0.85rem', fontWeight: 700, overflowWrap: 'anywhere' }}>{resumeFile.name}</span>
+                            <button
+                                type="button"
+                                onClick={e => { e.stopPropagation(); setResumeFile(null); if (fileInputRef.current) fileInputRef.current.value = '' }}
+                                style={{ background: 'none', border: 'none', color: '#52525b', cursor: 'pointer', fontSize: '1rem', lineHeight: 1 }}
+                            >×</button>
+                        </div>
+                    ) : (
+                        <>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#52525b" strokeWidth="1.5" style={{ marginBottom: 8 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                            <p style={{ color: '#71717a', fontSize: '0.85rem', margin: 0 }}>Click to upload your resume PDF</p>
+                            <p style={{ color: '#52525b', fontSize: '0.72rem', margin: '4px 0 0' }}>PDF only</p>
+                        </>
+                    )}
+                </div>
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf"
+                    style={{ display: 'none' }}
+                    onChange={e => setResumeFile(e.target.files[0] || null)}
+                />
+            </section>
+
+            {/* JD Input */}
+            <section className="card">
+                <label className="field-label">Job Description</label>
+                <textarea
+                    className="input-field"
+                    style={{ maxWidth: '100%' }}
+                    placeholder="Paste the full job description here…"
+                    rows={12}
+                    value={jd}
+                    onChange={e => setJd(e.target.value)}
+                />
+            </section>
+
+            {/* Inline validation */}
+            {validationMsg() && !loading && (
+                <p style={{ fontSize: '0.78rem', color: '#71717a', marginBottom: 8, textAlign: 'center' }}>
+                    {validationMsg()}
+                </p>
+            )}
+
+            {/* Generate Button */}
+            <button className="primary-btn" onClick={handleGenerate} disabled={!canSubmit}>
+                <svg className="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+                <span>{loading ? 'Generating…' : 'Generate & Download Resume'}</span>
+                {loading && <div className="spinner" />}
+            </button>
+
+            {/* Status */}
+            <div className={`status${status.type ? ` ${status.type}` : ''}`}>{status.msg}</div>
+
+            {/* Results Scorecard */}
+            {results && (
+                <section className="results">
+                    <h2 className="section-title">Match Scorecard</h2>
+
+                    {/* Before / After side-by-side */}
+                    {results.beforeMetrics ? (
+                        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+                            <ScorePanel title="Before Optimization" metrics={results.beforeMetrics} accent="#71717a" isMobile={isMobile} />
+                            <ScorePanel title="After Optimization" metrics={results.metrics} accent="#a78bfa" isMobile={isMobile} />
+                        </div>
+                    ) : (
+                        <div className="score-grid" style={isMobile ? denseGrid : undefined}>
+                            <ScoreRing label="Keyword Match" value={results.metrics.keywordMatchPercent ?? 0} />
+                            <ScoreRing label="ATS Pass Chance" value={results.metrics.atsPassChancePercent ?? 0} />
+                            <ScoreRing label="Human Screen" value={results.metrics.humanScreenChancePercent ?? 0} />
+                        </div>
+                    )}
+
+                    <div className="detail-block card">
+                        <h3>Matched Keywords</h3>
+                        <div className="pill-list">
+                            {(results.metrics.matchedKeywords || []).map((k, i) => <span key={i}>{k}</span>)}
+                        </div>
+                    </div>
+
+                    <div className="detail-block card">
+                        <h3>Missing Required Keywords</h3>
+                        <div className="pill-list pill-missing">
+                            {(results.metrics.missingRequiredKeywords || []).map((k, i) => <span key={i}>{k}</span>)}
+                        </div>
+                    </div>
+
+                    <div className="detail-block card">
+                        <h3>Hard Gaps</h3>
+                        <ul id="hardGaps">
+                            {(results.metrics.hardGaps?.length ? results.metrics.hardGaps : ['No hard gaps flagged.']).map((g, i) => (
+                                <li key={i}>{g}</li>
+                            ))}
+                        </ul>
+                    </div>
+
+                    <div className="detail-block card">
+                        <h3>Notes</h3>
+                        <p id="notes">{results.metrics.notes}</p>
+                    </div>
+
+                    <div className="detail-block card">
+                        <p className="filename-line" style={{ overflowWrap: 'anywhere' }}>Downloaded as: <code>{results.filename}</code></p>
+                    </div>
+                </section>
+            )}
+        </>
+    )
 
     return (
         <>
@@ -99,113 +292,15 @@ export default function HomePage() {
                     <div className="logo-mark">R</div>
                     <div>
                         <h1>Resume Optimizer</h1>
-                        <p className="subtitle">Paste a job description → get a tailored, ATS-optimized PDF in seconds.</p>
+                        <p className="subtitle">Upload your resume PDF + paste a job description → get a tailored, ATS-optimized PDF in seconds.</p>
                     </div>
                 </header>
 
-                {/* AI Provider + Key */}
-                <section className="card api-key-section">
-                    <label className="field-label">
-                        AI Provider &amp; API Key
-                    </label>
-
-                    <div className="provider-row">
-                        <select
-                            className="input-field provider-select"
-                            value={provider}
-                            onChange={e => handleProviderChange(e.target.value)}
-                        >
-                            <option value="anthropic">Anthropic — Claude Sonnet 4</option>
-                            <option value="openai">OpenAI — GPT-4o Mini</option>
-                            <option value="gemini">Google — Gemini 2.5 Flash</option>
-                        </select>
-                    </div>
-
-                    <div className="api-key-row">
-                        <input
-                            type={showKey ? 'text' : 'password'}
-                            className="input-field api-key-input"
-                            placeholder={PLACEHOLDERS[provider]}
-                            value={apiKey}
-                            onChange={e => handleKeyChange(e.target.value)}
-                            autoComplete="off"
-                        />
-                        <button type="button" className="icon-btn" onClick={() => setShowKey(v => !v)}>
-                            {showKey
-                                ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
-                                : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
-                            }
-                        </button>
-                    </div>
-                    <p className="field-hint">Your key stays in the browser — never stored on the server.</p>
-                </section>
-
-                {/* JD Input */}
-                <section className="card">
-                    <label className="field-label">Job Description</label>
-                    <textarea
-                        className="input-field"
-                        placeholder="Paste the full job description here…"
-                        rows={12}
-                        value={jd}
-                        onChange={e => setJd(e.target.value)}
+                {limits.resumeOptimizer ? body : (
+                    <LockedPanel
+                        title="Resume Optimizer is a Pro feature"
+                        subtitle="Upload a resume + a job description and get a tailored, ATS-optimized PDF with a match scorecard. Upgrade to unlock."
                     />
-                </section>
-
-                {/* Generate Button */}
-                <button className="primary-btn" onClick={handleGenerate} disabled={loading}>
-                    <svg className="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                    </svg>
-                    <span>{loading ? 'Generating…' : 'Generate & Download Resume'}</span>
-                    {loading && <div className="spinner" />}
-                </button>
-
-                {/* Status */}
-                <div className={`status${status.type ? ` ${status.type}` : ''}`}>{status.msg}</div>
-
-                {/* Results Scorecard */}
-                {results && (
-                    <section className="results">
-                        <h2 className="section-title">Match Scorecard</h2>
-                        <div className="score-grid">
-                            <ScoreRing label="Keyword Match" value={results.metrics.keywordMatchPercent ?? 0} />
-                            <ScoreRing label="ATS Pass Chance" value={results.metrics.atsPassChancePercent ?? 0} />
-                            <ScoreRing label="Human Screen" value={results.metrics.humanScreenChancePercent ?? 0} />
-                        </div>
-
-                        <div className="detail-block card">
-                            <h3>Matched Keywords</h3>
-                            <div className="pill-list">
-                                {(results.metrics.matchedKeywords || []).map((k, i) => <span key={i}>{k}</span>)}
-                            </div>
-                        </div>
-
-                        <div className="detail-block card">
-                            <h3>Missing Required Keywords</h3>
-                            <div className="pill-list pill-missing">
-                                {(results.metrics.missingRequiredKeywords || []).map((k, i) => <span key={i}>{k}</span>)}
-                            </div>
-                        </div>
-
-                        <div className="detail-block card">
-                            <h3>Hard Gaps</h3>
-                            <ul id="hardGaps">
-                                {(results.metrics.hardGaps?.length ? results.metrics.hardGaps : ['No hard gaps flagged.']).map((g, i) => (
-                                    <li key={i}>{g}</li>
-                                ))}
-                            </ul>
-                        </div>
-
-                        <div className="detail-block card">
-                            <h3>Notes</h3>
-                            <p id="notes">{results.metrics.notes}</p>
-                        </div>
-
-                        <div className="detail-block card">
-                            <p className="filename-line">Downloaded as: <code>{results.filename}</code></p>
-                        </div>
-                    </section>
                 )}
             </main>
         </>

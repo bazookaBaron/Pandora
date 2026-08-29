@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useVirtualizer } from '@tanstack/react-virtual'
 import { supabase } from '../../lib/supabase'
 import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
@@ -9,107 +8,190 @@ import Navbar from '../../components/Navbar'
 import FluidCheckbox from '../../components/shared/FluidCheckbox'
 import DifficultyBadge from '../../components/shared/DifficultyBadge'
 import CompanySelector from '../../components/shared/CompanySelector'
+import CompanyLogo from '../../components/shared/CompanyLogo'
+import { useMediaQuery } from '../../lib/useMediaQuery'
+import { useTier } from '../../lib/useTier'
+import { LockedSlice } from '../../components/shared/PaywallGate'
 
 const DIFFICULTIES = ['Easy', 'Medium', 'Hard']
 const SORT_OPTIONS = [
-    { value: 'frequency_desc', label: 'Frequency ↓' },
-    { value: 'acceptance_desc', label: 'Acceptance ↓' },
+    { value: 'shuffle', label: '🔀 Shuffle' },
     { value: 'difficulty', label: 'Difficulty' },
     { value: 'alpha', label: 'A–Z' },
 ]
 
-function FrequencyBar({ value }) {
-    const pct = Math.min(100, Math.max(0, value ?? 0))
+// Seeded pseudo-random number generator (mulberry32) for stable shuffle
+function mulberry32(seed) {
+    return function () {
+        seed |= 0; seed = seed + 0x6D2B79F5 | 0
+        let t = Math.imul(seed ^ seed >>> 15, 1 | seed)
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t
+        return ((t ^ t >>> 14) >>> 0) / 4294967296
+    }
+}
+function seededShuffle(arr, seed) {
+    const rng = mulberry32(seed)
+    const a = [...arr]
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]]
+    }
+    return a
+}
+function getOrCreateSeed() {
+    const key = 'dsa_shuffle_seed'
+    let s = sessionStorage.getItem(key)
+    if (!s) { s = String(Date.now() & 0x7fffffff); sessionStorage.setItem(key, s) }
+    return parseInt(s, 10)
+}
+
+const PAGE_SIZE = 30
+
+function Pagination({ page, totalPages, onChange }) {
+    if (totalPages <= 1) return null
+    const pages = []
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) pages.push(i)
+        else if (pages[pages.length - 1] !== '…') pages.push('…')
+    }
     return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 70 }}>
-            <div style={{ flex: 1, height: 4, background: '#27272a', borderRadius: 2, overflow: 'hidden' }}>
-                <div style={{ width: `${pct}%`, height: '100%', background: '#22d3ee', borderRadius: 2, transition: 'width 0.3s' }} />
-            </div>
-            <span style={{ fontSize: '0.65rem', color: '#71717a', minWidth: 24 }}>{Math.round(pct)}</span>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'center', marginTop: 16 }}>
+            <button onClick={() => onChange(page - 1)} disabled={page === 1} style={{
+                padding: '5px 12px', borderRadius: 6, border: '1px solid #27272a',
+                background: 'none', color: page === 1 ? '#3f3f46' : '#a1a1aa', cursor: page === 1 ? 'default' : 'pointer', fontSize: '0.78rem',
+            }}>← Prev</button>
+            {pages.map((p, idx) => p === '…'
+                ? <span key={`e${idx}`} style={{ color: '#52525b', fontSize: '0.78rem', padding: '0 4px' }}>…</span>
+                : <button key={p} onClick={() => onChange(p)} style={{
+                    width: 32, height: 32, borderRadius: 6, border: `1px solid ${p === page ? '#22d3ee' : '#27272a'}`,
+                    background: p === page ? 'rgba(34,211,238,0.12)' : 'none',
+                    color: p === page ? '#22d3ee' : '#71717a', cursor: 'pointer', fontSize: '0.78rem', fontWeight: p === page ? 900 : 400,
+                }}>{p}</button>
+            )}
+            <button onClick={() => onChange(page + 1)} disabled={page === totalPages} style={{
+                padding: '5px 12px', borderRadius: 6, border: '1px solid #27272a',
+                background: 'none', color: page === totalPages ? '#3f3f46' : '#a1a1aa', cursor: page === totalPages ? 'default' : 'pointer', fontSize: '0.78rem',
+            }}>Next →</button>
         </div>
     )
 }
 
-function CompanyBadges({ companies = [] }) {
-    const [show, setShow] = useState(false)
-    const visible = companies.slice(0, 2)
-    const extra = companies.slice(2)
+function CompanyBadges({ companies = [], isMobile = false }) {
+    const [expanded, setExpanded] = useState(false)
+    if (!companies.length) return null
+
+    const limit = isMobile ? 3 : 6
+    const overflow = companies.length - limit
+    const shown = expanded ? companies : companies.slice(0, limit)
+
     return (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center' }}>
-            {visible.map(c => (
+        <div style={{
+            display: 'flex', gap: 3, alignItems: 'center', minWidth: 0,
+            flexWrap: expanded ? 'wrap' : 'nowrap',
+            overflow: expanded ? 'visible' : 'hidden',
+        }}>
+            {shown.map(c => (
                 <Link key={c} to={`/dsa/company/${encodeURIComponent(c)}`}
-                    style={{ fontSize: '0.62rem', padding: '1px 6px', borderRadius: 4, background: '#27272a', color: '#a1a1aa', border: '1px solid #3f3f46', textDecoration: 'none', whiteSpace: 'nowrap' }}
-                    onClick={e => e.stopPropagation()}>{c}</Link>
+                    style={{ textDecoration: 'none', flexShrink: 0 }}
+                    onClick={e => e.stopPropagation()}>
+                    <CompanyLogo company={c} />
+                </Link>
             ))}
-            {extra.length > 0 && (
-                <div style={{ position: 'relative' }}>
-                    <button
-                        onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}
-                        style={{ fontSize: '0.62rem', padding: '1px 6px', borderRadius: 4, background: '#27272a', color: '#71717a', border: '1px solid #3f3f46', cursor: 'pointer' }}>
-                        +{extra.length}
-                    </button>
-                    {show && (
-                        <div style={{
-                            position: 'absolute', bottom: '100%', left: 0, zIndex: 50,
-                            background: '#18181b', border: '1px solid #27272a', borderRadius: 6,
-                            padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 3,
-                            boxShadow: '0 8px 24px rgba(0,0,0,0.5)', minWidth: 120,
-                        }}>
-                            {extra.map(c => (
-                                <Link key={c} to={`/dsa/company/${encodeURIComponent(c)}`}
-                                    style={{ fontSize: '0.7rem', color: '#a1a1aa', textDecoration: 'none', whiteSpace: 'nowrap' }}
-                                    onClick={e => e.stopPropagation()}>{c}</Link>
-                            ))}
-                        </div>
-                    )}
-                </div>
+            {overflow > 0 && (
+                <button
+                    onClick={e => { e.stopPropagation(); setExpanded(v => !v) }}
+                    title={expanded ? 'Show fewer' : `Show ${overflow} more`}
+                    style={{
+                        flexShrink: 0, padding: '2px 8px', borderRadius: 4,
+                        border: '1px solid #3f3f46', background: '#18181b',
+                        color: '#22d3ee', cursor: 'pointer', fontSize: '0.62rem',
+                        fontWeight: 900, lineHeight: 1.4, whiteSpace: 'nowrap',
+                    }}
+                >
+                    {expanded ? '− less' : `+${overflow}`}
+                </button>
             )}
         </div>
     )
 }
 
-function NotesDrawer({ problemId, initialNotes, onSave, onClose }) {
-    const [notes, setNotes] = useState(initialNotes || '')
-    return (
-        <div style={{ padding: '12px 16px', background: '#0d0d0f', borderTop: '1px solid #27272a' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717a' }}>Notes</span>
-                <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => onSave(notes)} style={{ fontSize: '0.7rem', padding: '3px 10px', background: '#22d3ee', color: '#09090b', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 900 }}>Save</button>
-                    <button onClick={onClose} style={{ fontSize: '0.7rem', padding: '3px 10px', background: 'none', color: '#71717a', border: '1px solid #27272a', borderRadius: 4, cursor: 'pointer' }}>Close</button>
+function ProblemRow({ p, prog, isMobile, onToggleStatus, onToggleBookmark }) {
+    const isSolved = prog?.status === 'solved'
+    const isBookmarked = prog?.is_bookmarked
+
+    const titleBlock = (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden', minWidth: 0, flex: 1 }}>
+            <a href={p.link} target="_blank" rel="noopener noreferrer"
+                style={{
+                    color: isSolved ? '#71717a' : '#fafafa', textDecoration: 'none',
+                    fontSize: '0.85rem', fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    textDecorationLine: isSolved ? 'line-through' : 'none',
+                }}>
+                {p.title}
+            </a>
+            <button onClick={() => onToggleBookmark(p.id)}
+                title="Bookmark"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: isBookmarked ? '#facc15' : '#3f3f46', padding: 0, flexShrink: 0 }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill={isBookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
+            </button>
+        </div>
+    )
+
+    if (isMobile) {
+        return (
+            <div style={{
+                padding: '12px', borderBottom: '1px solid rgba(39,39,42,0.5)',
+                background: isSolved ? 'rgba(34,211,238,0.03)' : 'transparent',
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <FluidCheckbox checked={isSolved} onChange={() => onToggleStatus(p.id, prog?.status ?? 'unsolved')} />
+                    {titleBlock}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                    <DifficultyBadge difficulty={p.difficulty} />
+                    <CompanyBadges companies={p.company || []} isMobile />
                 </div>
             </div>
-            <textarea
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                placeholder="Jot your approach, time/space complexity…"
-                rows={4}
-                style={{
-                    width: '100%', background: '#18181b', border: '1px solid #27272a', borderRadius: 6,
-                    color: '#fafafa', font: 'inherit', fontSize: '0.82rem', padding: '8px 10px',
-                    resize: 'vertical', outline: 'none',
-                }}
-            />
+        )
+    }
+
+    return (
+        <div style={{
+            display: 'grid', gridTemplateColumns: '28px 1fr 90px 1fr',
+            gap: 8, padding: '10px 12px', alignItems: 'center',
+            borderBottom: '1px solid rgba(39,39,42,0.5)',
+            background: isSolved ? 'rgba(34,211,238,0.03)' : 'transparent',
+            transition: 'background 0.15s',
+        }}
+            onMouseEnter={e => { if (!isSolved) e.currentTarget.style.background = '#18181b' }}
+            onMouseLeave={e => { e.currentTarget.style.background = isSolved ? 'rgba(34,211,238,0.03)' : 'transparent' }}
+        >
+            <FluidCheckbox checked={isSolved} onChange={() => onToggleStatus(p.id, prog?.status ?? 'unsolved')} />
+            {titleBlock}
+            <DifficultyBadge difficulty={p.difficulty} />
+            <CompanyBadges companies={p.company || []} />
         </div>
     )
 }
+
 
 export default function DSAListPage({ filterCompany }) {
     const [searchParams, setSearchParams] = useSearchParams()
     const { user } = useAuth()
     const listRef = useRef(null)
+    const isMobile = useMediaQuery('(max-width: 767px)')
+    const { isFree, limits } = useTier()
 
     // Read filters from URL params
     const search = searchParams.get('q') || ''
     const companies = searchParams.get('company') ? searchParams.get('company').split(',') : filterCompany ? [filterCompany] : []
     const difficulties = searchParams.get('difficulty') ? searchParams.get('difficulty').split(',') : []
-    const sort = searchParams.get('sort') || 'frequency_desc'
+    const sort = searchParams.get('sort') || 'shuffle'
     const statusFilter = searchParams.get('status') || ''
     const [showMoreFilters, setShowMoreFilters] = useState(false)
-    const [freqRange, setFreqRange] = useState([0, 100])
-    const [accRange, setAccRange] = useState([0, 100])
-    const [expandedNotes, setExpandedNotes] = useState(null)
     const [searchInput, setSearchInput] = useState(search)
+    const [page, setPage] = useState(1)
+    const [shuffleSeed, setShuffleSeed] = useState(getOrCreateSeed)
 
     // Debounce search
     const searchDebounce = useRef(null)
@@ -128,27 +210,75 @@ export default function DSAListPage({ filterCompany }) {
             else n.set(key, Array.isArray(value) ? value.join(',') : value)
             return n
         }, { replace: true })
+        setPage(1)
     }, [setSearchParams])
 
-    // Fetch all DSA problems (let client filter since dataset might be large but manageable)
+    // ── Free-tier paywall: TRUE server-side limiting (matches LLD/HLD) ──
+    // On free tier the query fetches ONLY `limits.dsa` rows — locked problems
+    // (titles, links, difficulty, companies, ids) never enter the browser, the
+    // network response, or the React Query cache. The client search/filter/sort
+    // below then act only on that ≤5-row preview slice (preview-only, exactly
+    // like LLD/HLD). Pro tier is unchanged: fetch the full ~900-row set in
+    // 1000-row pages and filter + paginate client-side.
     const { data: allProblems = [], isLoading: probLoading } = useQuery({
-        queryKey: ['dsa-problems'],
+        queryKey: ['dsa-problems', isFree ? 'free' : 'pro'],
         queryFn: async () => {
+            const normalize = (rows) => (rows || []).map(p => {
+                // Normalize company: handle both JSONB array and JSON string
+                let company = p.company
+                if (typeof company === 'string') {
+                    try { company = JSON.parse(company) } catch { company = company ? [company] : [] }
+                }
+                if (!Array.isArray(company)) company = company ? [String(company)] : []
+
+                // Normalize difficulty to Title Case
+                let difficulty = p.difficulty
+                if (difficulty) {
+                    difficulty = difficulty.charAt(0).toUpperCase() + difficulty.slice(1).toLowerCase()
+                }
+
+                return { ...p, company, difficulty }
+            })
+
+            if (isFree) {
+                const { data, error } = await supabase
+                    .from('leetcode_company_problems')
+                    .select('id, title, difficulty, link, company, topics')
+                    .range(0, limits.dsa - 1)
+                if (error) throw error
+                return normalize(data)
+            }
+
             const PAGE = 1000
             let all = [], from = 0
             while (true) {
                 const { data, error } = await supabase
                     .from('leetcode_company_problems')
-                    .select('id, title, difficulty, link, company, frequency, acceptance_rate, topics')
+                    .select('id, title, difficulty, link, company, topics')
                     .range(from, from + PAGE - 1)
                 if (error) throw error
-                all = all.concat(data || [])
+                all = all.concat(normalize(data))
                 if ((data || []).length < PAGE) break
                 from += PAGE
             }
             return all
         },
         staleTime: 5 * 60 * 1000,
+    })
+
+    // Lightweight total for the "N of TOTAL" copy — head request, no rows.
+    // Free tier only (pro already has the full list in `allProblems`).
+    const { data: total = 0 } = useQuery({
+        queryKey: ['dsa-count'],
+        queryFn: async () => {
+            const { count, error } = await supabase
+                .from('leetcode_company_problems')
+                .select('*', { count: 'exact', head: true })
+            if (error) throw error
+            return count || 0
+        },
+        staleTime: 5 * 60 * 1000,
+        enabled: isFree,
     })
 
     // Parse all distinct topics from CSV topics column
@@ -158,7 +288,7 @@ export default function DSAListPage({ filterCompany }) {
         return Array.from(set).sort()
     }, [allProblems])
 
-    const { progressMap, toggleStatus, toggleBookmark, saveNotes } = useProgress('dsa')
+    const { progressMap, toggleStatus, toggleBookmark } = useProgress('dsa')
 
     // Filter + sort client-side
     const filtered = useMemo(() => {
@@ -175,31 +305,34 @@ export default function DSAListPage({ filterCompany }) {
         else if (statusFilter === 'unsolved') list = list.filter(p => !progressMap[p.id] || progressMap[p.id]?.status === 'unsolved')
         else if (statusFilter === 'bookmarked') list = list.filter(p => progressMap[p.id]?.is_bookmarked)
 
-        list = list.filter(p => {
-            const f = p.frequency ?? 0, a = (p.acceptance_rate ?? 0) * 100
-            return f >= freqRange[0] && f <= freqRange[1] && a >= accRange[0] && a <= accRange[1]
-        })
-
-        if (sort === 'frequency_desc') list = [...list].sort((a, b) => (b.frequency ?? 0) - (a.frequency ?? 0))
-        else if (sort === 'acceptance_desc') list = [...list].sort((a, b) => (b.acceptance_rate ?? 0) - (a.acceptance_rate ?? 0))
-        else if (sort === 'difficulty') {
+        if (sort === 'shuffle') {
+            return seededShuffle(list, shuffleSeed)
+        }
+        if (sort === 'difficulty') {
             const d = { Easy: 0, Medium: 1, Hard: 2 }
             list = [...list].sort((a, b) => (d[a.difficulty] ?? 3) - (d[b.difficulty] ?? 3))
         }
         else if (sort === 'alpha') list = [...list].sort((a, b) => a.title.localeCompare(b.title))
 
         return list
-    }, [allProblems, search, difficulties, companies, statusFilter, sort, progressMap, freqRange, accRange])
+    }, [allProblems, search, difficulties, companies, statusFilter, sort, progressMap, shuffleSeed])
+
+    // Pagination
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+    const safePage = Math.min(page, totalPages)
+    const pagedItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+    // Free-tier gate: `allProblems` is already capped server-side at `limits.dsa`,
+    // so `filtered` here is at most the preview slice. Locked rows are represented
+    // only by a generic <LockedSlice> below; `total` (count query) drives the copy.
+    const shown = isFree ? filtered.slice(0, limits.dsa) : pagedItems
+    const gated = isFree && total > shown.length
 
     // Counts
     const solved = Object.values(progressMap).filter(r => r.status === 'solved').length
 
-    const virtualizer = useVirtualizer({
-        count: filtered.length,
-        getScrollElement: () => listRef.current,
-        estimateSize: () => 52,
-        overscan: 10,
-    })
+    // Reset page on filter change
+    useEffect(() => { setPage(1) }, [search, difficulties.join(','), companies.join(','), statusFilter, sort])
 
     // Keyboard shortcuts
     useEffect(() => {
@@ -227,10 +360,16 @@ export default function DSAListPage({ filterCompany }) {
 
                     {/* Header + progress */}
                     <div style={{ marginBottom: 20 }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                        <div style={{
+                            display: 'flex', gap: 8,
+                            alignItems: isMobile ? 'stretch' : 'baseline',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            flexDirection: isMobile ? 'column' : 'row',
+                        }}>
                             <div>
                                 <h1 style={{ fontSize: '1.2rem', fontWeight: 900, color: '#fafafa', letterSpacing: '-0.03em' }}>DSA Problems</h1>
-                                <p style={{ color: '#71717a', fontSize: '0.78rem', marginTop: 2 }}>LeetCode company-wise — {filtered.length} problems</p>
+                                <p style={{ color: '#71717a', fontSize: '0.78rem', marginTop: 2 }}>LeetCode company-wise — {isFree ? total : filtered.length} problems</p>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                 {/* Progress ring */}
@@ -238,7 +377,7 @@ export default function DSAListPage({ filterCompany }) {
                                     <span style={{ fontSize: '0.72rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Solved</span>
                                     <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#22d3ee' }}>{solved}</span>
                                     <span style={{ color: '#3f3f46', fontSize: '0.8rem' }}>/</span>
-                                    <span style={{ fontSize: '0.82rem', color: '#a1a1aa' }}>{allProblems.length}</span>
+                                    <span style={{ fontSize: '0.82rem', color: '#a1a1aa' }}>{isFree ? total : allProblems.length}</span>
                                 </div>
                                 <button onClick={pickRandom} style={{
                                     fontSize: '0.72rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em',
@@ -270,7 +409,7 @@ export default function DSAListPage({ filterCompany }) {
                     {/* --- Filter bar --- */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
                         {/* Search */}
-                        <div style={{ position: 'relative', flex: '1 1 220px' }}>
+                        <div style={{ position: 'relative', flex: isMobile ? '1 1 100%' : '1 1 220px' }}>
                             <svg style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" strokeWidth="2">
                                 <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
                             </svg>
@@ -325,6 +464,25 @@ export default function DSAListPage({ filterCompany }) {
                             {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                         </select>
 
+                        {/* Re-shuffle button (only visible when shuffle is active) */}
+                        {sort === 'shuffle' && (
+                            <button
+                                onClick={() => {
+                                    const newSeed = Date.now() & 0x7fffffff
+                                    sessionStorage.setItem('dsa_shuffle_seed', String(newSeed))
+                                    setShuffleSeed(newSeed)
+                                    setPage(1)
+                                }}
+                                style={{
+                                    padding: '6px 12px', background: 'none', border: '1px solid #27272a',
+                                    borderRadius: 6, color: '#22d3ee', cursor: 'pointer', fontSize: '0.72rem',
+                                    fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em',
+                                }}
+                                title="Re-randomize order"
+                            >
+                                🔀 Reshuffle
+                            </button>
+                        )}
                         <button onClick={() => setShowMoreFilters(v => !v)} style={{
                             padding: '6px 12px', background: showMoreFilters ? '#22d3ee' : 'none', border: '1px solid #27272a',
                             borderRadius: 6, color: showMoreFilters ? '#09090b' : '#71717a', cursor: 'pointer', fontSize: '0.72rem',
@@ -337,24 +495,6 @@ export default function DSAListPage({ filterCompany }) {
                     {/* More filters */}
                     {showMoreFilters && (
                         <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 12, padding: '12px 16px', background: '#18181b', border: '1px solid #27272a', borderRadius: 8 }}>
-                            <div>
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717a', display: 'block', marginBottom: 6 }}>
-                                    Frequency: {freqRange[0]}–{freqRange[1]}
-                                </label>
-                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                    <input type="range" min={0} max={100} value={freqRange[0]} onChange={e => setFreqRange([+e.target.value, freqRange[1]])} style={{ accentColor: '#22d3ee' }} />
-                                    <input type="range" min={0} max={100} value={freqRange[1]} onChange={e => setFreqRange([freqRange[0], +e.target.value])} style={{ accentColor: '#22d3ee' }} />
-                                </div>
-                            </div>
-                            <div>
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717a', display: 'block', marginBottom: 6 }}>
-                                    Acceptance: {accRange[0]}–{accRange[1]}%
-                                </label>
-                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                    <input type="range" min={0} max={100} value={accRange[0]} onChange={e => setAccRange([+e.target.value, accRange[1]])} style={{ accentColor: '#22d3ee' }} />
-                                    <input type="range" min={0} max={100} value={accRange[1]} onChange={e => setAccRange([accRange[0], +e.target.value])} style={{ accentColor: '#22d3ee' }} />
-                                </div>
-                            </div>
                             <div>
                                 <label style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717a', display: 'block', marginBottom: 6 }}>Status</label>
                                 <div style={{ display: 'flex', gap: 4 }}>
@@ -373,18 +513,18 @@ export default function DSAListPage({ filterCompany }) {
                     )}
 
                     {/* Table header */}
-                    <div style={{
-                        display: 'grid', gridTemplateColumns: '28px 1fr 90px 1fr 80px 70px',
-                        gap: 8, padding: '6px 12px', borderBottom: '1px solid #27272a',
-                        fontSize: '0.62rem', fontWeight: 900, color: '#52525b', textTransform: 'uppercase', letterSpacing: '0.08em',
-                    }}>
-                        <span></span>
-                        <span>Problem</span>
-                        <span>Difficulty</span>
-                        <span>Companies</span>
-                        <span>Frequency</span>
-                        <span>Accept %</span>
-                    </div>
+                    {!isMobile && (
+                        <div style={{
+                            display: 'grid', gridTemplateColumns: '28px 1fr 90px 1fr',
+                            gap: 8, padding: '6px 12px', borderBottom: '1px solid #27272a',
+                            fontSize: '0.62rem', fontWeight: 900, color: '#52525b', textTransform: 'uppercase', letterSpacing: '0.08em',
+                        }}>
+                            <span></span>
+                            <span>Problem</span>
+                            <span>Difficulty</span>
+                            <span>Companies</span>
+                        </div>
+                    )}
 
                     {/* Virtualized list */}
                     {probLoading ? (
@@ -406,96 +546,40 @@ export default function DSAListPage({ filterCompany }) {
                             </button>
                         </div>
                     ) : (
-                        <div ref={listRef} style={{ height: 'min(65vh, 600px)', overflowY: 'auto', overflowX: 'hidden' }}>
-                            <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-                                {virtualizer.getVirtualItems().map(vItem => {
-                                    const p = filtered[vItem.index]
-                                    if (!p) return null
-                                    const prog = progressMap[p.id]
-                                    const isSolved = prog?.status === 'solved'
-                                    const isBookmarked = prog?.is_bookmarked
-                                    const hasNotes = expandedNotes === p.id
+                        <>
+                            {shown.map(p => (
+                                <ProblemRow
+                                    key={p.id}
+                                    p={p}
+                                    prog={progressMap[p.id]}
+                                    isMobile={isMobile}
+                                    onToggleStatus={toggleStatus}
+                                    onToggleBookmark={toggleBookmark}
+                                />
+                            ))}
 
-                                    return (
-                                        <div
-                                            key={p.id}
-                                            style={{
-                                                position: 'absolute', top: vItem.start, left: 0, right: 0,
-                                            }}
-                                        >
-                                            <div style={{
-                                                display: 'grid', gridTemplateColumns: '28px 1fr 90px 1fr 80px 70px',
-                                                gap: 8, padding: '10px 12px', alignItems: 'center',
-                                                borderBottom: '1px solid rgba(39,39,42,0.5)',
-                                                background: isSolved ? 'rgba(34,211,238,0.03)' : 'transparent',
-                                                transition: 'background 0.15s',
-                                            }}
-                                                onMouseEnter={e => { if (!isSolved) e.currentTarget.style.background = '#18181b' }}
-                                                onMouseLeave={e => { e.currentTarget.style.background = isSolved ? 'rgba(34,211,238,0.03)' : 'transparent' }}
-                                            >
-                                                {/* Checkbox */}
-                                                <FluidCheckbox
-                                                    checked={isSolved}
-                                                    onChange={() => toggleStatus(p.id, prog?.status ?? 'unsolved')}
-                                                />
+                            {gated && (
+                                <LockedSlice count={total - shown.length} noun="DSA problems" variant="row" />
+                            )}
 
-                                                {/* Title */}
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-                                                    <a href={p.link} target="_blank" rel="noopener noreferrer"
-                                                        style={{
-                                                            color: isSolved ? '#71717a' : '#fafafa', textDecoration: 'none',
-                                                            fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                                            textDecorationLine: isSolved ? 'line-through' : 'none',
-                                                        }}>
-                                                        {p.title}
-                                                    </a>
-                                                    {/* Notes icon */}
-                                                    <button onClick={() => setExpandedNotes(hasNotes ? null : p.id)}
-                                                        title="Notes"
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: prog?.notes ? '#22d3ee' : '#3f3f46', padding: 0, flexShrink: 0 }}>
-                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
-                                                    </button>
-                                                    {/* Bookmark */}
-                                                    <button onClick={() => toggleBookmark(p.id)}
-                                                        title="Bookmark"
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: isBookmarked ? '#facc15' : '#3f3f46', padding: 0, flexShrink: 0 }}>
-                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill={isBookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
-                                                    </button>
-                                                </div>
-
-                                                {/* Difficulty */}
-                                                <DifficultyBadge difficulty={p.difficulty} />
-
-                                                {/* Companies */}
-                                                <CompanyBadges companies={p.company || []} />
-
-                                                {/* Frequency bar */}
-                                                <FrequencyBar value={p.frequency} />
-
-                                                {/* Acceptance */}
-                                                <span style={{ fontSize: '0.78rem', color: '#71717a' }}>
-                                                    {p.acceptance_rate != null ? `${Math.round(p.acceptance_rate * 100)}%` : '—'}
-                                                </span>
-                                            </div>
-
-                                            {/* Notes drawer */}
-                                            {hasNotes && (
-                                                <NotesDrawer
-                                                    problemId={p.id}
-                                                    initialNotes={prog?.notes}
-                                                    onSave={(notes) => { saveNotes(p.id, notes) }}
-                                                    onClose={() => setExpandedNotes(null)}
-                                                />
-                                            )}
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        </div>
+                            {!isFree && (
+                                <Pagination page={safePage} totalPages={totalPages} onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
+                            )}
+                        </>
                     )}
 
-                    <div style={{ marginTop: 8, color: '#52525b', fontSize: '0.72rem' }}>
-                        {filtered.length} of {allProblems.length} shown · Press <kbd style={{ border: '1px solid #27272a', borderRadius: 3, padding: '0 4px', fontSize: '0.65rem', color: '#71717a' }}>Cmd+K</kbd> to search
+                    <div style={{ marginTop: 8, color: '#52525b', fontSize: '0.72rem', textAlign: 'center' }}>
+                        {isFree ? (
+                            <>
+                                Preview: {shown.length} of {Math.max(total, shown.length)}
+                                {' — '}
+                                <Link to="/pricing" style={{ color: '#22d3ee', textDecoration: 'none', fontWeight: 700 }}>upgrade for all</Link>
+                            </>
+                        ) : (
+                            <>
+                                Showing {pagedItems.length} of {filtered.length} · {allProblems.length} total · Press <kbd style={{ border: '1px solid #27272a', borderRadius: 3, padding: '0 4px', fontSize: '0.65rem', color: '#71717a' }}>/</kbd> to search
+                            </>
+                        )}
                     </div>
                 </div>
             </div>

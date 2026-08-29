@@ -1,0 +1,36 @@
+-- 05_add_state_column.sql
+-- ---------------------------------------------------------------------------
+-- Purpose:
+--   Add a `state` jsonb column to public.user_problem_progress so the HLD
+--   workspace can persist a full whiteboard snapshot per user, per problem.
+--
+--   The snapshot payload (written by the frontend via useProgress.saveNotes)
+--   looks like:
+--     {
+--       "nodes":     [...],          -- react-flow nodes
+--       "edges":     [...],          -- react-flow edges
+--       "viewport":  { x, y, zoom }, -- react-flow viewport (pan/zoom)
+--       "frNfr":     { fr, nfr },    -- functional / non-functional requirements
+--       "endpoints": [...],          -- API endpoint list
+--       "capacity":  {...},          -- capacity-estimation panel
+--       "notes":     "..."           -- free-text notes for the workspace
+--     }
+--
+-- Security:
+--   RLS is already enabled on user_problem_progress with per-user policies
+--   (upp_select/insert/update/delete_own -> auth.uid() = user_id). Those are
+--   row-level, so they automatically cover the new column. No new policy or
+--   grant is required.
+--
+-- Upsert path:
+--   The existing UNIQUE (user_id, problem_type, problem_id) constraint is what
+--   the client relies on for `.upsert(payload, { onConflict:
+--   'user_id,problem_type,problem_id' })`. Adding a nullable column does not
+--   affect that constraint, so the insert-or-update flow keeps working.
+--
+-- Idempotent: safe to run multiple times.
+-- Ready to paste into the Supabase SQL Editor.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE public.user_problem_progress
+  ADD COLUMN IF NOT EXISTS state jsonb;

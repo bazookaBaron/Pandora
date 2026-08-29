@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
+import { useTier } from '../../lib/useTier'
 import Navbar from '../../components/Navbar'
 import DSAListPage from './DSAListPage'
 
@@ -20,16 +21,46 @@ function DifficultyBar({ problems }) {
 export default function DSACompanyPage() {
     const { companyName } = useParams()
     const decoded = decodeURIComponent(companyName)
+    const { isFree } = useTier()
 
+    // Free-tier paywall: skip this query entirely — it fetches full real rows
+    // (title, link, difficulty…) purely for the company header stats, which
+    // would leak locked data. On free we show a generic "upgrade" note instead.
+    // The <DSAListPage filterCompany> below handles its own server-side gating.
     const { data: problems = [], isLoading } = useQuery({
         queryKey: ['dsa-company', decoded],
+        enabled: !isFree,
         queryFn: async () => {
-            const { data, error } = await supabase
+            // Try contains first (works for JSONB columns)
+            const { data: containsData, error: containsError } = await supabase
                 .from('leetcode_company_problems')
                 .select('id, title, difficulty, link, company, frequency, acceptance_rate, topics')
                 .contains('company', [decoded])
-            if (error) throw error
-            return data || []
+
+            let rawData = containsData || []
+
+            // Fallback: if contains returned nothing (might be a text column), fetch all and filter
+            if (!containsError && rawData.length === 0) {
+                const { data: allData } = await supabase
+                    .from('leetcode_company_problems')
+                    .select('id, title, difficulty, link, company, frequency, acceptance_rate, topics')
+                rawData = (allData || []).filter(p => {
+                    let co = p.company
+                    if (typeof co === 'string') { try { co = JSON.parse(co) } catch { co = [co] } }
+                    return Array.isArray(co) && co.includes(decoded)
+                })
+            }
+
+            return rawData.map(p => {
+                let company = p.company
+                if (typeof company === 'string') {
+                    try { company = JSON.parse(company) } catch { company = company ? [company] : [] }
+                }
+                if (!Array.isArray(company)) company = company ? [String(company)] : []
+                let difficulty = p.difficulty
+                if (difficulty) difficulty = difficulty.charAt(0).toUpperCase() + difficulty.slice(1).toLowerCase()
+                return { ...p, company, difficulty }
+            })
         },
         staleTime: 5 * 60 * 1000,
     })
@@ -60,10 +91,12 @@ export default function DSACompanyPage() {
                             <div>
                                 <h1 style={{ fontSize: '1.3rem', fontWeight: 900, letterSpacing: '-0.03em', color: '#fafafa' }}>{decoded}</h1>
                                 <p style={{ color: '#71717a', fontSize: '0.78rem', marginTop: 2 }}>
-                                    {isLoading ? '…' : `${problems.length} problems`}
+                                    {isFree
+                                        ? 'Sign up for Pro to see company breakdowns'
+                                        : isLoading ? '…' : `${problems.length} problems`}
                                 </p>
                             </div>
-                            {!isLoading && problems.length > 0 && (
+                            {!isFree && !isLoading && problems.length > 0 && (
                                 <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
                                     <DifficultyBar problems={problems} />
                                     <div style={{ display: 'flex', gap: 12, fontSize: '0.68rem' }}>

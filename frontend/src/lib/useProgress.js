@@ -8,7 +8,7 @@ export function useProgress(problemType) {
     const { user } = useAuth()
     const queryClient = useQueryClient()
 
-    const { data: rows = [], isLoading } = useQuery({
+    const { data: rows = [], isLoading, isSuccess, isFetched } = useQuery({
         queryKey: ['progress', user?.id, problemType],
         queryFn: async () => {
             if (!user) return []
@@ -21,9 +21,9 @@ export function useProgress(problemType) {
             return data
         },
         enabled: !!user,
-        staleTime: 0,
-        refetchOnMount: 'always',
-        refetchOnWindowFocus: true,
+        staleTime: 60_000,          // don't re-fetch within 60s — lets optimistic updates survive
+        refetchOnMount: false,
+        refetchOnWindowFocus: false, // tab switch must NOT race the in-flight write
     })
 
     // Build a map: problem_id -> row
@@ -72,10 +72,12 @@ export function useProgress(problemType) {
         debounceTimers.current[problemId] = setTimeout(async () => {
             try {
                 await upsert(problemId, { status: next })
+                // Re-sync from DB after write succeeds (doesn't race — write is already done)
+                queryClient.invalidateQueries({ queryKey: ['progress', user?.id, problemType] })
             } catch (err) {
                 console.error('Progress save failed:', err)
-                // Rollback on error
-                queryClient.invalidateQueries(['progress', user?.id, problemType])
+                // Rollback optimistic update on error
+                queryClient.invalidateQueries({ queryKey: ['progress', user?.id, problemType] })
             }
         }, 400)
     }, [user, problemType, queryClient, upsert])
@@ -94,9 +96,19 @@ export function useProgress(problemType) {
         })
     }, [user, problemType, queryClient, progressMap, upsert])
 
-    const saveNotes = useCallback((problemId, notes) => {
-        upsert(problemId, { notes }).catch(console.error)
+    // Partial write for the `notes` / `state` columns.
+    // Contract: pass `undefined` for any argument you want left untouched — only
+    // the fields you actually supply are merged into the row. (HLD passes
+    // `notes: undefined` because its real notes live inside `state.notes`; LLD/DSA
+    // pass only `notes` and leave `state` alone.)
+    const saveNotes = useCallback((problemId, notes, state) => {
+        const patch = {}
+        if (notes !== undefined) patch.notes = notes
+        if (state !== undefined) patch.state = state
+        upsert(problemId, patch).catch(console.error)
     }, [upsert])
 
-    return { progressMap, isLoading, toggleStatus, toggleBookmark, saveNotes }
+    // `isSuccess` means progress rows have actually loaded for the current user
+    // (vs `!isLoading`, which is also false while the query is disabled for a null user).
+    return { progressMap, isLoading, isSuccess, isFetched, toggleStatus, toggleBookmark, saveNotes }
 }
