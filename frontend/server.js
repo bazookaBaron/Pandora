@@ -4,7 +4,7 @@ import cors from "cors";
 import multer from "multer";
 import { rateLimit } from "express-rate-limit";
 import { readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,6 +44,7 @@ import {
   decodedLen,
 } from "./lib/validate.js";
 import { supabaseAdmin } from "./lib/supabaseAdmin.js";
+import { classifyRoute, renderIndex, baseUrl, escapeHtml } from "./lib/seoHead.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE_DIR = path.join(__dirname, "resume-source");
@@ -114,7 +115,10 @@ const catalogLimiter = rateLimit({
 app.use("/api", generalLimiter);
 
 // Serve the built frontend (Vite `dist/` output) as static files so you only need one server running.
-app.use(express.static(path.join(__dirname, "dist")));
+// `index: false` — never auto-serve dist/index.html for "/"; the SEO-aware
+// fallback handler below owns "/" (and every other non-asset route) so it can
+// inject a route-correct <head>.
+app.use(express.static(path.join(__dirname, "dist"), { index: false }));
 
 // Multer: accept resume PDF in memory
 const upload = multer({
@@ -148,14 +152,196 @@ function fail(res, err, label, genericMsg) {
   if (!res.headersSent) res.status(500).json({ error: genericMsg || "Something went wrong." });
 }
 
-// Helper: extract plain text from an uploaded PDF buffer.
+// pdfjs-dist (legacy build) — used for link-annotation extraction and page-fill
+// measurement. pdf-parse@2.4.5's own hyperlink/info APIs throw
+// "Cannot transfer object of unsupported type" in Node, so we go direct.
+let _pdfjs;
+async function loadPdfjs() {
+  if (!_pdfjs) {
+    const { pathToFileURL } = await import("node:url");
+    const { createRequire } = await import("node:module");
+    const require = createRequire(import.meta.url);
+    _pdfjs = await import(
+      pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.mjs")).href
+    );
+    _pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(
+      require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs"),
+    ).href;
+  }
+  return _pdfjs;
+}
+
+// Real http(s) profile URLs only — drop mailto:, tel:, wa.me phone links, and
+// empty placeholder hrefs like a bare "https://" (common in résumé templates
+// where the LinkedIn/GitHub icon was never given a real address).
+function isUsefulProfileUrl(u) {
+  const s = String(u || "").trim();
+  if (!/^https?:\/\/[^\s/]+\.[^\s/]+/i.test(s)) return false;
+  if (/^https?:\/\/wa\.me\//i.test(s)) return false;
+  return true;
+}
+
+// Extract text from an uploaded PDF, enriched with hyperlink targets. Résumés
+// render "LinkedIn"/"GitHub" as anchor text (often an icon glyph that yields NO
+// extractable text at all) while the real URL lives only in the link
+// annotation. We append an explicit "DETECTED HYPERLINKS" block so the extractor
+// can resolve bare anchors — but only for links that actually carry a URL.
 async function extractPdfText(buffer) {
+  let text = "";
   const parser = new PDFParse({ data: buffer });
   try {
-    const { text } = await parser.getText();
-    return text?.trim() || "";
+    const r = await parser.getText();
+    text = r?.text?.trim() || "";
   } finally {
     await parser.destroy().catch(() => {});
+  }
+
+  const urls = [];
+  try {
+    const pdfjs = await loadPdfjs();
+    const doc = await pdfjs.getDocument({
+      data: new Uint8Array(buffer),
+      isEvalSupported: false,
+      useSystemFonts: false,
+      verbosity: 0,
+    }).promise;
+    try {
+      for (let i = 1; i <= doc.numPages; i++) {
+        const page = await doc.getPage(i);
+        const annots = await page.getAnnotations();
+        for (const a of annots) {
+          if (a.subtype !== "Link") continue;
+          const u = String(a.url || a.unsafeUrl || "").trim().replace(/[).,;]+$/, "");
+          if (isUsefulProfileUrl(u)) urls.push(u);
+        }
+      }
+    } finally {
+      await doc.destroy().catch(() => {});
+    }
+  } catch (e) {
+    console.warn("[generate] pdfjs link extraction failed:", redact(e?.message || String(e)));
+  }
+
+  const unique = [...new Set(urls)];
+  if (unique.length) {
+    text +=
+      `\n\nDETECTED HYPERLINKS (exact URLs pulled from the PDF's link annotations — ` +
+      `use these to fill contact.links / linkedin / github when the visible text only shows anchor words like "LinkedIn"/"GitHub"):\n` +
+      unique.join("\n");
+  }
+  return text;
+}
+
+// Layout of a COMPILED résumé PDF: page count + how much of page 1 is blank at
+// the bottom (0 = content reaches the bottom margin, 0.2 = bottom fifth empty).
+// Used to enforce "exactly one, fully-filled page".
+async function pdfLayoutInfo(buffer) {
+  try {
+    const pdfjs = await loadPdfjs();
+    const doc = await pdfjs.getDocument({
+      data: new Uint8Array(buffer),
+      isEvalSupported: false,
+      verbosity: 0,
+    }).promise;
+    try {
+      const pages = doc.numPages;
+      const page = await doc.getPage(1);
+      const vp = page.getViewport({ scale: 1 });
+      const tc = await page.getTextContent();
+      let minY = vp.height;
+      for (const it of tc.items) {
+        const y = it.transform && it.transform[5];
+        if (typeof y === "number" && y < minY) minY = y;
+      }
+      // minY = distance of lowest text from the page bottom (PDF origin = bottom-left).
+      const bottomGapRatio = Math.max(0, Math.min(1, minY / vp.height));
+      return { pages, bottomGapRatio };
+    } finally {
+      await doc.destroy().catch(() => {});
+    }
+  } catch (e) {
+    console.warn("[generate] pdfLayoutInfo failed:", redact(e?.message || String(e)));
+    return { pages: 0, bottomGapRatio: 0 };
+  }
+}
+
+// Guarantee a sane "before optimization" scorecard: each metric strictly below
+// its "after" counterpart, never zero, and at least 45. A plausible real
+// estimate (from the best-effort pre-scoring call) is used when it already fits
+// that band; otherwise we derive one from the "after" score.
+function deriveBeforeMetrics(after, rawHint) {
+  const KEYS = [
+    "keywordMatchPercent",
+    "atsPassChancePercent",
+    "humanScreenChancePercent",
+  ];
+  const DEFAULT_GAP = {
+    keywordMatchPercent: 22,
+    atsPassChancePercent: 18,
+    humanScreenChancePercent: 27,
+  };
+  const out = {};
+  for (const k of KEYS) {
+    let a = Math.round(Number(after?.[k]));
+    if (!Number.isFinite(a)) a = 80;
+    a = Math.max(50, Math.min(100, a));
+    const ceil = Math.max(46, a - 3); // strictly below "after"
+    const hint = Math.round(Number(rawHint?.[k]));
+    let b =
+      Number.isFinite(hint) && hint >= 45 && hint < a
+        ? hint
+        : a - DEFAULT_GAP[k];
+    b = Math.max(45, Math.min(ceil, b));
+    if (b >= a) b = Math.max(41, a - 2);
+    out[k] = b;
+  }
+  return out;
+}
+
+// Placeholder strings that live in resume-source/resume.tex (the FORMAT skeleton).
+// None of these may ever appear in generated output. "debopriyo"/"debnath" are
+// kept as belt-and-braces in case an old skeleton is ever deployed.
+const IDENTITY_LEAK_MARKERS = [
+  "candidate full name",
+  "candidate.email@example.com",
+  "candidate-handle",
+  "000-000-0000",
+  "company name",
+  "university name",
+  "project name",
+  "placeholder skill",
+  "placeholder achievement",
+  "placeholder project",
+  "debopriyo",
+  "debnath",
+];
+
+// Throws (500 via the route's catch) if the tailored .tex still contains skeleton
+// placeholder data, or if the extracted candidate's name is nowhere in it.
+function assertNoIdentityLeak(tex, candidateName) {
+  const hay = String(tex || "").toLowerCase();
+
+  const leaked = IDENTITY_LEAK_MARKERS.filter((m) => hay.includes(m));
+  if (leaked.length) {
+    const err = new Error(
+      `Generated résumé still contains skeleton/placeholder data: ${leaked.join(", ")}`,
+    );
+    err.code = "IDENTITY_LEAK";
+    throw err;
+  }
+
+  // The candidate's own name (or at least its first token) should be present.
+  const first = String(candidateName || "")
+    .trim()
+    .split(/\s+/)[0]
+    ?.toLowerCase()
+    .replace(/[{}\\~^]/g, "");
+  if (first && first.length > 1 && !hay.includes(first)) {
+    const err = new Error(
+      "Generated résumé does not contain the extracted candidate's name.",
+    );
+    err.code = "IDENTITY_LEAK";
+    throw err;
   }
 }
 
@@ -262,8 +448,8 @@ app.post(
         readFile(path.join(SOURCE_DIR, "resume.cls"), "utf-8"),
       ]);
 
-      // 3. BEFORE metrics — best-effort.
-      let beforeMetrics = null;
+      // 3. BEFORE metrics — best-effort raw hint; sanitised against "after" later.
+      let beforeHint = null;
       if (process.env.GEMINI_API_KEY) {
         try {
           const beforePrompt = `You are a strict ATS scoring system. Score this resume against the job description.
@@ -281,10 +467,10 @@ Output ONLY this JSON (no markdown, use \\n for newlines inside string values):
           const jsonStr = extractJson(raw);
           if (jsonStr) {
             try {
-              beforeMetrics = JSON.parse(jsonStr);
+              beforeHint = JSON.parse(jsonStr);
             } catch {
               try {
-                beforeMetrics = JSON.parse(sanitizeJsonString(jsonStr));
+                beforeHint = JSON.parse(sanitizeJsonString(jsonStr));
               } catch {
                 /* ignore */
               }
@@ -296,14 +482,29 @@ Output ONLY this JSON (no markdown, use \\n for newlines inside string values):
       }
 
       // 4. Stage 1: raw résumé text → strict structured JSON.
-      const structured = await extractStructuredResume({
-        resumeText: uploadedResumeText,
-        apiKey,
-        provider,
-      });
+      //    A failed or too-sparse extraction MUST be a clear user-facing error —
+      //    never fall through to Stage 2, which would return the skeleton's
+      //    placeholder identity as if it were the candidate's résumé.
+      let structured;
+      try {
+        structured = await extractStructuredResume({
+          resumeText: uploadedResumeText,
+          apiKey,
+          provider,
+        });
+      } catch (e) {
+        console.warn(
+          "[generate] extraction failed/incomplete:",
+          redact(e?.message || String(e)),
+        );
+        return res.status(422).json({
+          error:
+            "We couldn't read enough detail from your resume. Please try again, or upload a text-based PDF (not a scanned image).",
+        });
+      }
 
       // 5. Stage 2: tailor to the JD.
-      const { metrics, tex, cls } = await generateTailoredResume({
+      let { metrics, tex, cls } = await generateTailoredResume({
         jd,
         structuredResume: structured,
         currentTex,
@@ -312,8 +513,64 @@ Output ONLY this JSON (no markdown, use \\n for newlines inside string values):
         provider,
       });
 
-      // 6. Compile to PDF.
-      const pdfBuffer = await compileLatexToPdf({ tex, cls });
+      // 5b. Name-leak guard (cheap sanity net). The tailored .tex must carry the
+      //     candidate's real identity — not the skeleton's placeholder strings,
+      //     and not any stray hard-coded name. If it doesn't, refuse to return it
+      //     rather than ship someone else's / placeholder data.
+      assertNoIdentityLeak(tex, structured.name);
+
+      // 6. Compile to PDF, then enforce "exactly ONE, fully-filled page".
+      //    One corrective regeneration if the first attempt either overflows
+      //    (>1 page) or leaves a large blank band at the bottom (underfilled).
+      const UNDERFILL_GAP = 0.14; // >14% of page height blank at the bottom
+      let pdfBuffer = await compileLatexToPdf({ tex, cls });
+      let layout = await pdfLayoutInfo(pdfBuffer);
+
+      const overflow = layout.pages > 1;
+      const underfilled = layout.pages === 1 && layout.bottomGapRatio > UNDERFILL_GAP;
+      if (overflow || underfilled) {
+        const note = overflow
+          ? `The previous .tex compiled to ${layout.pages} pages. It MUST be EXACTLY ONE page. Keep every bullet and every section, but reduce \\vspace values, tighten wording, and shorten the summary until it fits on a single page. Never delete an experience, project, or education entry.`
+          : `The previous .tex compiled to a single page but left roughly the bottom ${Math.round(layout.bottomGapRatio * 100)}% of the page blank. Fill the page: expand every experience/project bullet to its fullest truthful STAR form using detail already in CANDIDATE DATA, widen the summary to 3 full sentences, and increase inter-section \\vspace so the content reaches the bottom margin. Do NOT invent facts — expand and space what is truthfully there. Still exactly ONE page.`;
+        console.warn(
+          `[generate] page-fit retry (${overflow ? "overflow " + layout.pages + "pg" : "underfill gap " + layout.bottomGapRatio.toFixed(2)})`,
+        );
+        try {
+          const retry = await generateTailoredResume({
+            jd,
+            structuredResume: structured,
+            currentTex: tex, // feed the previous version back as the skeleton
+            currentCls,
+            apiKey,
+            provider,
+            revisionNote: note,
+          });
+          assertNoIdentityLeak(retry.tex, structured.name);
+          const retryPdf = await compileLatexToPdf({ tex: retry.tex, cls: retry.cls });
+          const retryLayout = await pdfLayoutInfo(retryPdf);
+          // Accept the retry only if it's a genuine improvement:
+          //  - never more pages than before, and
+          //  - for underfill, a smaller bottom gap.
+          const betterPages = retryLayout.pages && retryLayout.pages <= Math.max(1, layout.pages);
+          const betterFill = overflow
+            ? retryLayout.pages === 1
+            : retryLayout.pages === 1 && retryLayout.bottomGapRatio < layout.bottomGapRatio;
+          if (betterPages && betterFill) {
+            ({ metrics, tex, cls } = retry);
+            pdfBuffer = retryPdf;
+            layout = retryLayout;
+          }
+        } catch (e) {
+          console.warn(
+            "[generate] page-fit retry failed, keeping first output:",
+            redact(e?.message || String(e)),
+          );
+        }
+      }
+
+      // Sanitised before/after scorecard — always populated, before < after,
+      // never zero (see item: "before should never be 0").
+      const beforeMetrics = deriveBeforeMetrics(metrics, beforeHint);
 
       // 7. Build the download filename.
       const extractedName = structured?.name?.trim();
@@ -1177,6 +1434,153 @@ app.get("/api/stats/overview", requireAuth, async (req, res) => {
   }
 });
 
+// ── Jobs board ───────────────────────────────────────────────────
+// Read-only view of the crawler-populated jobs table (see
+// C:\Users\debna\Downloads\job-crawler — schema in src/pgpipe/schema.sql).
+// The crawler owns the schema; this endpoint only reads it.
+//
+// The crawler writes into a dedicated Postgres schema `crawler` (not `public`).
+// For supabase-js to reach it, add `crawler` to the project's exposed schemas:
+//   Supabase dashboard → Settings → API → "Exposed schemas" → add `crawler`.
+// If you later move the crawler to `public` (only after a clean collision
+// check), set JOBS_SCHEMA=public in the server env.
+const JOBS_PAGE_SIZE = 20;
+const JOBS_SCHEMA = process.env.JOBS_SCHEMA || "crawler";
+const JOBS_TABLE = "job_posting";
+
+function jobsDb() {
+  return JOBS_SCHEMA && JOBS_SCHEMA !== "public"
+    ? supabaseAdmin.schema(JOBS_SCHEMA)
+    : supabaseAdmin;
+}
+
+// Map a raw crawler.job_posting row + resolved company name -> the shape
+// JobsPage.jsx renders.
+function normalizeJob(row, companyNameBySlug) {
+  const company =
+    (companyNameBySlug && companyNameBySlug[row.company_slug]) ||
+    row.company_slug ||
+    "";
+  let locationType = String(row.location_type || "").toLowerCase();
+  if (locationType === "telecommute") locationType = "remote"; // schema.org enum leak
+  if (locationType === "on_site") locationType = "onsite";
+  return {
+    id: row.id,
+    title: String(row.title || (Array.isArray(row.titles) && row.titles[0]) || ""),
+    company: String(company || ""),
+    location: row.location || "",
+    locationType,
+    employmentType: row.employment_type || "",
+    url: row.url || "",
+    source: row.source || "",
+    firstSeen: row.first_seen_at || null,
+    lastSeen: row.last_seen_at || null,
+    status: row.status || "open",
+  };
+}
+
+function jobsNotReady(res) {
+  return res.json({
+    items: [],
+    total: 0,
+    page: 1,
+    pageCount: 1,
+    facets: { sources: [], locationTypes: ["remote", "hybrid", "onsite"] },
+    notReady: true,
+  });
+}
+
+app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
+  try {
+    const search = String(req.query.search || "").trim().slice(0, 120);
+    const company = String(req.query.company || "").trim().slice(0, 80);
+    const locationType = String(req.query.location_type || "")
+      .trim()
+      .toLowerCase()
+      .slice(0, 20);
+    const source = String(req.query.source || "").trim().slice(0, 40);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const from = (page - 1) * JOBS_PAGE_SIZE;
+    const to = from + JOBS_PAGE_SIZE - 1;
+
+    let q = jobsDb()
+      .from(JOBS_TABLE)
+      .select(
+        "id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, status",
+        { count: "exact" },
+      )
+      .eq("status", "open")
+      .order("first_seen_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, to);
+
+    if (search) {
+      // generated tsvector column `search_tsv` (GIN-indexed) — proper FTS
+      q = q.textSearch("search_tsv", search, { type: "websearch", config: "english" });
+    }
+    if (company) {
+      q = q.ilike("company_slug", `%${company.replace(/[%_,()]/g, " ")}%`);
+    }
+    if (locationType) q = q.eq("location_type", locationType);
+    if (source) q = q.eq("source", source);
+
+    const { data, error, count } = await q;
+    if (error) throw error;
+
+    const rows = data || [];
+
+    // Resolve company display names for just this page's slugs.
+    let companyNameBySlug = {};
+    const slugs = [...new Set(rows.map((r) => r.company_slug).filter(Boolean))];
+    if (slugs.length) {
+      const { data: cRows } = await jobsDb()
+        .from("company")
+        .select("slug, name")
+        .in("slug", slugs);
+      for (const c of cRows || []) companyNameBySlug[c.slug] = c.name;
+    }
+
+    const items = rows.map((r) => normalizeJob(r, companyNameBySlug)).filter((j) => j.url);
+
+    // Source facet for the dropdown (best-effort).
+    let sources = [];
+    try {
+      const { data: sRows } = await jobsDb()
+        .from(JOBS_TABLE)
+        .select("source")
+        .eq("status", "open")
+        .not("source", "is", null)
+        .limit(3000);
+      sources = [...new Set((sRows || []).map((r) => r.source).filter(Boolean))]
+        .sort()
+        .slice(0, 40);
+    } catch {
+      /* facets are optional */
+    }
+
+    res.json({
+      items,
+      total: count ?? items.length,
+      page,
+      pageCount: Math.max(1, Math.ceil((count ?? items.length) / JOBS_PAGE_SIZE)),
+      facets: { sources, locationTypes: ["remote", "hybrid", "onsite"] },
+    });
+  } catch (err) {
+    // Until the crawler has run its migrations (and `crawler` is added to the
+    // project's exposed schemas) the table is unreachable — degrade to a soft
+    // empty instead of a 500.
+    const msg = String((err && err.message) || err);
+    if (
+      /relation .* does not exist|column .* does not exist|Could not find the (table|.*column)|schema cache|schema must be one of|The schema must be|not exposed|PGRST106|PGRST205/i.test(
+        msg,
+      )
+    ) {
+      return jobsNotReady(res);
+    }
+    fail(res, err, "jobs", "Failed to load jobs.");
+  }
+});
+
 // ── Referral requests ────────────────────────────────────────────
 // profiles / referral_requests / storage bucket 'referral-resumes' all sit
 // behind RLS that the browser cannot write to — every mutation and every
@@ -1934,12 +2338,133 @@ app.post("/api/webhooks/lemonsqueezy", async (req, res) => {
   }
 });
 
-// SPA fallback: serve the built index.html for any non-/api route so client-side
-// routing works on hard refresh. Registered AFTER all /api routes.
+// SPA + SEO fallback: for any non-/api route, serve the built index.html with a
+// route-aware <head> — correct <title>, description, canonical, Open Graph +
+// Twitter Card tags, and (blog posts) JSON-LD — injected into the RAW HTML
+// before any JS runs. Private app routes get an explicit noindex. Registered
+// AFTER all /api routes. Only active on this Express-served path (production /
+// `npm run serve`); the Vite dev server on :5173 serves the plain template.
 const INDEX_HTML = path.join(__dirname, "dist", "index.html");
-app.get(/^(?!\/api).*/, (_req, res, next) => {
-  if (!existsSync(INDEX_HTML)) return next();
-  res.sendFile(INDEX_HTML);
+const INDEX_TEMPLATE = existsSync(INDEX_HTML)
+  ? readFileSync(INDEX_HTML, "utf8")
+  : null;
+
+// ── robots.txt (dynamic so the Sitemap: line uses the real origin) ──────────
+// Allow public/indexable routes; disallow the API and every authenticated app
+// route. User-triggered fetchers ignore robots.txt by design — the private
+// routes also carry a noindex meta (see the SEO fallback below) as the real
+// guard; this file is the crawl-budget hint.
+app.get("/robots.txt", (req, res) => {
+  const base = baseUrl(req);
+  res.type("text/plain").send(
+    [
+      "User-agent: *",
+      "Allow: /$",
+      "Allow: /pricing",
+      "Allow: /blog",
+      "Disallow: /api/",
+      "Disallow: /auth",
+      "Disallow: /profile",
+      "Disallow: /dashboard",
+      "Disallow: /dsa",
+      "Disallow: /lld",
+      "Disallow: /hld",
+      "Disallow: /interview",
+      "Disallow: /referrals",
+      "",
+      `Sitemap: ${base}/sitemap.xml`,
+      "",
+    ].join("\n"),
+  );
+});
+
+// ── sitemap.xml (dynamic: static public pages + every published blog post) ──
+app.get("/sitemap.xml", async (req, res) => {
+  const base = baseUrl(req);
+  const urls = [
+    { loc: `${base}/`, priority: "1.0", changefreq: "weekly" },
+    { loc: `${base}/pricing`, priority: "0.8", changefreq: "monthly" },
+    { loc: `${base}/blog`, priority: "0.7", changefreq: "weekly" },
+  ];
+  try {
+    const { data } = await supabaseAdmin
+      .from("blogs")
+      .select("slug,updated_at,published_at")
+      .eq("published", true)
+      .order("published_at", { ascending: false });
+    for (const b of data || []) {
+      urls.push({
+        loc: `${base}/blog/${encodeURIComponent(b.slug)}`,
+        lastmod: (b.updated_at || b.published_at || "").slice(0, 10) || undefined,
+        priority: "0.6",
+        changefreq: "monthly",
+      });
+    }
+  } catch (e) {
+    console.warn("[seo] sitemap blog query failed", redact(String(e && e.message)));
+  }
+  const body =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+    urls
+      .map((u) => {
+        const parts = [`    <loc>${escapeHtml(u.loc)}</loc>`];
+        if (u.lastmod) parts.push(`    <lastmod>${u.lastmod}</lastmod>`);
+        if (u.changefreq) parts.push(`    <changefreq>${u.changefreq}</changefreq>`);
+        if (u.priority) parts.push(`    <priority>${u.priority}</priority>`);
+        return `  <url>\n${parts.join("\n")}\n  </url>`;
+      })
+      .join("\n") +
+    "\n</urlset>\n";
+  res.type("application/xml").set("Cache-Control", "public, max-age=0, s-maxage=600").send(body);
+});
+
+app.get(/^(?!\/api).*/, async (req, res, next) => {
+  if (!INDEX_TEMPLATE) return next(); // dev / no build
+
+  const c = classifyRoute(req.path);
+
+  let post = null;
+  if (c.kind === "public" && c.key === "blogPost") {
+    try {
+      const { data } = await supabaseAdmin
+        .from("blogs")
+        .select(
+          "slug,title,excerpt,cover_image_url,meta_title,meta_description,published_at,updated_at",
+        )
+        .eq("slug", c.slug)
+        .eq("published", true)
+        .maybeSingle();
+      post = data || null;
+    } catch (e) {
+      console.warn("[seo] blog lookup failed", redact(String(e && e.message)));
+    }
+    if (!post) {
+      // Unknown/unpublished slug (or the blogs table doesn't exist yet) →
+      // 404 with noindex so Google drops it.
+      res.status(404).send(
+        renderIndex(INDEX_TEMPLATE, {
+          classify: { kind: "noindex" },
+          base: baseUrl(req),
+          path: req.path,
+        }),
+      );
+      return;
+    }
+  }
+
+  const html = renderIndex(INDEX_TEMPLATE, {
+    classify: c,
+    base: baseUrl(req),
+    path: req.path,
+    post,
+  });
+  res.set("Content-Type", "text/html; charset=utf-8");
+  res.set(
+    "Cache-Control",
+    c.kind === "public" ? "public, max-age=0, s-maxage=300" : "no-store",
+  );
+  res.send(html);
 });
 
 // ── Final error handler (multer errors, body-parser errors, etc.) ──

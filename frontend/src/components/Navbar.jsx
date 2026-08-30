@@ -28,6 +28,7 @@ const NAV_LINKS = [
     { to: '/hld', label: 'HLD' },
     { to: '/interview', label: 'Interview' },
     { to: '/referrals', label: 'Referrals' },
+    { to: '/jobs', label: 'Jobs' },
 ]
 
 export default function Navbar() {

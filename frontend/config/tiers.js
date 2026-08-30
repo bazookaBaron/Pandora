@@ -20,9 +20,9 @@ export const TIERS = {
             hld_catalog_access: 'list_only',
             hld_practice_per_month: 0,
             interview_q_per_subcategory: 5,
-            resume_optimizer_per_month: 0,
+            resume_optimizer_per_month: 10,
             ai_explanations_per_month: 5,
-            referral_requests_per_month: 0,
+            referral_requests_per_month: 5,
         },
     },
     pro: {

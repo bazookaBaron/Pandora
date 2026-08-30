@@ -147,7 +147,7 @@ export default function HomePage() {
                     <input
                         className="input-field"
                         style={{ padding: '10px 12px', borderRadius: 6, width: '100%', boxSizing: 'border-box', fontSize: '0.9rem' }}
-                        placeholder="e.g. Debopriyo"
+                        placeholder="e.g. Alex Morgan"
                         value={name}
                         onChange={e => setName(e.target.value)}
                     />

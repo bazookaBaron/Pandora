@@ -18,6 +18,7 @@ import HLDListPage from './pages/hld/HLDListPage'
 import HLDWorkspacePage from './pages/hld/HLDWorkspacePage'
 import InterviewPage from './pages/interview/InterviewPage'
 import ReferralsPage from './pages/referrals/ReferralsPage'
+import JobsPage from './pages/jobs/JobsPage'
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -37,9 +38,9 @@ export default function App() {
                     <RouteErrorBoundary>
                     <Routes>
                         <Route path="/auth" element={<AuthPage />} />
-                        <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
+                        <Route path="/" element={<HomePage />} />
                         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
-                        <Route path="/pricing" element={<ProtectedRoute><PricingPage /></ProtectedRoute>} />
+                        <Route path="/pricing" element={<PricingPage />} />
                         <Route path="/dashboard" element={<Navigate to="/profile" replace />} />
                         <Route path="/dsa" element={<ProtectedRoute><DSAListPage /></ProtectedRoute>} />
                         <Route path="/dsa/company/:companyName" element={<ProtectedRoute><DSACompanyPage /></ProtectedRoute>} />
@@ -49,6 +50,7 @@ export default function App() {
                         <Route path="/hld/:id" element={<ProtectedRoute><HLDWorkspacePage /></ProtectedRoute>} />
                         <Route path="/interview" element={<ProtectedRoute><InterviewPage /></ProtectedRoute>} />
                         <Route path="/referrals" element={<ProtectedRoute><ReferralsPage /></ProtectedRoute>} />
+                        <Route path="/jobs" element={<ProtectedRoute><JobsPage /></ProtectedRoute>} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                     </RouteErrorBoundary>

@@ -12,7 +12,8 @@
         "build": "vite build",
         "preview": "vite preview",
         "serve": "node server.js",
-        "start": "node server.js"
+        "start": "node server.js",
+        "test:resume": "node test/resume-isolation.test.mjs"
     },
     "dependencies": {
         "@monaco-editor/react": "^4.7.0",
@@ -30,6 +31,7 @@
         "multer": "^2.2.0",
         "node-cron": "^4.6.0",
         "pdf-parse": "^2.4.5",
+        "pdfjs-dist": "5.4.296",
         "posthog-js": "^1.422.5",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",

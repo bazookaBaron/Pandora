@@ -3,7 +3,7 @@
 
 \LoadClass[21pt,a3paper]{article} % Font size and paper type
 
-\usepackage[paperheight=12.0in,left=0.5in,top=0.25in,right=0.5in,bottom=0.25in]{geometry} % set document margins
+\usepackage[paperheight=11in,left=0.5in,top=0.25in,right=0.5in,bottom=0.25in]{geometry} % 11in page height (was 12in) — the extra inch only ever showed as a blank strip at the bottom of a "one-page" résumé
 \usepackage[parfill]{parskip} % Remove paragraph indentation
 
 \usepackage{etoolbox}

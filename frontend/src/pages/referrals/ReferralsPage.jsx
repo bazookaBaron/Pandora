@@ -124,14 +124,38 @@ function QuotaLine({ usage }) {
     )
 }
 
+// One colour per kind of fact so the eye can parse a card in a glance.
+const TONE = {
+    company: '#38bdf8', // sky
+    jobId: '#a78bfa', // violet
+    role: '#fbbf24', // amber
+    yoe: '#4ade80', // green
+    neutral: '#a1a1aa',
+}
+
+function Chip({ tone = 'neutral', label, children }) {
+    const c = TONE[tone] || TONE.neutral
+    return (
+        <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
+            color: c, background: c + '14', border: `1px solid ${c}33`,
+            padding: '2px 8px', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700,
+            lineHeight: 1.5,
+        }}>
+            {label && <span style={{ opacity: 0.6, fontWeight: 600 }}>{label}</span>}
+            {children}
+        </span>
+    )
+}
+
 function StatusPill({ status }) {
     const map = { open: '#22d3ee', accepted: '#4ade80', cancelled: '#71717a', expired: '#fbbf24' }
     const c = map[status] || '#a1a1aa'
     return (
         <span style={{
-            color: c, background: c + '1a', border: `1px solid ${c}40`,
-            padding: '2px 8px', borderRadius: 6, fontSize: '0.65rem', fontWeight: 900,
-            textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap',
+            color: c, background: c + '1f', border: `1px solid ${c}55`,
+            padding: '2px 9px', borderRadius: 999, fontSize: '0.62rem', fontWeight: 900,
+            textTransform: 'uppercase', letterSpacing: '0.07em', whiteSpace: 'nowrap',
         }}>
             {status}
         </span>
@@ -139,13 +163,13 @@ function StatusPill({ status }) {
 }
 
 const cardStyle = {
-    background: '#18181b', border: '1px solid #27272a', borderRadius: 10,
-    padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8,
+    background: '#161618', border: '1px solid #27272a', borderRadius: 10,
+    padding: '11px 14px', display: 'flex', flexDirection: 'column', gap: 7,
 }
 
 const btnStyle = {
-    padding: '7px 14px', background: 'none', border: '1px solid #27272a',
-    borderRadius: 6, color: '#22d3ee', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 700,
+    padding: '5px 12px', background: 'none', border: '1px solid #27272a',
+    borderRadius: 6, color: '#22d3ee', cursor: 'pointer', fontSize: '0.74rem', fontWeight: 700,
 }
 
 // ── Tab: Post a request ────────────────────────────────────────────
@@ -363,44 +387,40 @@ function OpenCard({ r }) {
     }
 
     const cand = r.poster || {}
-    const candLine = cand.position
-        ? `Candidate: ${cand.position}${cand.years_of_experience ? ` · ${cand.years_of_experience} yrs` : ''}`
-        : null
 
     return (
         <div style={cardStyle}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 900, fontSize: '0.9rem', color: '#fafafa' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 900, fontSize: '0.86rem', color: '#fafafa', letterSpacing: '-0.01em' }}>
                     {r.job_title || 'Referral request'}
                 </span>
-                <span style={{ fontSize: '0.7rem', color: '#71717a' }}>{r.target_company}</span>
+                <Chip tone="company">{r.target_company}</Chip>
+                {r.job_id && <Chip tone="jobId" label="ID">{r.job_id}</Chip>}
+                {cand.position && <Chip tone="role">{cand.position}</Chip>}
+                {cand.years_of_experience != null && cand.years_of_experience !== '' && (
+                    <Chip tone="yoe">{cand.years_of_experience} yrs</Chip>
+                )}
+                <span style={{ flex: 1 }} />
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button type="button" onClick={viewResume} disabled={viewing} style={btnStyle}>
+                        {viewing ? 'Opening…' : 'View resume'}
+                        {viewing && <span className="spinner" style={{ marginLeft: 6, verticalAlign: 'middle' }} />}
+                    </button>
+                    {!gone && (
+                        <button
+                            type="button"
+                            onClick={doAccept}
+                            disabled={accept.isPending}
+                            style={{ ...btnStyle, color: '#4ade80', borderColor: 'rgba(74,222,128,0.4)' }}
+                        >
+                            {accept.isPending ? 'Accepting…' : 'Accept & refer'}
+                        </button>
+                    )}
+                </div>
             </div>
-            {r.job_id && (
-                <span style={{ fontSize: '0.72rem', color: '#71717a' }}>Job ID: {r.job_id}</span>
-            )}
-            {candLine && (
-                <span style={{ fontSize: '0.74rem', color: '#a1a1aa' }}>{candLine}</span>
-            )}
-            <span style={{ fontSize: '0.68rem', color: '#52525b' }}>
+            <span style={{ fontSize: '0.66rem', color: '#52525b' }}>
                 Posted {relTime(r.created_at)} · expires {relTime(r.expires_at)}
             </span>
-
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
-                <button type="button" onClick={viewResume} disabled={viewing} style={btnStyle}>
-                    {viewing ? 'Opening…' : 'View resume'}
-                    {viewing && <span className="spinner" style={{ marginLeft: 6, verticalAlign: 'middle' }} />}
-                </button>
-                {!gone && (
-                    <button
-                        type="button"
-                        onClick={doAccept}
-                        disabled={accept.isPending}
-                        style={{ ...btnStyle, color: '#4ade80', borderColor: 'rgba(74,222,128,0.4)' }}
-                    >
-                        {accept.isPending ? 'Accepting…' : 'Accept & refer'}
-                    </button>
-                )}
-            </div>
 
             {viewErr && <span style={{ fontSize: '0.72rem', color: '#f87171' }}>{viewErr}</span>}
             {acceptErr && <span style={{ fontSize: '0.72rem', color: '#f87171' }}>{acceptErr}</span>}
@@ -465,20 +485,21 @@ function MineCard({ r }) {
 
     return (
         <div style={cardStyle}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 900, fontSize: '0.9rem', color: '#fafafa' }}>{r.target_company}</span>
-                {r.job_title && <span style={{ fontSize: '0.74rem', color: '#a1a1aa' }}>{r.job_title}</span>}
-                <span style={{ marginLeft: 'auto' }}><StatusPill status={r.status} /></span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 900, fontSize: '0.86rem', color: '#fafafa', letterSpacing: '-0.01em' }}>{r.target_company}</span>
+                {r.job_title && <Chip tone="role">{r.job_title}</Chip>}
+                {r.job_id && <Chip tone="jobId" label="ID">{r.job_id}</Chip>}
+                <span style={{ flex: 1 }} />
+                <StatusPill status={r.status} />
             </div>
-            {r.job_id && <span style={{ fontSize: '0.72rem', color: '#71717a' }}>Job ID: {r.job_id}</span>}
-            <span style={{ fontSize: '0.68rem', color: '#52525b' }}>
+            <span style={{ fontSize: '0.66rem', color: '#52525b' }}>
                 Posted {relTime(r.created_at)} · expires {relTime(r.expires_at)}
             </span>
 
             {r.status === 'accepted' && r.accepter && (
                 <div style={{
                     background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.3)',
-                    borderRadius: 8, padding: '10px 12px', fontSize: '0.8rem', color: '#a1a1aa',
+                    borderRadius: 8, padding: '7px 11px', fontSize: '0.78rem', color: '#a1a1aa',
                 }}>
                     <strong style={{ color: '#fafafa' }}>{r.accepter.name}</strong> accepted — reach out:{' '}
                     <a href={`mailto:${r.accepter.email}`} style={{ color: '#22d3ee' }}>{r.accepter.email}</a>

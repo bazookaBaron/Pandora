@@ -82,7 +82,7 @@ RULES:
 - Extract ONLY what is present in the text. Do NOT invent, infer, or add anything.
 - Leave unknown fields as an empty string "" or an empty array []. Never use null.
 - Preserve every bullet VERBATIM. You may lightly fix obvious OCR artifacts (missing spaces between words, broken hyphenation, stray line breaks) but never reword, summarize, merge, or drop a bullet.
-- "links": array of URLs / profile handles (LinkedIn, GitHub, portfolio, etc.) exactly as written in the text. If a link's real URL isn't in the text (only anchor text like "LinkedIn" or "GitHub"), leave it as an empty string — do not reconstruct, guess, or complete it. Never fabricate a URL, slug, email, or phone number.
+- "links": array of URLs / profile handles (LinkedIn, GitHub, portfolio, etc.). Use the exact URLs written in the text. The text may end with a "DETECTED HYPERLINKS" section listing "anchor text -> URL" pairs pulled from the PDF's link annotations — when the visible résumé shows only an anchor word like "LinkedIn" or "GitHub", use the matching URL from that section. Only if neither the body text nor the DETECTED HYPERLINKS section has a real URL, leave it as an empty string — never reconstruct, guess, or complete a URL, slug, email, or phone number.
 - "skills": keep the résumé's own categories and their items. If skills are listed ungrouped, use a single entry with category "Skills".
 - One "experience" entry per role. If the same company lists multiple titles/date ranges, emit one entry per title.
 - Dates ("start"/"end"/"graduation"): copy the text as written (e.g. "Aug 2024", "2022", "Present", "Current").
@@ -97,19 +97,24 @@ Output the JSON object now:`;
 }
 
 // ── Stage 2 prompt: structured résumé + JD → tailored .tex ────────
-function buildTailorPrompt({ structuredResume, jd, currentTex, currentCls }) {
+function buildTailorPrompt({ structuredResume, jd, currentTex, currentCls, revisionNote }) {
     const structuredJson =
         typeof structuredResume === "string"
             ? structuredResume
             : JSON.stringify(structuredResume, null, 2);
 
+    const revisionBlock = revisionNote
+        ? `\n═══════════════════════════════════════════════════════════\nREVISION REQUIRED (previous attempt failed page fit)\n═══════════════════════════════════════════════════════════\n${revisionNote}\n`
+        : "";
+
     return `You are an elite ATS résumé optimizer, professional résumé writer, and LaTeX engineer. Produce the HIGHEST-SCORING one-page résumé possible for this JD while staying 100% truthful to the CANDIDATE DATA.
+${revisionBlock}
 
 ═══════════════════════════════════════════════════════════
 SECTION 0 — WHAT EACH INPUT IS (read carefully)
 ═══════════════════════════════════════════════════════════
 • CANDIDATE DATA (JSON) is the SINGLE SOURCE OF TRUTH for this résumé. Every identity value — name, email, phone, location, links, company names, job titles, employment dates, project names, schools, degrees, graduation dates, grades — MUST come from this JSON and nothing else.
-• The SKELETON .tex is the repo owner's résumé. It is ONLY a LaTeX FORMATTING TEMPLATE. Every literal value in it (the name "Debopriyo Debnath", "JP Morgan Chase", "IIT Patna", project names, dates, bullet text, etc.) is NOT the candidate's — you MUST replace every one of them with the candidate's real values from CANDIDATE DATA. If a piece of skeleton content has no counterpart in CANDIDATE DATA, delete that piece rather than keep the owner's data.
+• The SKELETON .tex is a FORMAT-ONLY LaTeX TEMPLATE. Every literal value in it (placeholder name, "Company Name", "University Name", "Project Name", placeholder dates and bullet text, etc.) is filler — you MUST replace every one of them with the candidate's real values from CANDIDATE DATA. If a piece of skeleton content has no counterpart in CANDIDATE DATA, delete that piece rather than keep the placeholder. Never emit any of the skeleton's placeholder strings (e.g. "CANDIDATE FULL NAME", "candidate.email@example.com", "Company Name", "University Name") in the output.
 • The .cls is layout only. Return it byte-for-byte identical.
 • NEVER invent, guess, autocomplete, or "repair" any URL, profile slug, or handle (LinkedIn, GitHub, portfolio, website, email, phone) — use ONLY the exact strings present in CANDIDATE DATA. If CANDIDATE DATA has an empty or missing value for one, emit its macro with an empty argument (e.g. linkedin={} / github={}); never substitute a plausible-looking fabrication such as a guessed linkedin.com/in/<name> slug.
 
@@ -140,7 +145,10 @@ PROJECTS: reword keyHighlight and bullets toward JD-relevant tech and outcomes, 
 KEYWORD STRATEGY: pull the top 15-20 hard skills/technologies from the JD; for each one the candidate TRULY has, make sure it appears (ideally in Skills and a bullet) using the JD's exact wording.
 NEVER: fabricate or exaggerate experience, skills, tools, metrics, years, titles, dates, or employers. If the JD needs something the candidate lacks, it goes ONLY into missingRequiredKeywords / hardGaps — never into the résumé body.
 
-PAGE FIT: must compile to exactly 1 page with the given .cls. Fill the page — dense, professional, no large gaps. If tight, adjust \\vspace values in the .tex only (never the .cls).
+PAGE FIT (HARD REQUIREMENT): the output MUST compile to EXACTLY ONE full page with the given .cls — never less, never more.
+• Not more than 1 page: if content overflows, tighten \\vspace values, shorten (never drop) bullet wording, and trim the summary — in the .tex only, never the .cls.
+• Not less than 1 page: the page must look FULL, edge to edge, with no large blank band at the bottom. If the candidate's data is thin, expand every bullet to its fullest truthful STAR form, restore any detail from CANDIDATE DATA you compressed, widen the summary to 3 sentences, and increase \\vspace slightly so sections breathe and reach the bottom margin. Do NOT invent content to fill space — expand and space out what is truthfully there.
+• Aim for the page to be 92-100% full.
 
 ═══════════════════════════════════════════════════════════
 SECTION D — SELF-ASSESSMENT (honest, skeptical recruiter voice)
@@ -410,8 +418,8 @@ export async function extractStructuredResume({
     }
 
     // Normalise the shape so downstream code can rely on it.
-    return {
-        name: typeof structured.name === "string" ? structured.name : "",
+    const normalised = {
+        name: typeof structured.name === "string" ? structured.name.trim() : "",
         contact: {
             email: structured.contact?.email || "",
             phone: structured.contact?.phone || "",
@@ -424,6 +432,26 @@ export async function extractStructuredResume({
         projects: Array.isArray(structured.projects) ? structured.projects : [],
         education: Array.isArray(structured.education) ? structured.education : [],
     };
+
+    // A valid-but-empty JSON object is NOT a usable extraction. If we let it
+    // through, Stage 2 has nothing to substitute into the skeleton and returns
+    // the skeleton's placeholder content as if it were the candidate's résumé.
+    // Fail loudly instead so the caller can surface a clear error to the user.
+    const hasName = normalised.name.length > 1;
+    const historyCount =
+        normalised.experience.length +
+        normalised.education.length +
+        normalised.projects.length;
+    if (!hasName || historyCount === 0) {
+        const err = new Error(
+            `Extraction returned too little to build a résumé (name=${hasName ? "ok" : "missing"}, ` +
+            `experience/education/projects entries=${historyCount}).`
+        );
+        err.code = "EXTRACTION_INCOMPLETE";
+        throw err;
+    }
+
+    return normalised;
 }
 
 // ── Public entry point — Stage 2: tailor the résumé to a JD ──────
@@ -436,6 +464,7 @@ export async function generateTailoredResume({
     currentCls,
     apiKey,
     provider: providerKey = "gemini",
+    revisionNote = "",
 }) {
     if (!structuredResume || typeof structuredResume !== "object") {
         throw new Error("generateTailoredResume: structuredResume object is required.");
@@ -443,7 +472,7 @@ export async function generateTailoredResume({
 
     const provider = resolveProvider(providerKey, apiKey);
     const model = provider.defaultModel;
-    const prompt = buildTailorPrompt({ structuredResume, jd, currentTex, currentCls });
+    const prompt = buildTailorPrompt({ structuredResume, jd, currentTex, currentCls, revisionNote });
     const rawText = await provider.call({ apiKey, model, prompt });
 
     if (process.env.DEBUG_AI_RAW) {

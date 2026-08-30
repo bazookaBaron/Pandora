@@ -1,0 +1,1 @@
+Drop `og-default.png` here — a 1200x630 PNG used as the default Open Graph / Twitter Card image for public routes (`/`, `/pricing`, `/blog`, and blog posts with no `cover_image_url`). Files in this folder are copied to `dist/` verbatim by Vite and served from the site root, so it resolves at `/og-default.png`.

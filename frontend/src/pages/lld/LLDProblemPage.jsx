@@ -19,6 +19,11 @@ import Navbar from '../../components/Navbar'
 import FluidCheckbox from '../../components/shared/FluidCheckbox'
 import DifficultyBadge from '../../components/shared/DifficultyBadge'
 
+// Feature flag: the sandboxed code runner (▶ Run → /api/run → Piston) is not
+// deployed yet. Flip to true once the isolated Piston service is live. The whole
+// run/console UI is gated on this so nothing user-facing references it meanwhile.
+const LLD_RUNNER_ENABLED = false
+
 // ── File tree utilities ────────────────────────────────────────────
 function buildTree(files) {
     const root = {}
@@ -498,7 +503,7 @@ export default function LLDProblemPage() {
                 }}>
                     ⬇ ZIP
                 </button>
-                <button
+                {LLD_RUNNER_ENABLED && <button
                     onClick={async () => {
                         if (!codeFiles.length || runStatus === 'running') return
                         setRunStatus('running')
@@ -597,7 +602,7 @@ export default function LLDProblemPage() {
                     }}
                 >
                     {runStatus === 'running' ? '⏳ Running…' : '▶ Run'}
-                </button>
+                </button>}
             </div>
 
             {/* File tabs */}
@@ -710,7 +715,7 @@ export default function LLDProblemPage() {
                             </div>
                         )}
                     </div>
-                    {showConsole && (
+                    {LLD_RUNNER_ENABLED && showConsole && (
                         <ConsolePanel
                             run={runResult?.run}
                             compile={runResult?.compile}
