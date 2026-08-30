@@ -981,6 +981,29 @@ app.get("/api/catalog/dsa", catalogLimiter, requireAuth, async (req, res) => {
     );
     const total = rowsAll.length;
 
+    // ── Company-filter freemium (task 2) ──────────────────────────────
+    // When a free user filters by company: filter the FULL set first, then
+    // return 5 full rows + a COUNT of the rest (no premium row data leaves the
+    // server). Paid users fall through to the normal unlimited path.
+    const COMPANY_FREE_VISIBLE = 5;
+    if (!unlimited && companies.length > 0) {
+      const matched = filterSortDsa(rowsAll, { search, companies, difficulties, sort });
+      const items = matched.slice(0, COMPANY_FREE_VISIBLE);
+      const lockedCount = Math.max(0, matched.length - COMPANY_FREE_VISIBLE);
+      return res.json({
+        items,
+        total,
+        locked: lockedCount,
+        lockedCount, // explicit: render this many placeholder cards
+        companyLock: true, // client: per-question lock cards, not a LockedSlice row
+        limit: serializeLimit(limit),
+        page: 1,
+        pageSize,
+        pageCount: 1,
+        filteredCount: matched.length,
+      });
+    }
+
     let base = rowsAll;
     let locked = 0;
     if (!unlimited) {
@@ -1011,6 +1034,8 @@ app.get("/api/catalog/dsa", catalogLimiter, requireAuth, async (req, res) => {
       items,
       total,
       locked,
+      lockedCount: locked,
+      companyLock: false,
       limit: serializeLimit(limit),
       page: pageOut,
       pageSize,

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { Lock } from 'lucide-react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
@@ -91,6 +92,30 @@ function CompanyBadges({ companies = [], isMobile = false }) {
     )
 }
 
+// Placeholder for a company-matched question hidden behind Premium (task 2).
+// No title / tags / metadata — only a lock. Roughly matches ProblemRow size.
+function LockedQuestionCard({ isMobile, onClick }) {
+    return (
+        <div
+            role="button"
+            tabIndex={0}
+            onClick={onClick}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
+            title="Upgrade to unlock this question"
+            style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                padding: isMobile ? '14px 12px' : '13px 12px',
+                borderBottom: '1px solid rgba(39,39,42,0.5)',
+                color: 'var(--faint)', cursor: 'pointer',
+                background: 'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255,255,255,0.02) 8px, rgba(255,255,255,0.02) 16px)',
+            }}
+        >
+            <Lock size={15} />
+            <span style={{ fontSize: '0.74rem', fontWeight: 700, letterSpacing: '0.02em' }}>Premium question</span>
+        </div>
+    )
+}
+
 function ProblemRow({ p, prog, isMobile, onToggleStatus, onToggleBookmark }) {
     const isSolved = prog?.status === 'solved'
     const isBookmarked = prog?.is_bookmarked
@@ -163,6 +188,7 @@ function ProblemRow({ p, prog, isMobile, onToggleStatus, onToggleBookmark }) {
 export default function DSAListPage({ filterCompany }) {
     const [searchParams, setSearchParams] = useSearchParams()
     const { user } = useAuth()
+    const navigate = useNavigate()
     const isMobile = useMediaQuery('(max-width: 767px)')
 
     // Read filters from URL params. `q` is written on a 300ms debounce below, so
@@ -224,6 +250,8 @@ export default function DSAListPage({ filterCompany }) {
     const items = data?.items || []
     const total = data?.total ?? 0
     const locked = data?.locked ?? 0
+    const lockedCount = data?.lockedCount ?? locked
+    const companyLock = !!data?.companyLock // free user + company filter → per-question lock cards
     const filteredCount = data?.filteredCount ?? items.length
     const pageCount = data?.pageCount ?? 1
     const unlimited = data?.limit === 'unlimited'
@@ -456,7 +484,29 @@ export default function DSAListPage({ filterCompany }) {
                                 ))}
                             </div>
 
-                            {locked > 0 && (
+                            {companyLock && lockedCount > 0 && (
+                                <>
+                                    <div style={{
+                                        margin: '10px 0', padding: '10px 14px', borderRadius: 8,
+                                        border: '1px solid rgba(167,139,250,0.35)', background: 'rgba(167,139,250,0.08)',
+                                        fontSize: '0.78rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 8,
+                                        flexWrap: 'wrap',
+                                    }}>
+                                        <Lock size={14} style={{ color: '#a78bfa', flexShrink: 0 }} />
+                                        <span><strong style={{ color: 'var(--bright)' }}>{lockedCount}</strong> more question{lockedCount === 1 ? '' : 's'} available with Premium</span>
+                                        <Link to="/pricing" style={{ color: '#a78bfa', fontWeight: 700, textDecoration: 'none' }}>— Upgrade to unlock</Link>
+                                    </div>
+                                    <div style={{ opacity: isFetching ? 0.6 : 1 }}>
+                                        {/* one placeholder per hidden question; capped so a company
+                                            with hundreds of matches doesn't blow up the DOM. */}
+                                        {Array.from({ length: Math.min(lockedCount, 100) }).map((_, i) => (
+                                            <LockedQuestionCard key={`lock-${i}`} isMobile={isMobile} onClick={() => navigate('/pricing')} />
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+
+                            {!companyLock && locked > 0 && (
                                 <LockedSlice count={locked} noun="DSA problems" variant="row" />
                             )}
 
