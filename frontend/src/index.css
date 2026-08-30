@@ -1292,3 +1292,14 @@ h3 {
 [data-panel-resize-handle-enabled]:hover {
     background: var(--pop) !important;
 }
+/* ── Resizable-panel separators (LLD workspace) ─────────────────────── */
+.rrp-sep {
+    flex-shrink: 0;
+    transition: background var(--transition);
+    touch-action: none;
+}
+.rrp-sep:hover,
+.rrp-sep[data-separator-active],
+.rrp-sep[data-active] {
+    background: var(--pop) !important;
+}

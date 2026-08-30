@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/apiClient'
 import { useAuth } from '../contexts/AuthContext'
@@ -246,6 +246,89 @@ function ProgressSection({ user }) {
             )}
 
         </section>
+    )
+}
+
+// ── Avatar with inline edit ────────────────────────────────────────
+// The `avatars` storage bucket is public; RLS lets a user write only under a
+// folder named for their uid. profiles.avatar_url (RLS: own row) is the source
+// of truth; falls back to the live Google picture from user_metadata.
+function AvatarEditor({ user }) {
+    const qc = useQueryClient()
+    const fileRef = useRef(null)
+    const [busy, setBusy] = useState(false)
+    const [err, setErr] = useState('')
+
+    const { data: profile } = useQuery({
+        queryKey: ['profile-avatar', user?.id],
+        queryFn: async () => {
+            const { data } = await supabase.from('profiles').select('avatar_url').eq('id', user.id).maybeSingle()
+            return data || {}
+        },
+        enabled: !!user,
+    })
+
+    const src = profile?.avatar_url || user?.user_metadata?.avatar_url || user?.user_metadata?.picture || null
+
+    const onFile = async (e) => {
+        const file = e.target.files?.[0]
+        e.target.value = ''
+        if (!file) return
+        setErr('')
+        if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) { setErr('Use a JPG, PNG, WEBP or GIF.'); return }
+        if (file.size > 2 * 1024 * 1024) { setErr('Image must be under 2 MB.'); return }
+        setBusy(true)
+        try {
+            const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+            const path = `${user.id}/avatar_${Date.now()}.${ext}`
+            const up = await supabase.storage.from('avatars').upload(path, file, { cacheControl: '3600', contentType: file.type })
+            if (up.error) throw up.error
+            const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path)
+            const upd = await supabase.from('profiles').update({ avatar_url: pub.publicUrl }).eq('id', user.id)
+            if (upd.error) throw upd.error
+            try {
+                const { data: list } = await supabase.storage.from('avatars').list(user.id)
+                const stale = (list || []).map(o => `${user.id}/${o.name}`).filter(p => p !== path)
+                if (stale.length) await supabase.storage.from('avatars').remove(stale)
+            } catch { /* best effort */ }
+            qc.invalidateQueries({ queryKey: ['profile-avatar', user.id] })
+        } catch (e2) {
+            setErr(e2?.message || 'Upload failed.')
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    return (
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+            {src ? (
+                <img className="profile-avatar" src={src} alt="" referrerPolicy="no-referrer" style={{ objectFit: 'cover' }} />
+            ) : (
+                <div className="profile-avatar" style={{ background: stringToColor(user?.email) }}>{getInitials(user)}</div>
+            )}
+            <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={busy}
+                aria-label="Change profile photo"
+                title="Change profile photo"
+                style={{
+                    position: 'absolute', right: -6, bottom: -6, width: 24, height: 24, borderRadius: '50%',
+                    border: '1px solid var(--subtle)', background: 'var(--panel)', color: 'var(--accent)',
+                    cursor: busy ? 'wait' : 'pointer', display: 'grid', placeItems: 'center', padding: 0,
+                }}
+            >
+                {busy ? (
+                    <span className="spinner" style={{ width: 11, height: 11 }} />
+                ) : (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                    </svg>
+                )}
+            </button>
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display: 'none' }} onChange={onFile} />
+            {err && <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, fontSize: '0.66rem', color: 'var(--red)', whiteSpace: 'nowrap' }}>{err}</div>}
+        </div>
     )
 }
 
@@ -570,12 +653,7 @@ export default function ProfilePage() {
             <main className="wrap profile-wrap">
                 {/* Hero */}
                 <div className="profile-hero">
-                    <div
-                        className="profile-avatar"
-                        style={{ background: stringToColor(user?.email) }}
-                    >
-                        {getInitials(user)}
-                    </div>
+                    <AvatarEditor user={user} />
                     <div className="profile-hero-info">
                         <h1 className="profile-name">{displayName}</h1>
                         <p className="profile-email">{user?.email}</p>

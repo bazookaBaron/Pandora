@@ -311,7 +311,6 @@ export default function HomePage() {
             <main className="wrap">
                 {/* Header */}
                 <header className="header">
-                    <div className="logo-mark">R</div>
                     <div>
                         <h1>Resume Optimizer</h1>
                         <p className="subtitle">Upload your resume PDF + paste a job description → get a tailored, ATS-optimized PDF in seconds.</p>

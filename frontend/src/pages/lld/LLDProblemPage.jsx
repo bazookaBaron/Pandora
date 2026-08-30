@@ -486,7 +486,7 @@ export default function LLDProblemPage() {
     )
 
     const CodePane = (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
             {/* Toolbar */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', flexShrink: 0 }}>
                 <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
@@ -633,14 +633,15 @@ export default function LLDProblemPage() {
             )}
 
             {/* Editor area — file tree is a left column on desktop, a collapsible top strip on mobile */}
-            <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
                 {/* File tree */}
                 <div style={{
                     width: isMobile ? '100%' : 200,
                     borderRight: isMobile ? 'none' : '1px solid var(--subtle)',
                     borderBottom: isMobile ? '1px solid var(--subtle)' : 'none',
-                    maxHeight: isMobile ? (treeOpen ? 180 : 36) : 'none',
-                    overflowY: 'auto', background: 'var(--surface-2)', flexShrink: 0,
+                    maxHeight: isMobile ? (treeOpen ? '45vh' : 40) : 'none',
+                    overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain',
+                    background: 'var(--surface-2)', flexShrink: 0,
                 }}>
                     {isMobile && (
                         <button onClick={() => setTreeOpen(o => !o)} style={{
@@ -686,8 +687,8 @@ export default function LLDProblemPage() {
                 </div>
 
                 {/* Monaco + Console */}
-                <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ flex: 1, overflow: 'hidden' }}>
+                <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
                         {activeFile ? (
                             <Editor
                                 key={activeFile.id}
@@ -698,14 +699,16 @@ export default function LLDProblemPage() {
                                 options={{
                                     readOnly: true,
                                     domReadOnly: true,
-                                    minimap: { enabled: true },
-                                    fontSize: 13,
+                                    automaticLayout: true,
+                                    minimap: { enabled: !isMobile },
+                                    fontSize: isMobile ? 12 : 13,
                                     lineNumbers: 'on',
                                     scrollBeyondLastLine: false,
-                                    wordWrap: 'off',
+                                    wordWrap: isMobile ? 'on' : 'off',
                                     renderWhitespace: 'selection',
                                     folding: true,
                                     bracketPairColorization: { enabled: true },
+                                    scrollbar: { alwaysConsumeMouseWheel: false },
                                 }}
                             />
                         ) : (
@@ -782,17 +785,17 @@ export default function LLDProblemPage() {
                 {/* Workspace: 3-pane on desktop, tabbed on mobile.
                     (Free-tier deep-links are handled by the `locked` early return.) */}
                 {!isMobile ? (
-                    <Group direction="horizontal" style={{ flex: 1, overflow: 'hidden' }}>
+                    <Group orientation="horizontal" style={{ flex: 1, overflow: 'hidden' }}>
                         {/* Left pane: requirements (top) + diagram (bottom) — or just
                             requirements full-height when there's no class diagram. */}
-                        <Panel defaultSize={35} minSize={20} style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                        <Panel defaultSize="35" minSize="20" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                             {hasDiagram ? (
-                                <Group direction="vertical" style={{ flex: 1 }}>
-                                    <Panel defaultSize={55} minSize={20} style={{ overflow: 'hidden', background: 'var(--surface-2)' }}>
+                                <Group orientation="vertical" style={{ flex: 1 }}>
+                                    <Panel defaultSize="55" minSize="20" style={{ overflow: 'hidden', background: 'var(--surface-2)' }}>
                                         {RequirementsPane}
                                     </Panel>
-                                    <Separator style={{ height: 4, background: 'var(--subtle)', cursor: 'row-resize' }} />
-                                    <Panel defaultSize={45} minSize={15} style={{ overflow: 'hidden', background: 'var(--surface-2)' }}>
+                                    <Separator className="rrp-sep" style={{ height: 6, background: 'var(--subtle)' }} />
+                                    <Panel defaultSize="45" minSize="15" style={{ overflow: 'hidden', background: 'var(--surface-2)' }}>
                                         {DiagramPane}
                                     </Panel>
                                 </Group>
@@ -803,10 +806,10 @@ export default function LLDProblemPage() {
                             )}
                         </Panel>
 
-                        <Separator style={{ width: 4, background: 'var(--subtle)', cursor: 'col-resize' }} />
+                        <Separator className="rrp-sep" style={{ width: 6, background: 'var(--subtle)' }} />
 
                         {/* Right pane: code viewer */}
-                        <Panel defaultSize={65} minSize={30} style={{ overflow: 'hidden' }}>
+                        <Panel defaultSize="65" minSize="30" style={{ overflow: 'hidden' }}>
                             {CodePane}
                         </Panel>
                     </Group>

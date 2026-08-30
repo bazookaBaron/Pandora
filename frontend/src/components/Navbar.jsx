@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
+import { useAvatarUrl } from '../lib/useAvatar'
 import { useMediaQuery } from '../lib/useMediaQuery'
 
 function ThemeToggle({ full = false }) {
@@ -99,7 +100,16 @@ export default function Navbar() {
     }, [menuOpen])
 
     const profileLabel = user?.user_metadata?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'Profile'
-    const avatar = (
+    const avatarUrl = useAvatarUrl()
+    const avatar = avatarUrl ? (
+        <img
+            className="nav-avatar"
+            src={avatarUrl}
+            alt=""
+            referrerPolicy="no-referrer"
+            style={{ width: 18, height: 18, borderRadius: 3, objectFit: 'cover' }}
+        />
+    ) : (
         <span
             className="nav-avatar"
             style={{ background: stringToColor(user?.email), width: 18, height: 18, fontSize: '0.55rem', borderRadius: 3 }}
