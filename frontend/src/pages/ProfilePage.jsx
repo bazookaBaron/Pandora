@@ -245,45 +245,71 @@ function ProgressSection({ user }) {
                 </div>
             )}
 
-            {/* Focus Companies */}
-            {focusCompanies.length > 0 && (
-                <div>
-                    <h3 style={{ fontSize: '0.72rem', fontWeight: 900, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Focus Companies</h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: companyCols, gap: 8 }}>
-                        {focusCompanies.map(([name, data]) => {
-                            const dsaDone = data.dsa?.solved ?? 0, dsaTotal = data.dsa?.total ?? 0
-                            const lldDone = data.lld?.solved ?? 0, lldTotal = data.lld?.total ?? 0
-                            const overallPct = (dsaTotal + lldTotal) ? Math.round(((dsaDone + lldDone) / (dsaTotal + lldTotal)) * 100) : 0
-                            const pctColor = overallPct > 50 ? '#4ade80' : overallPct > 20 ? '#facc15' : '#71717a'
-                            return (
-                                <div key={name} style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 8, padding: '11px 13px' }}
-                                    onMouseEnter={e => e.currentTarget.style.borderColor = '#3f3f46'}
-                                    onMouseLeave={e => e.currentTarget.style.borderColor = '#27272a'}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                                        <span style={{ fontWeight: 900, fontSize: '0.78rem', color: '#fafafa' }}>{name}</span>
-                                        <span style={{ fontSize: '0.68rem', fontWeight: 900, color: pctColor }}>{overallPct}%</span>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: 8, marginBottom: 7 }}>
-                                        {dsaTotal > 0 && <Link to={`/dsa/company/${encodeURIComponent(name)}`} style={{ fontSize: '0.6rem', color: '#22d3ee', textDecoration: 'none', fontWeight: 700 }}>DSA {dsaDone}/{dsaTotal}</Link>}
-                                        {lldTotal > 0 && <Link to={`/lld?company=${encodeURIComponent(name)}`} style={{ fontSize: '0.6rem', color: '#f472b6', textDecoration: 'none', fontWeight: 700 }}>LLD {lldDone}/{lldTotal}</Link>}
-                                    </div>
-                                    <div style={{ height: 4, background: '#27272a', borderRadius: 2, overflow: 'hidden' }}>
-                                        <div style={{ width: `${overallPct}%`, height: '100%', background: pctColor, borderRadius: 2, transition: 'width 0.5s' }} />
-                                    </div>
-                                </div>
-                            )
-                        })}
-                    </div>
-                </div>
-            )}
+        </section>
+    )
+}
 
-            {readinessLoading && (
-                <div style={{ display: 'grid', gridTemplateColumns: companyCols, gap: 8, marginTop: 8 }}>
-                    {Array.from({ length: 4 }).map((_, i) => (
-                        <div key={i} style={{ height: 72, background: '#18181b', borderRadius: 8, animation: 'pulse 1.5s ease-in-out infinite' }} />
-                    ))}
+// ── Feedback: request a feature / report a bug ──────────────────────
+
+function FeedbackSection() {
+    const [kind, setKind] = useState('feature')
+    const [message, setMessage] = useState('')
+    const [status, setStatus] = useState({ type: '', msg: '' })
+    const [sending, setSending] = useState(false)
+
+    const submit = async (e) => {
+        e.preventDefault()
+        const body = message.trim()
+        if (body.length < 10) {
+            setStatus({ type: 'error', msg: 'Please add a little more detail (min. 10 characters).' })
+            return
+        }
+        setSending(true)
+        setStatus({ type: '', msg: '' })
+        try {
+            await apiFetch('/api/feedback', { json: { kind, message: body } })
+            setStatus({ type: 'success', msg: 'Thanks — your message was sent.' })
+            setMessage('')
+        } catch (err) {
+            setStatus({ type: 'error', msg: err?.body?.error || err?.message || 'Could not send. Try again.' })
+        } finally {
+            setSending(false)
+        }
+    }
+
+    return (
+        <section className="card profile-card">
+            <h2 className="profile-section-title">Feedback</h2>
+            <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                    <label className="field-label">Type</label>
+                    <select className="input-field" value={kind} onChange={(e) => setKind(e.target.value)} style={{ maxWidth: 240 }}>
+                        <option value="feature">Request a feature</option>
+                        <option value="bug">Report a bug</option>
+                    </select>
                 </div>
-            )}
+                <div>
+                    <label className="field-label">Message</label>
+                    <textarea
+                        className="input-field"
+                        rows={4}
+                        maxLength={4000}
+                        placeholder={kind === 'bug'
+                            ? 'What went wrong, and what were you doing when it happened?'
+                            : 'What would you like Vloombox to do?'}
+                        value={message}
+                        onChange={(e) => setMessage(e.target.value)}
+                        style={{ resize: 'vertical', minHeight: 90 }}
+                    />
+                </div>
+                <button type="submit" className="primary-btn" disabled={sending} style={{ width: 'auto', padding: '10px 24px' }}>
+                    <span>{sending ? 'Sending…' : 'Send'}</span>
+                    {sending && <div className="spinner" />}
+                </button>
+                {status.msg && (
+                    <div className={`auth-status auth-status--${status.type}`}>{status.msg}</div>
+                )}
+            </form>
         </section>
     )
 }
@@ -668,6 +694,9 @@ export default function ProfilePage() {
 
                 {/* Progress Overview */}
                 <ProgressSection user={user} />
+
+                {/* Feedback */}
+                <FeedbackSection />
 
                 {/* Session */}
                 <section className="card profile-card">

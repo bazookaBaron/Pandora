@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="736" height="736" viewBox="0 0 736 736">
+  <g id="vb-cluster" fill="#21bbd3">
+    <rect x="338" y="178" width="60" height="162" rx="18"></rect>
+    <rect x="178" y="338" width="162" height="60" rx="18"></rect>
+    <g transform="rotate(-45 368 368)">
+      <rect x="338" y="200" width="60" height="126" rx="18"></rect>
+    </g>
+  </g>
+  <use href="#vb-cluster" transform="rotate(180 368 368)"></use>
+  <circle cx="368" cy="368" r="11" fill="#21bbd3"></circle>
+</svg>

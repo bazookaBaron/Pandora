@@ -13,12 +13,12 @@
  */
 
 export const SITE = {
-  name: "Resume Optimizer",
-  author: "Resume Optimizer", // used for Article author
+  name: "Vloombox",
+  author: "Vloombox", // used for Article author
   twitter: "", // "@handle" if you have one, else "" (tag omitted when empty)
   defaultOgImage: "/og-default.png", // 1200x630, user adds to frontend/public/
   defaultDescription:
-    "AI-powered resume optimizer — paste a job description and get a tailored, ATS-optimized PDF, plus system-design & interview prep.",
+    "Vloombox — AI resume optimizer plus DSA, LLD, HLD and interview prep. Paste a job description and get a tailored, ATS-optimized PDF.",
 };
 
 // process.env.APP_BASE_URL (trailing slashes stripped) — else the request's
@@ -96,7 +96,7 @@ function metaTag(attr, key, value) {
 function routeMeta({ key, base, path, post }) {
   if (key === "home") {
     return {
-      title: "Resume Optimizer — Tailor Your Resume to Any Job with AI",
+      title: "Vloombox — Tailor Your Resume to Any Job with AI",
       description: SITE.defaultDescription,
       canonical: `${base}/`,
       ogType: "website",
@@ -105,7 +105,7 @@ function routeMeta({ key, base, path, post }) {
   }
   if (key === "pricing") {
     return {
-      title: "Pricing — Free, Pro & Max Plans | Resume Optimizer",
+      title: "Pricing — Free, Pro & Max Plans | Vloombox",
       description:
         "Start on the free tier, then upgrade to Pro at $9/mo or Max at $19/mo for unlimited AI resume tailoring, system-design practice, and interview prep.",
       canonical: `${base}/pricing`,
@@ -116,9 +116,9 @@ function routeMeta({ key, base, path, post }) {
   if (key === "blog") {
     return {
       title:
-        "Blog — Interview Prep, System Design & Resume Tips | Resume Optimizer",
+        "Blog — Interview Prep, System Design & Resume Tips | Vloombox",
       description:
-        "Practical guides on technical interview preparation, system design, and writing an ATS-friendly resume from the Resume Optimizer team.",
+        "Practical guides on technical interview preparation, system design, and writing an ATS-friendly resume from the Vloombox team.",
       canonical: `${base}/blog`,
       ogType: "website",
       ogImage: base + SITE.defaultOgImage,

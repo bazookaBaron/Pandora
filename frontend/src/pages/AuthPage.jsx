@@ -208,9 +208,9 @@ export default function AuthPage() {
             <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 400, margin: '0 auto' }}>
                 {/* Logo */}
                 <div className="auth-logo">
-                    <div className="logo-mark">R</div>
+                    <img src="/vloombox-logo.svg" alt="" width="40" height="40" className="logo-mark" style={{ padding: 0, background: 'none' }} />
                     <div>
-                        <h1 className="auth-brand">Resume Optimizer</h1>
+                        <h1 className="auth-brand">Vloombox</h1>
                         <p className="auth-tagline">AI-Powered ATS Tailoring</p>
                     </div>
                 </div>

@@ -139,26 +139,6 @@ function BarChart({ title, rows, toneFor }) {
     )
 }
 
-function DayBars({ data }) {
-    if (!data || !data.length) return null
-    const max = Math.max(...data.map((d) => d.count), 1)
-    return (
-        <div style={{ background: '#161618', border: '1px solid #27272a', borderRadius: 10, padding: '14px 16px' }}>
-            <h3 style={{ fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717a', margin: '0 0 12px' }}>
-                New postings per day (first seen)
-            </h3>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 96 }}>
-                {data.map((d) => (
-                    <div key={d.day} title={`${d.day}: ${d.count}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
-                        <div style={{ width: '100%', height: Math.max(2, (d.count / max) * 76), background: '#22d3ee', opacity: 0.8, borderRadius: 2 }} />
-                        <span style={{ fontSize: '0.5rem', color: '#52525b' }}>{d.day.slice(5)}</span>
-                    </div>
-                ))}
-            </div>
-        </div>
-    )
-}
-
 function Metric({ label, value, accent }) {
     return (
         <div style={{ background: '#161618', border: '1px solid #27272a', borderRadius: 10, padding: '12px 16px', flex: '1 1 150px' }}>
@@ -206,7 +186,6 @@ function AnalyticsView() {
                 {srcRows.length > 0 && <BarChart title="By source (ATS)" rows={srcRows} />}
             </div>
             {coRows.length > 0 && <BarChart title="Top companies by open roles" rows={coRows} />}
-            <DayBars data={data.postedByDay} />
         </div>
     )
 }

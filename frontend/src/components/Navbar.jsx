@@ -84,8 +84,8 @@ export default function Navbar() {
     return (
         <nav className="top-nav" ref={navRef}>
             <Link to="/" className="nav-brand">
-                <span className="nav-pulse" />
-                RESUMEOPT
+                <img src="/vloombox-logo.svg" alt="" width="20" height="20" style={{ display: 'block' }} />
+                VLOOMBOX
             </Link>
 
             {isMobile ? (

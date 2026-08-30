@@ -1689,6 +1689,47 @@ app.get("/api/jobs/analytics", catalogLimiter, requireAuth, async (_req, res) =>
   }
 });
 
+// ── Feedback (feature request / bug report) ──────────────────────
+// Emails the operator directly. Rate-limited; body capped.
+const FEEDBACK_TO = process.env.FEEDBACK_TO_EMAIL || "harvardpark239@gmail.com";
+
+app.post("/api/feedback", aiLimiter, requireAuth, async (req, res) => {
+  try {
+    const { kind, message } = req.body || {};
+    const k = kind === "bug" ? "bug" : "feature";
+    const body = String(message || "").trim();
+    assert(body.length >= 10 && body.length <= 4000, "Message must be 10–4000 characters.");
+
+    if (!resend.isEnabled()) {
+      console.warn("[feedback] RESEND not configured — dropping:", k, redact(body.slice(0, 80)));
+      return res.status(503).json({ error: "Feedback channel is not configured right now." });
+    }
+
+    const reporter = req.user?.email || req.user?.id || "unknown";
+    const label = k === "bug" ? "Bug report" : "Feature request";
+    const safe = escapeHtml(body).replace(/\n/g, "<br>");
+    const r = await resend.sendEmail({
+      to: FEEDBACK_TO,
+      subject: `[Vloombox ${label}] from ${reporter}`,
+      text: `${label}\nFrom: ${reporter}\n\n${body}\n`,
+      html:
+        `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:14px;line-height:1.6">` +
+        `<p><strong>${label}</strong></p>` +
+        `<p style="color:#555">From: ${escapeHtml(reporter)}</p>` +
+        `<hr style="border:none;border-top:1px solid #ddd">` +
+        `<p>${safe}</p></div>`,
+      tag: `feedback_${k}`,
+    });
+
+    if (r && r.error) {
+      return res.status(502).json({ error: "Could not send your message. Please try again later." });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    fail(res, err, "feedback", "Could not send your message.");
+  }
+});
+
 // ── Referral requests ────────────────────────────────────────────
 // profiles / referral_requests / storage bucket 'referral-resumes' all sit
 // behind RLS that the browser cannot write to — every mutation and every
