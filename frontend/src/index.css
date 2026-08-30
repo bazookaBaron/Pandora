@@ -1346,13 +1346,12 @@ h3 {
     border-color: var(--pop);
 }
 
-/* Content pages need extra top room for the tile bar on mobile.
-   (56px nav + ~40px tile bar.) */
+/* Content pages need extra top room for the tile bar on mobile
+   (56px fixed nav + ~40px fixed tile bar). Pages set an inline `padding`
+   shorthand, so the override has to be !important to win. */
 @media (max-width: 767px) {
-    .wrap {
-        padding-top: 108px;
-    }
+    .wrap,
     .has-tilebar {
-        padding-top: 100px !important;
+        padding-top: 104px !important;
     }
 }

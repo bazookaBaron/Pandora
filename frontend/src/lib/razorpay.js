@@ -88,6 +88,22 @@ export async function startRazorpayCheckout({ plan, billingPeriod, user }) {
 }
 
 /**
+ * Entry point used by the pricing page: try the recurring Subscription flow;
+ * if Subscriptions aren't configured yet (no Razorpay Plan ids / webhook
+ * secret), fall back to the one-time term payment so "Upgrade" still works.
+ */
+export async function startCheckout({ plan, billingPeriod, user }) {
+    try {
+        return await startRazorpaySubscription({ plan, billingPeriod, user })
+    } catch (err) {
+        if (err?.code === 'unconfigured') {
+            return await startRazorpayCheckout({ plan, billingPeriod, user })
+        }
+        throw err
+    }
+}
+
+/**
  * Open Razorpay's in-page Checkout for a RECURRING subscription.
  *  - creates the subscription server-side (returns subscription_id)
  *  - opens the modal

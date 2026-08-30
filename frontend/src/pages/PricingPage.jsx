@@ -6,7 +6,7 @@ import { useEntitlements } from '../lib/useEntitlements'
 import { useAuth } from '../contexts/AuthContext'
 import { ErrorState } from '../components/shared/states'
 import { track, EVENTS } from '../lib/analytics'
-import { startRazorpaySubscription } from '../lib/razorpay'
+import { startCheckout as startRazorpayCheckoutFlow } from '../lib/razorpay'
 
 // ── Pricing (config-driven) ─────────────────────────────────────────
 // Renders Free / Pro / Max straight from `config/tiers.js`. The Pro/Max CTAs
@@ -82,7 +82,7 @@ export default function PricingPage() {
         setPending(plan)
         track(EVENTS.CHECKOUT_STARTED, { plan, billing })
         try {
-            await startRazorpaySubscription({ plan, billingPeriod: billing, user })
+            await startRazorpayCheckoutFlow({ plan, billingPeriod: billing, user })
             track(EVENTS.CHECKOUT_COMPLETED, { plan, billing })
             refetch()
             navigate('/subscription/success')
@@ -90,9 +90,9 @@ export default function PricingPage() {
             if (err?.code === 'dismissed') {
                 // user closed the modal — no error message needed
             } else if (err?.code === 'unconfigured') {
-                setNote('Subscriptions aren’t connected yet.')
+                setNote('Payments aren’t connected yet.')
             } else {
-                setNote(err?.message || 'Could not complete the subscription.')
+                setNote(err?.message || 'Could not complete the payment.')
             }
         } finally {
             setPending('')

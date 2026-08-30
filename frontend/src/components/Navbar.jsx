@@ -245,7 +245,9 @@ export default function Navbar() {
                 </div>
             )}
         </nav>
-        {isMobile && <MobileTileBar isActive={isActive} />}
+        {isMobile && !/^\/(lld|hld)\/[^/]+/.test(location.pathname) && (
+            <MobileTileBar isActive={isActive} />
+        )}
       </>
     )
 }
