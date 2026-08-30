@@ -104,13 +104,13 @@ export function planId(plan, period) {
   return (env && process.env[env]) || null;
 }
 
-/** True when key pair + all four plan ids + webhook secret are present. */
+/**
+ * True when the key pair + all four plan ids are present. The webhook secret
+ * is strongly recommended (renewal / cancel / halt sync) but not required to
+ * open checkout — /api/webhooks/razorpay 503s on its own until it is set.
+ */
 export function subscriptionsConfigured() {
-  return (
-    isEnabled() &&
-    !!process.env.RAZORPAY_WEBHOOK_SECRET &&
-    Object.values(PLAN_ENV).every((e) => !!process.env[e])
-  );
+  return isEnabled() && Object.values(PLAN_ENV).every((e) => !!process.env[e]);
 }
 
 /** Create a Razorpay customer. `notes` may carry our user_id. */
