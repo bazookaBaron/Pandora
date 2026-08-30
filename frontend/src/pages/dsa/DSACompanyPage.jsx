@@ -1,73 +1,15 @@
 import { useParams, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { supabase } from '../../lib/supabase'
-import { useTier } from '../../lib/useTier'
 import Navbar from '../../components/Navbar'
 import DSAListPage from './DSAListPage'
 
-function DifficultyBar({ problems }) {
-    const counts = { Easy: 0, Medium: 0, Hard: 0 }
-    problems.forEach(p => { if (counts[p.difficulty] !== undefined) counts[p.difficulty]++ })
-    const total = problems.length || 1
-    return (
-        <div style={{ display: 'flex', gap: 4, height: 8, borderRadius: 6, overflow: 'hidden', width: 200 }}>
-            <div style={{ flex: counts.Easy / total, background: '#4ade80', minWidth: counts.Easy ? 2 : 0 }} title={`Easy: ${counts.Easy}`} />
-            <div style={{ flex: counts.Medium / total, background: '#facc15', minWidth: counts.Medium ? 2 : 0 }} title={`Medium: ${counts.Medium}`} />
-            <div style={{ flex: counts.Hard / total, background: '#f87171', minWidth: counts.Hard ? 2 : 0 }} title={`Hard: ${counts.Hard}`} />
-        </div>
-    )
-}
-
+// Thin wrapper: renders the shared DSA list pre-filtered to one company. The
+// list itself now goes through the authenticated /api/catalog/dsa endpoint
+// (tier caps enforced server-side), so there's no separate catalog fetch here —
+// the old numeric company breakdown was dropped to avoid a second query that
+// would also have leaked locked rows on the free tier.
 export default function DSACompanyPage() {
     const { companyName } = useParams()
     const decoded = decodeURIComponent(companyName)
-    const { isFree } = useTier()
-
-    // Free-tier paywall: skip this query entirely — it fetches full real rows
-    // (title, link, difficulty…) purely for the company header stats, which
-    // would leak locked data. On free we show a generic "upgrade" note instead.
-    // The <DSAListPage filterCompany> below handles its own server-side gating.
-    const { data: problems = [], isLoading } = useQuery({
-        queryKey: ['dsa-company', decoded],
-        enabled: !isFree,
-        queryFn: async () => {
-            // Try contains first (works for JSONB columns)
-            const { data: containsData, error: containsError } = await supabase
-                .from('leetcode_company_problems')
-                .select('id, title, difficulty, link, company, frequency, acceptance_rate, topics')
-                .contains('company', [decoded])
-
-            let rawData = containsData || []
-
-            // Fallback: if contains returned nothing (might be a text column), fetch all and filter
-            if (!containsError && rawData.length === 0) {
-                const { data: allData } = await supabase
-                    .from('leetcode_company_problems')
-                    .select('id, title, difficulty, link, company, frequency, acceptance_rate, topics')
-                rawData = (allData || []).filter(p => {
-                    let co = p.company
-                    if (typeof co === 'string') { try { co = JSON.parse(co) } catch { co = [co] } }
-                    return Array.isArray(co) && co.includes(decoded)
-                })
-            }
-
-            return rawData.map(p => {
-                let company = p.company
-                if (typeof company === 'string') {
-                    try { company = JSON.parse(company) } catch { company = company ? [company] : [] }
-                }
-                if (!Array.isArray(company)) company = company ? [String(company)] : []
-                let difficulty = p.difficulty
-                if (difficulty) difficulty = difficulty.charAt(0).toUpperCase() + difficulty.slice(1).toLowerCase()
-                return { ...p, company, difficulty }
-            })
-        },
-        staleTime: 5 * 60 * 1000,
-    })
-
-    const easyCt = problems.filter(p => p.difficulty === 'Easy').length
-    const medCt = problems.filter(p => p.difficulty === 'Medium').length
-    const hardCt = problems.filter(p => p.difficulty === 'Hard').length
 
     return (
         <>
@@ -80,7 +22,6 @@ export default function DSACompanyPage() {
                             ← All Problems
                         </Link>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                            {/* Company initial avatar */}
                             <div style={{
                                 width: 48, height: 48, borderRadius: 10, background: '#18181b',
                                 border: '2px solid #27272a', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -90,22 +31,8 @@ export default function DSACompanyPage() {
                             </div>
                             <div>
                                 <h1 style={{ fontSize: '1.3rem', fontWeight: 900, letterSpacing: '-0.03em', color: '#fafafa' }}>{decoded}</h1>
-                                <p style={{ color: '#71717a', fontSize: '0.78rem', marginTop: 2 }}>
-                                    {isFree
-                                        ? 'Sign up for Pro to see company breakdowns'
-                                        : isLoading ? '…' : `${problems.length} problems`}
-                                </p>
+                                <p style={{ color: '#71717a', fontSize: '0.78rem', marginTop: 2 }}>Problems tagged with {decoded}</p>
                             </div>
-                            {!isFree && !isLoading && problems.length > 0 && (
-                                <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                    <DifficultyBar problems={problems} />
-                                    <div style={{ display: 'flex', gap: 12, fontSize: '0.68rem' }}>
-                                        <span style={{ color: '#4ade80' }}>Easy {easyCt}</span>
-                                        <span style={{ color: '#facc15' }}>Med {medCt}</span>
-                                        <span style={{ color: '#f87171' }}>Hard {hardCt}</span>
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     </div>
                 </div>

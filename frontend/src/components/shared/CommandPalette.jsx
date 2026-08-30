@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from '../../lib/supabase'
+import { apiFetch } from '../../lib/apiClient'
 
 export default function CommandPalette() {
     const [open, setOpen] = useState(false)
@@ -32,26 +32,25 @@ export default function CommandPalette() {
         if (open) setTimeout(() => inputRef.current?.focus(), 50)
     }, [open])
 
-    // Search both tables
+    // Search via the authenticated catalog endpoint — tier caps are enforced
+    // server-side, so a free user's search never surfaces a capped-out problem.
     useEffect(() => {
         if (!query.trim()) { setResults([]); return }
         const t = setTimeout(async () => {
             setLoading(true)
-            const [dsa, lld] = await Promise.all([
-                supabase.from('leetcode_company_problems')
-                    .select('id, title, difficulty, link')
-                    .ilike('title', `%${query}%`)
-                    .limit(6),
-                supabase.from('lld_problems')
-                    .select('id, title, slug')
-                    .ilike('title', `%${query}%`)
-                    .limit(4),
-            ])
-            const dsaItems = (dsa.data || []).map(r => ({ ...r, type: 'dsa' }))
-            const lldItems = (lld.data || []).map(r => ({ ...r, type: 'lld' }))
-            setResults([...dsaItems, ...lldItems])
-            setSelected(0)
-            setLoading(false)
+            try {
+                const data = await apiFetch(
+                    '/api/catalog/search?limit=6&q=' + encodeURIComponent(query),
+                )
+                const dsaItems = (data?.dsa || []).map(r => ({ ...r, type: 'dsa' }))
+                const lldItems = (data?.lld || []).map(r => ({ ...r, type: 'lld' }))
+                setResults([...dsaItems, ...lldItems])
+            } catch {
+                setResults([])
+            } finally {
+                setSelected(0)
+                setLoading(false)
+            }
         }, 200)
         return () => clearTimeout(t)
     }, [query])

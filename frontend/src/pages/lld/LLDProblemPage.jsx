@@ -9,9 +9,12 @@ import remarkGfm from 'remark-gfm'
 import JSZip from 'jszip'
 import { supabase } from '../../lib/supabase'
 import { useProgress } from '../../lib/useProgress'
+import { useAuth } from '../../contexts/AuthContext'
 import { useMediaQuery } from '../../lib/useMediaQuery'
-import { useTier } from '../../lib/useTier'
+import { apiFetch, ApiError } from '../../lib/apiClient'
 import { LockedPanel } from '../../components/shared/PaywallGate'
+import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
+import { track, EVENTS } from '../../lib/analytics'
 import Navbar from '../../components/Navbar'
 import FluidCheckbox from '../../components/shared/FluidCheckbox'
 import DifficultyBadge from '../../components/shared/DifficultyBadge'
@@ -203,42 +206,23 @@ export default function LLDProblemPage() {
     const [runResult, setRunResult] = useState(null)   // { run, compile, apiError }
     const [showConsole, setShowConsole] = useState(false)
 
-    const { data: problem, isLoading: probLoading } = useQuery({
-        queryKey: ['lld-problem', slug],
-        queryFn: async () => {
-            const { data, error } = await supabase
-                .from('lld_problems')
-                .select('*')
-                .eq('slug', slug)
-                .single()
-            if (error) throw error
-            return data
-        },
+    const { user } = useAuth()
+
+    // ── Authenticated detail fetch ────────────────────────────────────
+    // The server returns the full row only when the slug is within the caller's
+    // tier allowance; otherwise 403 { error: 'upgrade_required' }. No tier math
+    // on the client — `locked` is derived straight from that response.
+    const { data, isLoading: probLoading, isError, error } = useQuery({
+        queryKey: ['catalog-lld-detail', slug],
+        queryFn: () => apiFetch('/api/catalog/lld/' + encodeURIComponent(slug)),
+        enabled: !!user && !!slug,
+        retry: (count, err) => !(err instanceof ApiError) && count < 2,
     })
 
+    const problem = data?.item || null
     const isMobile = useMediaQuery('(max-width: 767px)')
-    const { isFree, limits } = useTier()
 
-    // ── Free-tier deep-link guard ──────────────────────────────────
-    // The list orders problems by created_at desc and reveals only the first
-    // `limits.lld`. Fetch that same ordering (slug only) and lock this page when
-    // the current problem falls beyond the free slice.
-    const { data: orderedSlugs = [], isFetched: orderFetched } = useQuery({
-        queryKey: ['lld-order'],
-        queryFn: async () => {
-            const { data, error } = await supabase
-                .from('lld_problems')
-                .select('slug')
-                .order('created_at', { ascending: false })
-            if (error) throw error
-            return (data || []).map(r => r.slug)
-        },
-        enabled: isFree,
-        staleTime: 5 * 60 * 1000,
-    })
-
-    const tierIdx = orderedSlugs.indexOf(slug)
-    const lockedByTier = isFree && orderFetched && tierIdx >= 0 && tierIdx >= limits.lld
+    const locked = isError && error instanceof ApiError && error.code === 'upgrade_required'
 
     const { data: diagrams = [], isFetched: diagramsFetched } = useQuery({
         queryKey: ['lld-diagrams', problem?.id],
@@ -250,7 +234,7 @@ export default function LLDProblemPage() {
             if (error) throw error
             return data || []
         },
-        enabled: !!problem?.id && !lockedByTier,
+        enabled: !!problem?.id && !locked,
     })
 
     const { data: codeFiles = [] } = useQuery({
@@ -263,7 +247,7 @@ export default function LLDProblemPage() {
             if (error) throw error
             return data || []
         },
-        enabled: !!problem?.id && !lockedByTier,
+        enabled: !!problem?.id && !locked,
     })
 
     const { progressMap, toggleStatus, saveNotes } = useProgress('lld')
@@ -282,9 +266,27 @@ export default function LLDProblemPage() {
 
     const fileTree = useMemo(() => buildTree(codeFiles), [codeFiles])
 
+    // Analytics guards — keyed on problem id so re-navigating to another problem
+    // re-arms them, and StrictMode double-invokes don't double-fire.
+    const questionStartedRef = useRef(null)
+    const solutionViewedRef = useRef(null)
+
+    // QUESTION_STARTED once per (non-locked) problem.
+    useEffect(() => {
+        if (locked || !problem?.id) return
+        if (questionStartedRef.current === problem.id) return
+        questionStartedRef.current = problem.id
+        track(EVENTS.QUESTION_STARTED, { type: 'lld', problem_id: problem.id, slug })
+    }, [problem?.id, locked, slug])
+
     const openFile = (file) => {
         setOpenFiles(prev => prev.find(f => f.id === file.id) ? prev : [...prev, file])
         setActiveFile(file)
+        // SOLUTION_VIEWED once per problem — first file opened (incl. auto-open).
+        if (problem?.id && solutionViewedRef.current !== problem.id) {
+            solutionViewedRef.current = problem.id
+            track(EVENTS.SOLUTION_VIEWED, { type: 'lld', problem_id: problem.id })
+        }
     }
     const closeFile = (fileId) => {
         const remaining = openFiles.filter(f => f.id !== fileId)
@@ -299,14 +301,14 @@ export default function LLDProblemPage() {
     // file already shown in the editor.
     const didAutoOpenRef = useRef(false)
     useEffect(() => {
-        if (didAutoOpenRef.current || lockedByTier) return
+        if (didAutoOpenRef.current || locked) return
         if (!codeFiles.length || activeFile) return
         const entry = findEntryFile(codeFiles) || codeFiles[0]
         if (entry) {
             didAutoOpenRef.current = true
             openFile(entry)
         }
-    }, [codeFiles, lockedByTier])
+    }, [codeFiles, locked])
 
     const copyFile = async () => {
         if (!activeFile) return
@@ -329,7 +331,60 @@ export default function LLDProblemPage() {
         return (
             <>
                 <Navbar />
-                <div style={{ paddingTop: 80, textAlign: 'center', color: '#71717a' }}>Loading problem…</div>
+                <div style={{ paddingTop: 80 }}>
+                    <LoadingState label="Loading problem…" />
+                </div>
+            </>
+        )
+    }
+
+    if (isError && error?.status === 401) {
+        return (
+            <>
+                <Navbar />
+                <div style={{ paddingTop: 80 }}>
+                    <ErrorState err={error} />
+                    <p style={{ textAlign: 'center', marginTop: 12 }}>
+                        <Link to="/lld" style={{ color: '#f472b6', fontSize: '0.82rem' }}>← Back to LLD</Link>
+                    </p>
+                </div>
+            </>
+        )
+    }
+
+    if (isError && !locked) {
+        return (
+            <>
+                <Navbar />
+                <div style={{ paddingTop: 80 }}>
+                    <ErrorState title="Could not load this LLD problem." err={error} />
+                    <p style={{ textAlign: 'center', marginTop: 12 }}>
+                        <Link to="/lld" style={{ color: '#f472b6', fontSize: '0.82rem' }}>← Back to LLD</Link>
+                    </p>
+                </div>
+            </>
+        )
+    }
+
+    // Free-tier deep-link → server 403. Keep Navbar + a header bar, swap the
+    // workspace for a locked panel.
+    if (locked) {
+        return (
+            <>
+                <Navbar />
+                <div style={{ height: '100vh', paddingTop: 48, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    <div style={{ borderBottom: '1px solid #27272a', background: '#0d0d0f', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+                        <Link to="/lld" style={{ color: '#71717a', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← LLD</Link>
+                        <span style={{ color: '#27272a', flexShrink: 0 }}>|</span>
+                        <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: '#fafafa' }}>Locked problem</h2>
+                    </div>
+                    <div style={{ flex: 1, overflow: 'auto' }}>
+                        <LockedPanel
+                            title="This LLD problem is locked on the free tier"
+                            subtitle="Upgrade to unlock all LLD problems."
+                        />
+                    </div>
+                </div>
             </>
         )
     }
@@ -338,9 +393,12 @@ export default function LLDProblemPage() {
         return (
             <>
                 <Navbar />
-                <div style={{ paddingTop: 80, textAlign: 'center' }}>
-                    <p style={{ color: '#f87171' }}>Problem not found.</p>
-                    <Link to="/lld" style={{ color: '#f472b6', fontSize: '0.82rem' }}>← Back to LLD</Link>
+                <div style={{ paddingTop: 80 }}>
+                    <EmptyState
+                        icon="🔍"
+                        title="Problem not found."
+                        action={<Link to="/lld" style={{ color: '#f472b6', fontSize: '0.82rem' }}>← Back to LLD</Link>}
+                    />
                 </div>
             </>
         )
@@ -500,14 +558,19 @@ export default function LLDProblemPage() {
                                 }
                             }
 
-                            const res = await fetch('/api/run', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ language: lang, version: '*', files }),
-                            })
-                            const data = await res.json()
-                            // Log for debugging — check browser console for full response
-                            console.log('[Run] raw response:', data)
+                            let data
+                            try {
+                                data = await apiFetch('/api/run', {
+                                    json: { language: lang, version: '*', files },
+                                })
+                            } catch (err) {
+                                data = {
+                                    message:
+                                        err instanceof ApiError
+                                            ? err.body?.message || err.message
+                                            : err?.message || 'Code execution failed.',
+                                }
+                            }
                             if (data.message) {
                                 // API-level error (e.g. no API key, unsupported language)
                                 setRunResult({ apiError: data.message })
@@ -683,7 +746,12 @@ export default function LLDProblemPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                         <FluidCheckbox
                             checked={isSolved}
-                            onChange={() => toggleStatus(problem.id, prog?.status ?? 'unsolved')}
+                            onChange={() => {
+                                if (prog?.status !== 'solved') {
+                                    track(EVENTS.QUESTION_COMPLETED, { type: 'lld', problem_id: problem.id })
+                                }
+                                toggleStatus(problem.id, prog?.status ?? 'unsolved')
+                            }}
                         />
                         <span style={{ fontSize: '0.68rem', color: isSolved ? '#f472b6' : '#71717a', fontWeight: 700 }}>
                             {isSolved ? 'Practiced' : (isMobile ? 'Mark' : 'Mark practiced')}
@@ -706,15 +774,9 @@ export default function LLDProblemPage() {
                     )}
                 </div>
 
-                {/* Workspace: locked panel for free deep-links, else 3-pane / mobile tabs */}
-                {lockedByTier ? (
-                    <div style={{ flex: 1, overflow: 'auto' }}>
-                        <LockedPanel
-                            title="This LLD problem is locked on the free tier"
-                            subtitle="Upgrade to unlock all 33 LLD problems."
-                        />
-                    </div>
-                ) : !isMobile ? (
+                {/* Workspace: 3-pane on desktop, tabbed on mobile.
+                    (Free-tier deep-links are handled by the `locked` early return.) */}
+                {!isMobile ? (
                     <Group direction="horizontal" style={{ flex: 1, overflow: 'hidden' }}>
                         {/* Left pane: requirements (top) + diagram (bottom) — or just
                             requirements full-height when there's no class diagram. */}

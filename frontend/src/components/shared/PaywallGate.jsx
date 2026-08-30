@@ -1,4 +1,7 @@
 import { Link } from 'react-router-dom'
+import { METERED_FEATURES } from '../../../config/tiers.js'
+import { useEntitlements } from '../../lib/useEntitlements'
+import { isUsageLimit } from '../../lib/apiClient'
 
 // ── Paywall primitives ──────────────────────────────────────────────
 // Compose these on any list/page to gate content for free-tier users.
@@ -10,15 +13,43 @@ import { Link } from 'react-router-dom'
 // "N of TOTAL" copy. `LockedSlice` is purely a decorative "there's more
 // behind the paywall" affordance; it contains no titles/companies/slugs.
 //
-//   const { isFree, limits } = useTier()
-//   // free query: .limit(limits.lld); separate ['lld-count'] head query -> total
-//   ...render the <= limits.lld allowed rows...
-//   {isFree && total > limits.lld && (
-//     <LockedSlice count={total - limits.lld} noun="LLD problems" variant="card" />
+//   const { limits, can } = useEntitlements()
+//   // free query: .limit(limits.lld_catalog_visible); separate count query -> total
+//   ...render the <= limit allowed rows...
+//   {total > limit && (
+//     <LockedSlice count={total - limit} noun="LLD problems" variant="card" />
 //   )}
 //
 // For a whole page (e.g. resume optimizer): render <LockedPanel .../> with
 // NO children instead of the page body, so the real UI is never in the DOM.
+
+// Human-readable nouns for the metered features (used by the usage meter).
+const FEATURE_NOUN = {
+    resume_optimizer: 'resume generations',
+    hld_practice: 'HLD practices',
+    ai_explanation: 'AI explanations',
+}
+
+// "Resets in 12 days." / "Resets tomorrow." / "Resets on Sep 1."
+function formatResetDate(iso) {
+    if (!iso) return ''
+    const then = new Date(iso).getTime()
+    if (Number.isNaN(then)) return ''
+    const days = Math.round((then - Date.now()) / 86400000)
+    if (days <= 0) return 'soon'
+    if (days === 1) return 'tomorrow'
+    if (days < 30) return `in ${days} days`
+    return `on ${new Date(then).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+}
+
+function isMeteredFinite(feature, limit) {
+    return (
+        !!feature &&
+        METERED_FEATURES.includes(feature) &&
+        limit != null &&
+        Number.isFinite(Number(limit))
+    )
+}
 
 function LockIcon({ size = 22 }) {
     return (
@@ -144,12 +175,21 @@ export function LockedSlice({ count, noun = 'items', rows = 4, variant = 'row', 
 // Callers should pass NO children — the real UI must stay out of the DOM.
 // A generic blurred skeleton renders behind the message by default; passing
 // `children` (legacy) blurs them instead.
+//
+// Optional metered-usage props — when `feature` is a metered key and `limit`
+// is finite, a "You've used {used}/{limit} this month. Resets …" line shows
+// above the CTA (used for the "monthly limit reached" state).
 export function LockedPanel({
     children,
     title = 'This is a Pro feature',
     subtitle = 'Upgrade to unlock the full resume optimizer.',
     minHeight = 420,
+    feature,
+    used,
+    limit,
+    resetsAt,
 }) {
+    const showUsage = isMeteredFinite(feature, limit)
     return (
         <div style={{ position: 'relative', minHeight }}>
             <div aria-hidden style={{
@@ -181,8 +221,73 @@ export function LockedPanel({
                 <p style={{ margin: 0, color: '#a1a1aa', fontSize: '0.85rem', maxWidth: 380, lineHeight: 1.6 }}>
                     {subtitle}
                 </p>
+                {showUsage && (
+                    <p style={{ margin: 0, color: '#facc15', fontSize: '0.8rem', fontWeight: 700 }}>
+                        You&apos;ve used {used}/{limit} this month. Resets {formatResetDate(resetsAt)}.
+                    </p>
+                )}
                 <UpgradeButton>Unlock Pro</UpgradeButton>
             </div>
         </div>
     )
+}
+
+// ── Usage meter ────────────────────────────────────────────────────
+// Compact "3 / 5 resume generations this month" bar. Renders nothing when
+// the feature is unlimited (infinite limit), missing, or has a zero limit.
+export function UsageMeter({ feature }) {
+    const { usage } = useEntitlements()
+    const u = usage && usage[feature]
+    if (!u) return null
+
+    const limit = u.limit === 'unlimited' ? Infinity : Number(u.limit)
+    if (!Number.isFinite(limit) || limit <= 0) return null
+
+    const used = Math.max(0, u.used ?? 0)
+    const pct = Math.min(100, Math.round((used / limit) * 100))
+    const spent = used >= limit
+    const noun = FEATURE_NOUN[feature] || 'uses'
+
+    return (
+        <div style={{
+            background: '#18181b', border: '1px solid #27272a', borderRadius: 8,
+            padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6,
+        }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                <span style={{ fontSize: '0.76rem', fontWeight: 700, color: spent ? '#f87171' : '#a1a1aa' }}>
+                    {used} / {limit} {noun} this month
+                </span>
+                {u.resetsAt && (
+                    <span style={{ fontSize: '0.68rem', color: '#71717a' }}>
+                        Resets {formatResetDate(u.resetsAt)}
+                    </span>
+                )}
+            </div>
+            <div style={{ height: 6, background: '#27272a', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{
+                    width: `${pct}%`, height: '100%', borderRadius: 3,
+                    background: spent ? '#f87171' : '#22d3ee', transition: 'width 0.4s ease',
+                }} />
+            </div>
+        </div>
+    )
+}
+
+// ── useUpgradeGate() ───────────────────────────────────────────────
+// Turn an ApiError from a gated call into a structured descriptor a caller
+// can feed to <LockedPanel> or a modal. Non-usage errors → { show: false }.
+export function useUpgradeGate() {
+    function handleApiError(err) {
+        if (isUsageLimit(err)) {
+            return {
+                show: true,
+                feature: err.feature ?? null,
+                used: err.used ?? null,
+                limit: err.limit ?? null,
+                resetsAt: err.resetsAt ?? null,
+            }
+        }
+        return { show: false }
+    }
+    return { handleApiError }
 }

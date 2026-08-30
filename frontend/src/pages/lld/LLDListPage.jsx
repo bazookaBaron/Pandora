@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { supabase } from '../../lib/supabase'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useProgress } from '../../lib/useProgress'
+import { useAuth } from '../../contexts/AuthContext'
+import { apiFetch } from '../../lib/apiClient'
 import { useMediaQuery } from '../../lib/useMediaQuery'
-import { useTier } from '../../lib/useTier'
 import { LockedSlice } from '../../components/shared/PaywallGate'
+import { ErrorState, EmptyState } from '../../components/shared/states'
 import Navbar from '../../components/Navbar'
 import FluidCheckbox from '../../components/shared/FluidCheckbox'
 import CompanySelector from '../../components/shared/CompanySelector'
@@ -26,7 +27,6 @@ function Pagination({ page, totalPages, onChange }) {
     if (totalPages <= 1) return null
     const pages = []
     for (let i = 1; i <= totalPages; i++) {
-        // Show first, last, current ±1
         if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) {
             pages.push(i)
         } else if (pages[pages.length - 1] !== '…') {
@@ -74,48 +74,24 @@ function Pagination({ page, totalPages, onChange }) {
 
 export default function LLDListPage() {
     const [searchParams, setSearchParams] = useSearchParams()
-    const [search, setSearch] = useState(searchParams.get('q') || '')
+    const { user } = useAuth()
+    const search = searchParams.get('q') || ''
+    const [searchInput, setSearchInput] = useState(search)
     const [page, setPage] = useState(1)
     const companies = searchParams.get('company') ? searchParams.get('company').split(',') : []
+    const companyKey = companies.join(',')
     const isMobile = useMediaQuery('(max-width: 767px)')
-    const { isFree, limits } = useTier()
 
-    // ── Free-tier paywall: TRUE server-side limiting ───────────────────
-    // On free tier the query fetches ONLY `limits.lld` rows — locked problems
-    // (titles, slugs, companies, ids) never enter the browser, the network
-    // response, or the React Query cache. Pro tier is unchanged: fetch all,
-    // filter + paginate client-side.
-    const { data: problems = [], isLoading } = useQuery({
-        queryKey: ['lld-problems', isFree ? 'free' : 'pro'],
-        queryFn: async () => {
-            let q = supabase
-                .from('lld_problems')
-                .select('id, slug, title, requirements, companies, created_at')
-                .order('created_at', { ascending: false })
-            if (isFree) q = q.limit(limits.lld)
-            const { data, error } = await q
-            if (error) throw error
-            return data || []
-        },
-        staleTime: 5 * 60 * 1000,
-    })
-
-    // Lightweight count for the "N of TOTAL" copy — head request, no rows.
-    // Only fires on free tier (pro already has the full list).
-    const { data: total = 0 } = useQuery({
-        queryKey: ['lld-count'],
-        queryFn: async () => {
-            const { count, error } = await supabase
-                .from('lld_problems')
-                .select('*', { count: 'exact', head: true })
-            if (error) throw error
-            return count || 0
-        },
-        staleTime: 5 * 60 * 1000,
-        enabled: isFree,
-    })
-
-    const { progressMap, toggleStatus } = useProgress('lld')
+    // Debounce the search box → URL param (300ms) so it feeds the query key
+    // without a request per keystroke.
+    const searchDebounce = useRef(null)
+    const updateSearch = (v) => {
+        setSearchInput(v)
+        clearTimeout(searchDebounce.current)
+        searchDebounce.current = setTimeout(() => {
+            setSearchParams(p => { const n = new URLSearchParams(p); n.set('q', v); if (!v) n.delete('q'); return n }, { replace: true })
+        }, 300)
+    }
 
     const updateParam = (key, value) => {
         setSearchParams(p => {
@@ -127,26 +103,36 @@ export default function LLDListPage() {
         setPage(1)
     }
 
-    const filtered = problems.filter(p => {
-        if (search && !p.title?.toLowerCase().includes(search.toLowerCase()) && !p.requirements?.toLowerCase().includes(search.toLowerCase())) return false
-        if (companies.length && !companies.some(c => (p.companies || []).includes(c))) return false
-        return true
+    // ── Authenticated catalog query ───────────────────────────────────
+    // Free tier is capped at `lld_catalog_visible` rows server-side (BEFORE the
+    // search/company filter), `pageCount` is 1, `locked = total - cap`. Pro/max
+    // get the full filtered set, 12/page. No locked row reaches the browser.
+    const qs = new URLSearchParams()
+    if (search) qs.set('search', search)
+    if (companyKey) qs.set('company', companyKey)
+    qs.set('page', String(page))
+
+    const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
+        queryKey: ['catalog-lld', { search, company: companyKey, page }],
+        queryFn: () => apiFetch('/api/catalog/lld?' + qs.toString()),
+        enabled: !!user,
+        placeholderData: keepPreviousData,
+        staleTime: 60 * 1000,
     })
 
-    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-    const safePage = Math.min(page, totalPages)
-    const pagedItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+    const items = data?.items || []
+    const total = data?.total ?? 0
+    const locked = data?.locked ?? 0
+    const pageCount = data?.pageCount ?? 1
+    const filteredCount = data?.filteredCount ?? items.length
+    const unlimited = data?.limit === 'unlimited'
+
+    const { progressMap, toggleStatus } = useProgress('lld')
     const solved = Object.values(progressMap).filter(r => r.status === 'solved').length
 
-    // ── Free-tier paywall ──────────────────────────────────────────
-    // `problems` is already capped at `limits.lld` by the query on free tier,
-    // so only allowed rows can ever render. The locked remainder is represented
-    // by a generic placeholder <LockedSlice> (no real data). `total` (count
-    // query) drives the "N of TOTAL" copy. Pagination is hidden for free users.
-    const previewLimit = limits.lld
-    const isPreview = isFree && total > previewLimit
+    useEffect(() => { setPage(1) }, [search, companyKey])
+
     const gridCols = isMobile ? '1fr' : 'repeat(auto-fill, minmax(280px, 1fr))'
-    const mainItems = isFree ? filtered.slice(0, previewLimit) : pagedItems
 
     const renderCard = (p) => {
         const prog = progressMap[p.id]
@@ -161,7 +147,6 @@ export default function LLDListPage() {
                 onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = isSolved ? 'rgba(244,114,182,0.5)' : '#3f3f46' }}
                 onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = isSolved ? 'rgba(244,114,182,0.3)' : '#27272a' }}
             >
-                {/* Top row: checkbox + practiced badge */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <FluidCheckbox
                         checked={isSolved}
@@ -174,7 +159,6 @@ export default function LLDListPage() {
                     )}
                 </div>
 
-                {/* Title */}
                 <Link to={`/lld/${p.slug}`} style={{ textDecoration: 'none' }}>
                     <h3 style={{
                         fontSize: '0.92rem', fontWeight: 900, color: isSolved ? '#71717a' : '#fafafa',
@@ -184,7 +168,6 @@ export default function LLDListPage() {
                     </h3>
                 </Link>
 
-                {/* Requirements preview */}
                 {p.requirements && (
                     <p style={{
                         fontSize: '0.73rem', color: '#71717a', lineHeight: 1.5,
@@ -194,7 +177,6 @@ export default function LLDListPage() {
                     </p>
                 )}
 
-                {/* Company tags */}
                 {(p.companies || []).length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                         {(p.companies || []).slice(0, 3).map(c => (
@@ -206,7 +188,6 @@ export default function LLDListPage() {
                     </div>
                 )}
 
-                {/* Open button */}
                 <Link to={`/lld/${p.slug}`} style={{
                     display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4,
                     fontSize: '0.72rem', fontWeight: 900, color: '#f472b6', textDecoration: 'none',
@@ -232,7 +213,7 @@ export default function LLDListPage() {
                         <span style={{ fontSize: '0.72rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Practiced</span>
                         <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#f472b6' }}>{solved}</span>
                         <span style={{ color: '#3f3f46' }}>/</span>
-                        <span style={{ fontSize: '0.82rem', color: '#a1a1aa' }}>{isFree ? total : problems.length}</span>
+                        <span style={{ fontSize: '0.82rem', color: '#a1a1aa' }}>{total}</span>
                     </div>
                 </div>
 
@@ -243,8 +224,8 @@ export default function LLDListPage() {
                             <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
                         </svg>
                         <input
-                            value={search}
-                            onChange={e => { setSearch(e.target.value); updateParam('q', e.target.value) }}
+                            value={searchInput}
+                            onChange={e => updateSearch(e.target.value)}
                             placeholder="Search by title or requirements…"
                             style={{
                                 width: '100%', padding: '8px 10px 8px 32px', background: '#18181b', border: '1px solid #27272a',
@@ -262,38 +243,41 @@ export default function LLDListPage() {
                     <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 12 }}>
                         <LLDSkeleton />
                     </div>
-                ) : filtered.length === 0 ? (
-                    <div style={{ padding: '60px 0', textAlign: 'center' }}>
-                        <div style={{ fontSize: '2rem', marginBottom: 12 }}>🧩</div>
-                        <p style={{ color: '#71717a' }}>No LLD problems match your filters.</p>
-                        <button onClick={() => { setSearch(''); setSearchParams({}); setPage(1) }} style={{ marginTop: 12, padding: '6px 16px', background: 'none', border: '1px solid #27272a', borderRadius: 6, color: '#f472b6', cursor: 'pointer', fontSize: '0.78rem' }}>
-                            Clear filters
-                        </button>
-                    </div>
+                ) : isError ? (
+                    <ErrorState
+                        title="Could not load LLD problems."
+                        err={error}
+                        onRetry={() => refetch()}
+                    />
+                ) : items.length === 0 ? (
+                    <EmptyState
+                        icon="🧩"
+                        title="No LLD problems match your filters."
+                        action={(
+                            <button onClick={() => { setSearchInput(''); setSearchParams({}); setPage(1) }} style={{ padding: '6px 16px', background: 'none', border: '1px solid #27272a', borderRadius: 6, color: '#f472b6', cursor: 'pointer', fontSize: '0.78rem' }}>
+                                Clear filters
+                            </button>
+                        )}
+                    />
                 ) : (
                     <>
-                        <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 12 }}>
-                            {mainItems.map(renderCard)}
+                        <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 12, opacity: isFetching ? 0.6 : 1, transition: 'opacity 0.15s' }}>
+                            {items.map(renderCard)}
                         </div>
 
-                        {isFree ? (
-                            <>
-                                {isPreview && (
-                                    <LockedSlice count={total - previewLimit} noun="LLD problems" variant="card" />
-                                )}
-                                <div style={{ textAlign: 'center', marginTop: 12, color: '#52525b', fontSize: '0.72rem' }}>
-                                    Preview: {mainItems.length} of {Math.max(total, mainItems.length)} — upgrade for all
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                {/* Pagination */}
-                                <Pagination page={safePage} totalPages={totalPages} onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
-                                <div style={{ textAlign: 'center', marginTop: 12, color: '#52525b', fontSize: '0.72rem' }}>
-                                    {filtered.length} problems · page {safePage} of {totalPages}
-                                </div>
-                            </>
+                        {locked > 0 && (
+                            <LockedSlice count={locked} noun="LLD problems" variant="card" />
                         )}
+
+                        {pageCount > 1 && (
+                            <Pagination page={data?.page ?? page} totalPages={pageCount} onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
+                        )}
+
+                        <div style={{ textAlign: 'center', marginTop: 12, color: '#52525b', fontSize: '0.72rem' }}>
+                            {unlimited
+                                ? `Showing ${items.length} of ${filteredCount}${pageCount > 1 ? ` · page ${data?.page ?? page} of ${pageCount}` : ''} · ${total} total`
+                                : `Preview: ${items.length} of ${total} — upgrade for all`}
+                        </div>
                     </>
                 )}
             </div>

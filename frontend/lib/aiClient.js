@@ -3,6 +3,32 @@
  * Each provider uses its best code-efficient model by default.
  */
 
+// ── Secret redaction ─────────────────────────────────────────────
+// Run every error string / log line that could carry a URL, header, or token
+// through this before it is thrown or printed. Never let an API key reach a
+// log file, an exception message, or an HTTP response body.
+export function redact(input) {
+    let s = typeof input === "string" ? input : String(input == null ? "" : input);
+    // `?key=` / `&api_key=` style query params
+    s = s.replace(/([?&](?:key|api[_-]?key|access_token)=)[^&\s"'#]+/gi, "$1REDACTED");
+    // header-style: x-goog-api-key / x-api-key / authorization: <value>
+    s = s.replace(/((?:x-goog-api-key|x-api-key|authorization)["'\s:=]+)[^\s,"'}\]]+/gi, "$1REDACTED");
+    // bearer tokens anywhere
+    s = s.replace(/(bearer\s+)[A-Za-z0-9._\-]+/gi, "$1REDACTED");
+    // the literal configured key values, if any slipped through
+    for (const k of [
+        process.env.GEMINI_API_KEY,
+        process.env.ANTHROPIC_API_KEY,
+        process.env.OPENAI_API_KEY,
+        process.env.SUPABASE_SERVICE_ROLE_KEY,
+        process.env.LEMONSQUEEZY_API_KEY,
+        process.env.LEMONSQUEEZY_WEBHOOK_SECRET,
+    ]) {
+        if (k && k.length >= 8) s = s.split(k).join("REDACTED");
+    }
+    return s;
+}
+
 // ── Provider configs ──────────────────────────────────────────────
 const PROVIDERS = {
     anthropic: {
@@ -187,7 +213,7 @@ async function callAnthropic({ apiKey, model, prompt }) {
 
     if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`Anthropic API error (${res.status}): ${errText}`);
+        throw new Error(redact(`Anthropic API error (${res.status}): ${errText}`));
     }
 
     const data = await res.json();
@@ -212,7 +238,7 @@ async function callOpenAI({ apiKey, model, prompt }) {
 
     if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`OpenAI API error (${res.status}): ${errText}`);
+        throw new Error(redact(`OpenAI API error (${res.status}): ${errText}`));
     }
 
     const data = await res.json();
@@ -220,11 +246,15 @@ async function callOpenAI({ apiKey, model, prompt }) {
 }
 
 async function callGemini({ apiKey, model, prompt }) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    // Key goes in the `x-goog-api-key` header, never the URL.
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
     const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey,
+        },
         body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: { maxOutputTokens: 16384 },
@@ -233,7 +263,7 @@ async function callGemini({ apiKey, model, prompt }) {
 
     if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`Gemini API error (${res.status}): ${errText}`);
+        throw new Error(redact(`Gemini API error (${res.status}): ${errText}`));
     }
 
     const data = await res.json();

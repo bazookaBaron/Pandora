@@ -10,12 +10,13 @@ import 'reactflow/dist/style.css'
 import { toPng } from 'html-to-image'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { supabase } from '../../lib/supabase'
 import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
 import { useMediaQuery } from '../../lib/useMediaQuery'
-import { useTier } from '../../lib/useTier'
+import { apiFetch, ApiError, isUsageLimit } from '../../lib/apiClient'
 import { LockedPanel } from '../../components/shared/PaywallGate'
+import { LoadingState, ErrorState, EmptyState, LimitReached } from '../../components/shared/states'
+import { track, EVENTS } from '../../lib/analytics'
 import Navbar from '../../components/Navbar'
 
 // ── Node palette config ──────────────────────────────────────────────
@@ -306,7 +307,6 @@ function EdgeToolbar({ edge, onUpdate, onDelete }) {
 function HLDWorkspaceInner() {
     const { id } = useParams()
     const { user } = useAuth()
-    const { isFree, limits } = useTier()
     const isMobile = useMediaQuery('(max-width: 767px)')
     const { progressMap, saveNotes, isSuccess: progressLoaded } = useProgress('hld')
 
@@ -330,6 +330,9 @@ function HLDWorkspaceInner() {
 
     const [judgeResult, setJudgeResult] = useState(null)
     const [judging, setJudging] = useState(false)
+    // Set when /api/hld/generate or /api/hld/judge returns a usage-limit error —
+    // { used, limit, resetsAt }. Drives an inline "monthly limit reached" note.
+    const [usageLimitInfo, setUsageLimitInfo] = useState(null)
     const saveTimer = useRef(null)
 
     // Hydration guards: nothing is persisted until the saved row (if any) has
@@ -341,44 +344,31 @@ function HLDWorkspaceInner() {
     // once hydration completes even when there was no saved row to apply.
     const [hydrated, setHydrated] = useState(false)
 
-    const { data: problem, isLoading } = useQuery({
-        queryKey: ['hld-problem', id],
-        queryFn: async () => {
-            // hld_questions has no slug column — always look up by id (UUID)
-            const { data, error } = await supabase
-                .from('hld_questions')
-                .select('*')
-                .eq('id', id)
-                .maybeSingle()
-            if (error) throw error
-            if (!data) throw new Error('Question not found')
-            return data
-        },
+    // ── Authenticated detail fetch ──────────────────────────────────────
+    // The server gates this on `hld_practice`: free users are always 403
+    // (upgrade_required); pro users who spent their monthly 5 also 403. No tier
+    // math on the client — `tierLocked` is derived straight from that response.
+    const { data, isLoading, isError, error } = useQuery({
+        queryKey: ['catalog-hld-detail', id],
+        queryFn: () => apiFetch('/api/catalog/hld/' + id),
+        enabled: !!user && !!id,
+        retry: (count, err) => !(err instanceof ApiError) && count < 2,
     })
+    const problem = data?.item || null
+
+    const tierLocked = isError && error instanceof ApiError && error.code === 'upgrade_required'
+
+    // QUESTION_STARTED once per (non-locked) problem. Keyed on problem id so
+    // navigating to another question re-arms it; StrictMode-safe.
+    const questionStartedRef = useRef(null)
+    useEffect(() => {
+        if (tierLocked || !problem?.id) return
+        if (questionStartedRef.current === problem.id) return
+        questionStartedRef.current = problem.id
+        track(EVENTS.QUESTION_STARTED, { type: 'hld', problem_id: problem.id })
+    }, [problem?.id, tierLocked])
 
     const prog = problem ? progressMap[problem.id] : null
-
-    // ── Free-tier deep-link guard ────────────────────────────────────────
-    // A free user may only open a question that sits within the first
-    // `limits.hld` of the list ordering (created_at desc — mirrors HLDListPage).
-    // Fetch just the ordered id column (cheap) and check this question's index.
-    const { data: orderedIds, isLoading: orderLoading } = useQuery({
-        queryKey: ['hld-order'],
-        queryFn: async () => {
-            const { data, error } = await supabase
-                .from('hld_questions')
-                .select('id')
-                .order('created_at', { ascending: false })
-            if (error) throw error
-            return (data || []).map(r => r.id)
-        },
-        enabled: isFree,
-        staleTime: 5 * 60 * 1000,
-    })
-
-    // null while we still can't decide; only true once we know the index is out of range.
-    const tierIdx = (isFree && orderedIds && problem) ? orderedIds.indexOf(problem.id) : null
-    const tierLocked = isFree && tierIdx !== null && (tierIdx === -1 || tierIdx >= limits.hld)
 
     // Load saved state — once, after the progress rows have actually loaded for
     // this signed-in user. `useProgress` gates its query with `enabled: !!user`,
@@ -417,14 +407,11 @@ function HLDWorkspaceInner() {
         if (!problem || tierLocked || frNfr.fr || frNfrLoading) return
         if (prog?.state?.frNfr?.fr) return
         setFrNfrLoading(true)
-        fetch('/api/hld/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ description: problem.description || problem.title }),
-        })
-            .then(r => r.json())
-            .then(d => { if (d.fr) setFrNfr({ fr: d.fr, nfr: d.nfr || '' }) })
-            .catch(() => { })
+        apiFetch('/api/hld/generate', { json: { description: problem.description || problem.title } })
+            .then(d => { if (d?.fr) setFrNfr({ fr: d.fr, nfr: d.nfr || '' }) })
+            .catch(err => {
+                if (isUsageLimit(err)) setUsageLimitInfo({ used: err.used, limit: err.limit, resetsAt: err.resetsAt })
+            })
             .finally(() => setFrNfrLoading(false))
     }, [problem?.id])
 
@@ -525,25 +512,46 @@ function HLDWorkspaceInner() {
         setJudging(true); setJudgeResult(null)
         try {
             const imgData = await toPng(canvasRef.current, { backgroundColor: '#09090b', pixelRatio: 1.5 })
-            const res = await fetch('/api/hld/judge', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image_base64: imgData.split(',')[1], frNfr, apiEndpoints: endpoints, title: problem?.title || '' }),
+            const result = await apiFetch('/api/hld/judge', {
+                json: { image_base64: imgData.split(',')[1], frNfr, apiEndpoints: endpoints, title: problem?.title || '' },
             })
-            setJudgeResult(await res.json())
-        } catch (e) { setJudgeResult({ error: e.message }) }
+            setJudgeResult(result)
+            if (problem?.id) {
+                track(EVENTS.QUESTION_COMPLETED, { type: 'hld', problem_id: problem.id, score: result?.score ?? null })
+            }
+        } catch (e) {
+            if (isUsageLimit(e)) setUsageLimitInfo({ used: e.used, limit: e.limit, resetsAt: e.resetsAt })
+            else setJudgeResult({ error: e })
+        }
         finally { setJudging(false) }
     }
 
     const regenerateFrNfr = () => {
         setFrNfr({ fr: '', nfr: '' }); setFrNfrLoading(true)
-        fetch('/api/hld/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description: problem.description || problem.title }) })
-            .then(r => r.json()).then(d => { if (d.fr) setFrNfr({ fr: d.fr, nfr: d.nfr || '' }) })
-            .catch(() => { }).finally(() => setFrNfrLoading(false))
+        apiFetch('/api/hld/generate', { json: { description: problem.description || problem.title } })
+            .then(d => { if (d?.fr) setFrNfr({ fr: d.fr, nfr: d.nfr || '' }) })
+            .catch(err => { if (isUsageLimit(err)) setUsageLimitInfo({ used: err.used, limit: err.limit, resetsAt: err.resetsAt }) })
+            .finally(() => setFrNfrLoading(false))
     }
 
-    if (isLoading || (isFree && orderLoading)) return <><Navbar /><div style={{ paddingTop: 80, textAlign: 'center', color: '#71717a' }}>Loading…</div></>
-    if (!problem) return <><Navbar /><div style={{ paddingTop: 80, textAlign: 'center' }}><p style={{ color: '#f87171' }}>Question not found.</p><Link to="/hld" style={{ color: '#a78bfa', fontSize: '0.82rem' }}>← Back to HLD</Link></div></>
+    if (isLoading) return <><Navbar /><div style={{ paddingTop: 80 }}><LoadingState label="Loading…" /></div></>
+    if (isError && error?.status === 401) return <><Navbar /><div style={{ paddingTop: 80 }}><ErrorState err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Link to="/hld" style={{ color: '#a78bfa', fontSize: '0.82rem' }}>← Back to HLD</Link></p></div></>
+    // tierLocked (403 upgrade_required) keeps the header bar + a LockedPanel body,
+    // handled in the main return below — so don't fall into "not found"/error here.
+    if (isError && !tierLocked) return <><Navbar /><div style={{ paddingTop: 80 }}><ErrorState title="Could not load this HLD question." err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Link to="/hld" style={{ color: '#a78bfa', fontSize: '0.82rem' }}>← Back to HLD</Link></p></div></>
+    if (!problem && !tierLocked) return <><Navbar /><div style={{ paddingTop: 80 }}><EmptyState icon="🔍" title="Question not found." action={<Link to="/hld" style={{ color: '#a78bfa', fontSize: '0.82rem' }}>← Back to HLD</Link>} /></div></>
+
+    // Inline "monthly HLD-practice limit reached" note — shown near the FR/NFR
+    // block and the Judge button when /api/hld/generate or /api/hld/judge 402s.
+    const usageLimitNote = usageLimitInfo ? (
+        <LimitReached
+            compact
+            feature="hld_practice"
+            used={usageLimitInfo.used}
+            limit={usageLimitInfo.limit}
+            resetsAt={usageLimitInfo.resetsAt}
+        />
+    ) : null
 
     const ACCENT = '#a78bfa'
     const tabStyle = (t) => ({
@@ -623,6 +631,10 @@ function HLDWorkspaceInner() {
                                             rows={4}
                                             style={{ width: '100%', background: '#18181b', border: '1px solid #27272a', borderRadius: 6, color: '#fafafa', font: 'inherit', fontSize: '0.75rem', padding: '8px 10px', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
                                     </div>
+
+                                    {usageLimitNote && (
+                                        <div style={{ borderTop: '1px solid #27272a', paddingTop: 12 }}>{usageLimitNote}</div>
+                                    )}
 
                                     {/* FR */}
                                     <div style={{ borderTop: '1px solid #27272a', paddingTop: 12 }}>
@@ -763,10 +775,13 @@ function HLDWorkspaceInner() {
                             }}>
                                 {judging ? '⏳ Judging…' : '⚖️ Judge My Design'}
                             </button>
+                            {usageLimitNote && <div style={{ marginTop: 10 }}>{usageLimitNote}</div>}
                         </div>
 
                         <div style={{ flex: 1, overflowY: 'auto', padding: '14px' }}>
-                            {judgeResult?.error && <p style={{ color: '#f87171', fontSize: '0.78rem' }}>Error: {judgeResult.error}</p>}
+                            {judgeResult?.error && (
+                                <ErrorState compact title="Judge failed" err={judgeResult.error} onRetry={handleJudge} />
+                            )}
                             {judgeResult && !judgeResult.error && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -826,8 +841,8 @@ function HLDWorkspaceInner() {
                 <div style={{ borderBottom: '1px solid #27272a', background: '#0d0d0f', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
                     <Link to="/hld" style={{ color: '#71717a', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← HLD</Link>
                     <span style={{ color: '#27272a', flexShrink: 0 }}>|</span>
-                    <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: '#fafafa', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{problem.question || problem.title}</h2>
-                    {problem.difficulty && (
+                    <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: '#fafafa', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{problem ? (problem.question || problem.title) : 'HLD question'}</h2>
+                    {problem?.difficulty && (
                         <span style={{
                             fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 4, flexShrink: 0,
                             color: problem.difficulty === 'Easy' ? '#4ade80' : problem.difficulty === 'Hard' ? '#f87171' : '#facc15',
@@ -854,8 +869,12 @@ function HLDWorkspaceInner() {
                 {tierLocked ? (
                     <div style={{ flex: 1, overflowY: 'auto' }}>
                         <LockedPanel
-                            title="This HLD question is locked on the free tier"
-                            subtitle="Upgrade to unlock all 141 HLD questions."
+                            feature="hld_practice"
+                            used={error?.used}
+                            limit={error?.limit}
+                            resetsAt={error?.resetsAt}
+                            title="HLD practice is locked"
+                            subtitle="Free tier includes browsing only. Upgrade to build & get AI review."
                         />
                     </div>
                 ) : !isMobile ? (

@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
+import { apiFetch } from '../lib/apiClient'
 import { useAuth } from '../contexts/AuthContext'
 import { useMediaQuery } from '../lib/useMediaQuery'
-import { useTier } from '../lib/useTier'
+import { useEntitlements } from '../lib/useEntitlements'
+import { useCompanyOptions } from '../lib/useReferrals'
 import Navbar from '../components/Navbar'
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -100,38 +102,18 @@ function ProgressSection({ user }) {
         enabled: !!user, staleTime: 0, refetchOnMount: 'always', refetchOnWindowFocus: true,
     })
 
-    const { data: totals = { dsa: 0, lld: 0, hld: 0 } } = useQuery({
-        queryKey: ['problem-totals'],
-        queryFn: async () => {
-            const [{ count: dsa }, { count: lld }, { count: hld }] = await Promise.all([
-                supabase.from('leetcode_company_problems').select('*', { count: 'exact', head: true }),
-                supabase.from('lld_problems').select('*', { count: 'exact', head: true }),
-                supabase.from('hld_questions').select('*', { count: 'exact', head: true }),
-            ])
-            return { dsa: dsa || 0, lld: lld || 0, hld: hld || 0 }
-        },
-        staleTime: 10 * 60 * 1000,
+    // All catalog-derived aggregates come pre-computed from the server (service
+    // role) — no per-row catalog data is fetched in the browser.
+    const { data: overview, isLoading: overviewLoading } = useQuery({
+        queryKey: ['stats-overview', user?.id],
+        queryFn: () => apiFetch('/api/stats/overview'),
+        enabled: !!user,
+        staleTime: 5 * 60 * 1000,
+        refetchOnMount: 'always',
     })
-
-    const { data: dsaProblems = [] } = useQuery({
-        queryKey: ['dsa-problems-dash'],
-        queryFn: async () => {
-            const { data } = await supabase.from('leetcode_company_problems').select('id, topics, difficulty')
-            return data || []
-        },
-        staleTime: 10 * 60 * 1000,
-    })
-
-    const { data: readiness = [], isLoading: readinessLoading } = useQuery({
-        queryKey: ['company-readiness', user?.id],
-        queryFn: async () => {
-            if (!user) return []
-            const { data, error } = await supabase.rpc('get_company_readiness', { p_user_id: user.id })
-            if (error) return []
-            return data || []
-        },
-        enabled: !!user, staleTime: 0, refetchOnMount: 'always',
-    })
+    const totals = overview?.totals || { dsa: 0, lld: 0, hld: 0 }
+    const readiness = overview?.readiness || []
+    const readinessLoading = overviewLoading
 
     // Computed
     const dsaSolved = progressRows.filter(r => r.problem_type === 'dsa' && r.status === 'solved').length
@@ -141,13 +123,8 @@ function ProgressSection({ user }) {
     const lldPct = totals.lld ? Math.round((lldSolved / totals.lld) * 100) : 0
     const hldPct = totals.hld ? Math.round((hldAttempted / totals.hld) * 100) : 0
 
-    const difficulties = ['Easy', 'Medium', 'Hard']
     const diffColors = { Easy: '#4ade80', Medium: '#facc15', Hard: '#f87171' }
-    const solvedIds = new Set(progressRows.filter(r => r.problem_type === 'dsa' && r.status === 'solved').map(r => r.problem_id))
-    const diffBreakdown = difficulties.map(d => ({
-        d, total: dsaProblems.filter(p => p.difficulty === d).length,
-        done: dsaProblems.filter(p => p.difficulty === d && solvedIds.has(p.id)).length,
-    }))
+    const diffBreakdown = overview?.difficulty || []
 
     const recentActivity = progressRows.filter(r => r.status !== 'unsolved').slice(0, 5)
 
@@ -161,19 +138,11 @@ function ProgressSection({ user }) {
         .sort(([, a], [, b]) => ((b.dsa?.solved ?? 0) + (b.lld?.solved ?? 0)) - ((a.dsa?.solved ?? 0) + (a.lld?.solved ?? 0)))
         .slice(0, 12)
 
-    const topicStats = {}
-    dsaProblems.forEach(p => {
-        (p.topics || '').split(',').forEach(t => {
-            const topic = t.trim(); if (!topic) return
-            if (!topicStats[topic]) topicStats[topic] = { total: 0, solved: 0 }
-            topicStats[topic].total++
-            if (solvedIds.has(p.id)) topicStats[topic].solved++
-        })
-    })
-    const weakTopics = Object.entries(topicStats)
-        .filter(([, s]) => s.total >= 5 && s.solved > 0)
-        .sort(([, a], [, b]) => (a.solved / a.total) - (b.solved / b.total))
+    const weakTopics = (overview?.topics || [])
+        .filter(s => s.total >= 5 && s.solved > 0)
+        .sort((a, b) => (a.solved / a.total) - (b.solved / b.total))
         .slice(0, 5)
+        .map(s => [s.topic, { total: s.total, solved: s.solved }])
 
     const modules = [
         { label: 'DSA', pct: dsaPct, color: '#22d3ee', solved: dsaSolved, total: totals.dsa, link: '/dsa' },
@@ -319,12 +288,184 @@ function ProgressSection({ user }) {
     )
 }
 
+// ── Referral profile ────────────────────────────────────────────────
+
+function CompanyAutocomplete({ value, onChange, placeholder = 'Start typing a company…' }) {
+    const [open, setOpen] = useState(false)
+    const [debounced, setDebounced] = useState(value || '')
+    const boxRef = useRef(null)
+
+    useEffect(() => {
+        const t = setTimeout(() => setDebounced(value || ''), 200)
+        return () => clearTimeout(t)
+    }, [value])
+
+    useEffect(() => {
+        const onDoc = (e) => {
+            if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false)
+        }
+        document.addEventListener('mousedown', onDoc)
+        return () => document.removeEventListener('mousedown', onDoc)
+    }, [])
+
+    const { data } = useCompanyOptions(debounced)
+    const typed = (value || '').trim().toLowerCase()
+    const options = (data?.companies || []).filter((c) => c.toLowerCase() !== typed)
+
+    return (
+        <div ref={boxRef} style={{ position: 'relative' }}>
+            <input
+                type="text"
+                className="input-field"
+                autoComplete="off"
+                placeholder={placeholder}
+                value={value}
+                onChange={(e) => { onChange(e.target.value); setOpen(true) }}
+                onFocus={() => setOpen(true)}
+            />
+            {open && options.length > 0 && (
+                <div style={{
+                    position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+                    background: '#18181b', border: '1px solid #27272a', borderRadius: 6,
+                    maxHeight: 200, overflowY: 'auto', zIndex: 50,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                }}>
+                    {options.map((c) => (
+                        <div
+                            key={c}
+                            onMouseDown={(e) => { e.preventDefault(); onChange(c); setOpen(false) }}
+                            style={{
+                                padding: '7px 12px', cursor: 'pointer', fontSize: '0.82rem',
+                                color: '#a1a1aa', borderBottom: '1px solid rgba(39,39,42,0.5)',
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = '#27272a'; e.currentTarget.style.color = '#fafafa' }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#a1a1aa' }}
+                        >
+                            {c}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
+function ReferralProfileCard({ user }) {
+    const { data: profile, isLoading } = useQuery({
+        queryKey: ['referral-profile', user?.id],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('company, position, years_of_experience, receive_referral_notifications')
+                .eq('id', user.id)
+                .maybeSingle()
+            if (error) throw error
+            return data || {}
+        },
+        enabled: !!user,
+        staleTime: 60_000,
+    })
+
+    const [company, setCompany] = useState('')
+    const [position, setPosition] = useState('')
+    const [yoe, setYoe] = useState('')
+    const [notify, setNotify] = useState(true)
+    const [hydrated, setHydrated] = useState(false)
+    const [saving, setSaving] = useState(false)
+    const [status, setStatus] = useState({ msg: '', type: '' })
+
+    useEffect(() => {
+        if (!profile || hydrated) return
+        setCompany(profile.company || '')
+        setPosition(profile.position || '')
+        setYoe(profile.years_of_experience == null ? '' : String(profile.years_of_experience))
+        setNotify(profile.receive_referral_notifications ?? true)
+        setHydrated(true)
+    }, [profile, hydrated])
+
+    const save = async (e) => {
+        e.preventDefault()
+        setSaving(true)
+        setStatus({ msg: '', type: '' })
+        const { error } = await supabase.from('profiles').upsert({
+            id: user.id,
+            company: company.trim() || null,
+            position: position.trim() || null,
+            years_of_experience: yoe === '' ? null : Number(yoe),
+            receive_referral_notifications: notify,
+        }, { onConflict: 'id' })
+        setSaving(false)
+        setStatus(error
+            ? { msg: error.message || 'Could not save — try again.', type: 'error' }
+            : { msg: 'Referral profile saved.', type: 'ok' })
+    }
+
+    return (
+        <section className="card profile-card">
+            <h2 className="profile-section-title">Referral profile</h2>
+            {isLoading ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ height: 38, background: '#27272a', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                    <div style={{ height: 38, background: '#27272a', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                    <div style={{ height: 38, width: '50%', background: '#27272a', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                </div>
+            ) : (
+                <form onSubmit={save}>
+                    <div className="form-group">
+                        <label className="field-label">Current company</label>
+                        <CompanyAutocomplete value={company} onChange={setCompany} />
+                    </div>
+                    <div className="form-group">
+                        <label className="field-label">Position / title</label>
+                        <input
+                            type="text" className="input-field" placeholder="e.g. Senior Software Engineer"
+                            value={position} onChange={e => setPosition(e.target.value)}
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label className="field-label">Years of experience</label>
+                        <input
+                            type="number" min={0} step={0.5} className="input-field" placeholder="e.g. 4"
+                            value={yoe} onChange={e => setYoe(e.target.value)}
+                        />
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', margin: '4px 0 16px' }}>
+                        <input
+                            type="checkbox"
+                            checked={notify}
+                            onChange={e => setNotify(e.target.checked)}
+                            style={{ marginTop: 2, accentColor: '#22d3ee' }}
+                        />
+                        <span style={{ fontSize: '0.82rem', color: '#a1a1aa', lineHeight: 1.5 }}>
+                            Email me when someone posts a referral request for my company
+                        </span>
+                    </label>
+                    <button
+                        type="submit"
+                        className="primary-btn"
+                        disabled={saving}
+                        style={{ width: 'auto', padding: '10px 24px' }}
+                    >
+                        <span>{saving ? 'Saving…' : 'Save'}</span>
+                        {saving && <div className="spinner" />}
+                    </button>
+                    {status.msg && (
+                        <div className={`auth-status auth-status--${status.type}`} style={{ marginTop: 12 }}>
+                            {status.msg}
+                        </div>
+                    )}
+                </form>
+            )}
+        </section>
+    )
+}
+
 // ── Main page ────────────────────────────────────────────────────────
 
 export default function ProfilePage() {
     const { user, logout } = useAuth()
     const navigate = useNavigate()
-    const { tier, setTier } = useTier()
+    const { plan, isLoading: planLoading } = useEntitlements()
 
     const [newPw, setNewPw] = useState('')
     const [showNewPw, setShowNewPw] = useState(false)
@@ -381,11 +522,21 @@ export default function ProfilePage() {
         navigate('/auth')
     }
 
-    const freeBadgeStyle = {
-        background: 'rgba(113, 113, 122, 0.12)',
-        color: 'var(--muted)',
-        borderColor: 'rgba(113, 113, 122, 0.25)',
-    }
+    const planLabel = plan === 'pro' ? 'Pro Plan' : plan === 'max' ? 'Max Plan' : 'Free Plan'
+    const planBadgeStyle =
+        plan === 'max'
+            ? {
+                background: 'linear-gradient(135deg, rgba(167,139,250,0.18), rgba(34,211,238,0.18))',
+                color: '#a78bfa',
+                borderColor: 'rgba(167, 139, 250, 0.35)',
+            }
+            : plan === 'pro'
+                ? undefined // default .profile-badge (cyan / --pop)
+                : {
+                    background: 'rgba(113, 113, 122, 0.12)',
+                    color: 'var(--muted)',
+                    borderColor: 'rgba(113, 113, 122, 0.25)',
+                }
 
     return (
         <>
@@ -402,12 +553,13 @@ export default function ProfilePage() {
                     <div className="profile-hero-info">
                         <h1 className="profile-name">{displayName}</h1>
                         <p className="profile-email">{user?.email}</p>
-                        <span
+                        <Link
+                            to="/pricing"
                             className="profile-badge"
-                            style={tier === 'pro' ? undefined : freeBadgeStyle}
+                            style={{ textDecoration: 'none', ...(planBadgeStyle || {}) }}
                         >
-                            {tier === 'pro' ? 'Pro' : 'Free'} Plan
-                        </span>
+                            {planLabel}
+                        </Link>
                     </div>
                 </div>
 
@@ -439,24 +591,38 @@ export default function ProfilePage() {
                     </div>
                 </section>
 
-                {/* Plan preview (dev) */}
+                {/* Subscription */}
                 <section className="card profile-card">
-                    <h2 className="profile-section-title">Plan preview (dev)</h2>
-                    <div className="profile-segment" role="group" aria-label="Preview tier">
-                        {['free', 'pro'].map(t => (
-                            <button
-                                key={t}
-                                type="button"
-                                className={'profile-segment-btn' + (tier === t ? ' is-active' : '')}
-                                aria-pressed={tier === t}
-                                onClick={() => setTier(t)}
-                            >
-                                {t === 'pro' ? 'Pro' : 'Free'}
-                            </button>
-                        ))}
-                    </div>
-                    <p className="profile-hint">Switch to preview the free-tier paywalled UI.</p>
+                    <h2 className="profile-section-title">Subscription</h2>
+                    {planLoading ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <div style={{ height: 16, width: '40%', background: '#27272a', borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                            <div style={{ height: 14, width: '25%', background: '#27272a', borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                        </div>
+                    ) : (
+                        <>
+                            <div className="profile-field">
+                                <span className="profile-field-label">Plan</span>
+                                <span className="profile-field-value">{planLabel}</span>
+                            </div>
+                            <div className="profile-divider" />
+                            <div className="profile-field">
+                                <span className="profile-field-label">Status</span>
+                                <span className="profile-field-value">{plan === 'free' ? 'No active subscription' : 'Active'}</span>
+                            </div>
+                            <div className="profile-divider" />
+                            <div className="profile-field">
+                                <span className="profile-field-label">Billing</span>
+                                <div className="profile-field-value-row">
+                                    <Link to="/pricing" className="link-btn">{plan === 'free' ? 'Upgrade' : 'Manage / Upgrade'}</Link>
+                                </div>
+                            </div>
+                        </>
+                    )}
                 </section>
+
+                {/* Referral profile */}
+                <ReferralProfileCard user={user} />
 
                 {/* Security — only for email/password accounts */}
                 {!isOAuth && (

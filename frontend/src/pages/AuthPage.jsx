@@ -1,7 +1,73 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { useCompanyOptions } from '../lib/useReferrals'
+import { track, EVENTS } from '../lib/analytics'
+
+// Free-text company field with a suggestion dropdown. Suggestions need an
+// authenticated session (the catalog endpoint is bearer-gated), so on the
+// public auth screen this degrades gracefully to a plain text input.
+function CompanyAutocomplete({ value, onChange, placeholder = 'Start typing a company…', required = false }) {
+    const [open, setOpen] = useState(false)
+    const [debounced, setDebounced] = useState(value || '')
+    const boxRef = useRef(null)
+
+    useEffect(() => {
+        const t = setTimeout(() => setDebounced(value || ''), 200)
+        return () => clearTimeout(t)
+    }, [value])
+
+    useEffect(() => {
+        const onDoc = (e) => {
+            if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false)
+        }
+        document.addEventListener('mousedown', onDoc)
+        return () => document.removeEventListener('mousedown', onDoc)
+    }, [])
+
+    const { data } = useCompanyOptions(debounced)
+    const typed = (value || '').trim().toLowerCase()
+    const options = (data?.companies || []).filter((c) => c.toLowerCase() !== typed)
+
+    return (
+        <div ref={boxRef} style={{ position: 'relative' }}>
+            <input
+                type="text"
+                className="input-field"
+                autoComplete="off"
+                required={required}
+                placeholder={placeholder}
+                value={value}
+                onChange={(e) => { onChange(e.target.value); setOpen(true) }}
+                onFocus={() => setOpen(true)}
+            />
+            {open && options.length > 0 && (
+                <div style={{
+                    position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+                    background: '#18181b', border: '1px solid #27272a', borderRadius: 6,
+                    maxHeight: 200, overflowY: 'auto', zIndex: 50,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                }}>
+                    {options.map((c) => (
+                        <div
+                            key={c}
+                            onMouseDown={(e) => { e.preventDefault(); onChange(c); setOpen(false) }}
+                            style={{
+                                padding: '7px 12px', cursor: 'pointer', fontSize: '0.82rem',
+                                color: '#a1a1aa', borderBottom: '1px solid rgba(39,39,42,0.5)',
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = '#27272a'; e.currentTarget.style.color = '#fafafa' }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#a1a1aa' }}
+                        >
+                            {c}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
 
 function PwStrengthBar({ password }) {
     let score = 0
@@ -47,6 +113,9 @@ export default function AuthPage() {
     const [signupEmail, setSignupEmail] = useState('')
     const [signupPw, setSignupPw] = useState('')
     const [showSignupPw, setShowSignupPw] = useState(false)
+    const [signupCompany, setSignupCompany] = useState('')
+    const [signupPosition, setSignupPosition] = useState('')
+    const [signupYoe, setSignupYoe] = useState('')
 
     useEffect(() => {
         if (session) navigate('/', { replace: true })
@@ -63,6 +132,7 @@ export default function AuthPage() {
         if (error) {
             setStatus({ msg: error.message, type: 'error' })
         } else {
+            track(EVENTS.LOGIN, { method: 'password' })
             setStatus({ msg: 'Signed in! Redirecting…', type: 'ok' })
             setTimeout(() => navigate('/'), 600)
         }
@@ -70,17 +140,34 @@ export default function AuthPage() {
 
     const handleSignup = async (e) => {
         e.preventDefault()
-        setLoading(true)
         clearStatus()
+        const company = signupCompany.trim()
+        const position = signupPosition.trim()
+        const yoeNum = Number(signupYoe)
+        if (!company || !position || signupYoe === '' || Number.isNaN(yoeNum) || yoeNum < 0) {
+            setStatus({ msg: 'Company, position, and years of experience are required.', type: 'error' })
+            return
+        }
+        setLoading(true)
         const { error } = await supabase.auth.signUp({
             email: signupEmail,
             password: signupPw,
-            options: { data: { full_name: signupName } },
+            options: {
+                data: {
+                    full_name: signupName,
+                    // Referral-profile fields — the DB trigger reads these into
+                    // `profiles` on account creation.
+                    company,
+                    position,
+                    years_of_experience: yoeNum,
+                },
+            },
         })
         setLoading(false)
         if (error) {
             setStatus({ msg: error.message, type: 'error' })
         } else {
+            track(EVENTS.SIGNUP, { method: 'password' })
             setStatus({ msg: 'Account created! Check your email to confirm, then sign in.', type: 'ok' })
         }
     }
@@ -100,6 +187,9 @@ export default function AuthPage() {
     const handleGoogleLogin = async () => {
         setLoading(true)
         clearStatus()
+        // Fires before the OAuth redirect navigates away — posthog batches to
+        // localStorage so it still flushes. Covers both Google signup and login.
+        track(EVENTS.GOOGLE_LOGIN, { method: 'google' })
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
@@ -212,6 +302,25 @@ export default function AuthPage() {
                                     </button>
                                 </div>
                                 <PwStrengthBar password={signupPw} />
+                            </div>
+                            <div className="form-group">
+                                <label className="field-label">Current company</label>
+                                <CompanyAutocomplete value={signupCompany} onChange={setSignupCompany} placeholder="e.g. Google" required />
+                            </div>
+                            <div className="form-group">
+                                <label className="field-label">Your position / title</label>
+                                <input
+                                    type="text" className="input-field" placeholder="e.g. Senior Software Engineer" required
+                                    value={signupPosition} onChange={e => setSignupPosition(e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="field-label">Years of experience</label>
+                                <input
+                                    type="number" min={0} step={0.5} className="input-field" placeholder="e.g. 4" required
+                                    value={signupYoe} onChange={e => setSignupYoe(e.target.value)}
+                                />
+                                <p className="field-hint">Used to match you with referral requests. You can edit this later in your profile.</p>
                             </div>
                             <button type="submit" className="primary-btn auth-submit-btn" disabled={loading}>
                                 <span>{loading ? 'Creating…' : 'Create Account'}</span>

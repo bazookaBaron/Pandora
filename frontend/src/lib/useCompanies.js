@@ -1,22 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
-import { supabase } from './supabase'
+import { useAuth } from '../contexts/AuthContext'
+import { apiFetch } from './apiClient'
 
+// Distinct company names for the filter dropdown. Served by the authenticated
+// /api/catalog/companies endpoint (the base catalog tables are not readable by
+// the browser's supabase client). Return shape is unchanged: a sorted string[].
 export function useCompanies() {
+    const { user } = useAuth()
     return useQuery({
         queryKey: ['companies'],
         queryFn: async () => {
-            // Fetch from both tables and merge
-            const [lldRes, dsaRes] = await Promise.all([
-                supabase.from('lld_problems').select('companies'),
-                supabase.from('leetcode_company_problems').select('company'),
-            ])
-
-            const set = new Set()
-                ; (lldRes.data || []).forEach(r => (r.companies || []).forEach(c => c && set.add(c.trim())))
-                ; (dsaRes.data || []).forEach(r => (r.company || []).forEach(c => c && set.add(c.trim())))
-
-            return Array.from(set).sort()
+            const data = await apiFetch('/api/catalog/companies')
+            return data?.companies || []
         },
+        enabled: !!user,
         staleTime: 5 * 60 * 1000, // 5 min — company names rarely change
         refetchOnWindowFocus: false,
     })

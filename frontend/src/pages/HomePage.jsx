@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import Navbar from '../components/Navbar'
 import { useMediaQuery } from '../lib/useMediaQuery'
-import { useTier } from '../lib/useTier'
-import { LockedPanel } from '../components/shared/PaywallGate'
+import { useEntitlements } from '../lib/useEntitlements'
+import { apiFetch, isUsageLimit } from '../lib/apiClient'
+import { LockedPanel, UsageMeter } from '../components/shared/PaywallGate'
+import { LimitReached, errorText } from '../components/shared/states'
+import { track, EVENTS } from '../lib/analytics'
 
 function ScoreRing({ label, value }) {
     const circleRef = useRef(null)
@@ -56,7 +59,9 @@ function ScorePanel({ title, metrics, accent, isMobile }) {
 }
 
 export default function HomePage() {
-    const { limits } = useTier()
+    const { limits } = useEntitlements()
+    const resumeLimit = limits.resume_optimizer_per_month
+    const resumeLocked = !(resumeLimit > 0)
     const isMobile = useMediaQuery('(max-width: 767px)')
     const [provider, setProvider] = useState('gemini')
     const [resumeFile, setResumeFile] = useState(null)
@@ -66,6 +71,7 @@ export default function HomePage() {
     const [loading, setLoading] = useState(false)
     const [status, setStatus] = useState({ msg: '', type: '' })
     const [results, setResults] = useState(null)
+    const [limitInfo, setLimitInfo] = useState(null)
     const fileInputRef = useRef(null)
 
     // Validation
@@ -85,7 +91,10 @@ export default function HomePage() {
 
         setLoading(true)
         setResults(null)
+        setLimitInfo(null)
         setStatus({ msg: `Tailoring resume with ${provider}… 15–30 s`, type: '' })
+
+        track(EVENTS.RESUME_OPTIMIZER_STARTED, { provider })
 
         try {
             const form = new FormData()
@@ -95,22 +104,23 @@ export default function HomePage() {
             if (name.trim()) form.append('name', name.trim())
             if (companyName.trim()) form.append('companyName', companyName.trim())
 
-            const res = await fetch('/api/generate', { method: 'POST', body: form })
-            let data
-            try {
-                data = await res.json()
-            } catch {
-                throw new Error(
-                    'API server not reachable. In a separate terminal run:  cd frontend && npm run serve'
-                )
-            }
-            if (!res.ok) throw new Error(data.error || 'Generation failed.')
+            const data = await apiFetch('/api/generate', { formData: form })
 
             downloadPdf(data.pdfBase64, data.filename)
             setResults({ metrics: data.metrics, beforeMetrics: data.beforeMetrics, filename: data.filename })
+            track(EVENTS.RESUME_OPTIMIZER_COMPLETED, {
+                provider,
+                keyword_match: data?.metrics?.keywordMatchPercent ?? null,
+                ats: data?.metrics?.atsPassChancePercent ?? null,
+            })
             setStatus({ msg: `Done! Downloaded as ${data.filename}`, type: 'ok' })
         } catch (err) {
-            setStatus({ msg: err.message, type: 'error' })
+            if (isUsageLimit(err)) {
+                setLimitInfo({ used: err.used, limit: err.limit, resetsAt: err.resetsAt })
+                setStatus({ msg: '', type: '' })
+            } else {
+                setStatus({ msg: errorText(err), type: 'error' })
+            }
         } finally {
             setLoading(false)
         }
@@ -128,6 +138,8 @@ export default function HomePage() {
 
     const body = (
         <>
+            {Number.isFinite(resumeLimit) && <UsageMeter feature="resume_optimizer" />}
+
             {/* Name + Company row */}
             <section className="card" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
                 <div>
@@ -228,6 +240,16 @@ export default function HomePage() {
             {/* Status */}
             <div className={`status${status.type ? ` ${status.type}` : ''}`}>{status.msg}</div>
 
+            {/* Monthly limit reached (server 402) */}
+            {limitInfo && (
+                <LimitReached
+                    feature="resume_optimizer"
+                    used={limitInfo.used}
+                    limit={limitInfo.limit}
+                    resetsAt={limitInfo.resetsAt}
+                />
+            )}
+
             {/* Results Scorecard */}
             {results && (
                 <section className="results">
@@ -296,12 +318,13 @@ export default function HomePage() {
                     </div>
                 </header>
 
-                {limits.resumeOptimizer ? body : (
+                {resumeLocked ? (
                     <LockedPanel
+                        feature="resume_optimizer"
                         title="Resume Optimizer is a Pro feature"
-                        subtitle="Upload a resume + a job description and get a tailored, ATS-optimized PDF with a match scorecard. Upgrade to unlock."
+                        subtitle="Upgrade to tailor your resume to any JD."
                     />
-                )}
+                ) : body}
             </main>
         </>
     )

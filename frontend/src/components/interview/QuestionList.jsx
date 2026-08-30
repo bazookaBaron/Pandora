@@ -1,4 +1,6 @@
 import { useInterviewQuestions } from '../../lib/useInterviewQuestions'
+import { ErrorState, EmptyState } from '../shared/states'
+import { LockedSlice } from '../shared/PaywallGate'
 import StatusBadge from './StatusBadge'
 
 // Native-button reset so rows are keyboard- and screen-reader-accessible
@@ -10,13 +12,9 @@ const ROW_RESET = {
 
 // ── Question list (right panel) ───────────────────────────────────
 export default function QuestionList({ subcategory, activeId, onSelect, accent = '#22d3ee' }) {
-    const { data: questions = [], isLoading, error } = useInterviewQuestions(subcategory)
+    const { data: questions = [], isLoading, error, locked = 0 } = useInterviewQuestions(subcategory)
 
-    if (!subcategory) return (
-        <div style={{ padding: 20, color: '#52525b', fontSize: '0.8rem', textAlign: 'center' }}>
-            Select a subcategory
-        </div>
-    )
+    if (!subcategory) return <EmptyState compact title="Select a subcategory" />
     if (isLoading) return (
         <div style={{ padding: 16 }}>
             {Array.from({ length: 6 }).map((_, i) => (
@@ -24,10 +22,10 @@ export default function QuestionList({ subcategory, activeId, onSelect, accent =
             ))}
         </div>
     )
-    if (error) return <div style={{ padding: 16, color: '#f87171', fontSize: '0.78rem' }}>{error.message}</div>
-    if (!questions.length) return (
-        <div style={{ padding: 20, color: '#52525b', fontSize: '0.8rem', textAlign: 'center' }}>No questions in this subcategory</div>
-    )
+    if (error) return <ErrorState compact err={error} style={{ margin: 12 }} />
+    if (!questions.length) return <EmptyState compact icon="💬" title="No questions in this topic" />
+
+
 
     return (
         <div style={{ overflowY: 'auto', height: '100%', padding: '8px 0' }}>
@@ -82,6 +80,11 @@ export default function QuestionList({ subcategory, activeId, onSelect, accent =
                     </button>
                 )
             })}
+            {locked > 0 && (
+                <div style={{ padding: '4px 12px 16px' }}>
+                    <LockedSlice variant="row" count={locked} noun="questions in this topic" />
+                </div>
+            )}
         </div>
     )
 }

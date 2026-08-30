@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import CommandPalette from './components/shared/CommandPalette'
+import { RouteErrorBoundary } from './components/shared/ErrorBoundary'
+import SessionExpiredBanner from './components/shared/SessionExpiredBanner'
 
 import AuthPage from './pages/AuthPage'
 import HomePage from './pages/HomePage'
@@ -15,6 +17,7 @@ import LLDProblemPage from './pages/lld/LLDProblemPage'
 import HLDListPage from './pages/hld/HLDListPage'
 import HLDWorkspacePage from './pages/hld/HLDWorkspacePage'
 import InterviewPage from './pages/interview/InterviewPage'
+import ReferralsPage from './pages/referrals/ReferralsPage'
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -30,6 +33,8 @@ export default function App() {
             <BrowserRouter>
                 <AuthProvider>
                     <CommandPalette />
+                    <SessionExpiredBanner />
+                    <RouteErrorBoundary>
                     <Routes>
                         <Route path="/auth" element={<AuthPage />} />
                         <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
@@ -43,8 +48,10 @@ export default function App() {
                         <Route path="/hld" element={<ProtectedRoute><HLDListPage /></ProtectedRoute>} />
                         <Route path="/hld/:id" element={<ProtectedRoute><HLDWorkspacePage /></ProtectedRoute>} />
                         <Route path="/interview" element={<ProtectedRoute><InterviewPage /></ProtectedRoute>} />
+                        <Route path="/referrals" element={<ProtectedRoute><ReferralsPage /></ProtectedRoute>} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
+                    </RouteErrorBoundary>
                 </AuthProvider>
             </BrowserRouter>
         </QueryClientProvider>

@@ -1,4 +1,5 @@
 import { categoryColor } from './categoryTheme'
+import { ErrorState, EmptyState } from '../shared/states'
 
 // Native-button reset so rows are keyboard- and screen-reader-accessible
 // while keeping the plain-row look.
@@ -25,11 +26,14 @@ export default function SubcategoryList({ pairs = [], isLoading, error, activeSu
             ))}
         </div>
     )
-    if (error) return <div style={{ padding: 12, color: '#f87171', fontSize: '0.75rem' }}>{error.message}</div>
+    if (error) return <ErrorState compact err={error} style={{ margin: 12 }} />
     if (!pairs.length) return (
-        <div style={{ padding: 20, color: '#52525b', fontSize: '0.8rem', textAlign: 'center', lineHeight: 1.6 }}>
-            No topics found — you may need to sign in, or the interview_questions table has no rows visible to your account.
-        </div>
+        <EmptyState
+            compact
+            icon="📚"
+            title="No topics found"
+            message="You may need to sign in, or no interview questions are visible to your account yet."
+        />
     )
 
     return (

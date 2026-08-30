@@ -104,7 +104,7 @@ export default function InterviewPage() {
                     }}>{activeSub}</span>
                 )}
             </div>
-            <div style={{ flex: 1, overflow: 'hidden' }}>
+            <div style={{ flex: 1, overflow: 'auto' }}>
                 <QuestionList subcategory={activeSub} activeId={activeQId} onSelect={handleQuestionSelect} accent={accent} />
             </div>
         </div>

@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { useInterviewAnswer } from '../../lib/useInterviewQuestions'
+import { track, EVENTS } from '../../lib/analytics'
 import MarkdownRenderer from './MarkdownRenderer'
 import ChartBlock from './ChartBlock'
 import StatusBadge from './StatusBadge'
+import { LoadingState, ErrorState, EmptyState } from '../shared/states'
 
 // ── Answer viewer (middle panel) ─────────────────────────────────────
 export default function AnswerViewer({ questionId, questionText, accent = '#22d3ee' }) {
@@ -16,32 +18,41 @@ export default function AnswerViewer({ questionId, questionText, accent = '#22d3
         if (el) el.scrollTo({ top: 0 })
     }, [questionId, data])
 
+    // SOLUTION_VIEWED once per question — only after the answer is present.
+    // Keyed on question id so viewing another question re-arms it; StrictMode-safe.
+    const solutionViewedRef = useRef(null)
+    useEffect(() => {
+        if (!questionId || !data?.answer) return
+        if (solutionViewedRef.current === questionId) return
+        solutionViewedRef.current = questionId
+        track(EVENTS.SOLUTION_VIEWED, { type: 'interview', question_id: questionId })
+    }, [questionId, data?.answer])
+
     if (!questionId) return (
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#52525b', gap: 12, padding: 24 }}>
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" style={{ opacity: 0.4 }}>
-                <circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
-            <span style={{ fontSize: '0.82rem', textAlign: 'center' }}>Select a question from the right panel to view its answer</span>
+        <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <EmptyState
+                icon={(
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#52525b" strokeWidth="1.2" style={{ opacity: 0.4 }}>
+                        <circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                )}
+                title="Select a question from the right panel to view its answer"
+            />
         </div>
     )
 
     if (isLoading) return (
         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ width: 28, height: 28, border: '2px solid #27272a', borderTopColor: '#22d3ee', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+            <LoadingState label="" />
         </div>
     )
 
-    if (error) return (
-        <div style={{ padding: 24, color: '#f87171', fontSize: '0.82rem' }}>Failed to load answer: {error.message}</div>
-    )
+    if (error) return <ErrorState title="Failed to load answer" err={error} style={{ padding: 24 }} />
 
     // maybeSingle() returns null when the stored question id no longer exists
     if (data === null) return (
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 }}>
-            <div style={{ fontSize: '2rem' }}>🔍</div>
-            <p style={{ color: '#71717a', fontSize: '0.82rem', textAlign: 'center', maxWidth: 320 }}>
-                This question is no longer available. Pick another from the list.
-            </p>
+        <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <EmptyState icon="🔍" title="This question is no longer available. Pick another from the list." />
         </div>
     )
 
