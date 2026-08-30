@@ -1,0 +1,207 @@
+import { useEffect } from 'react'
+import { Link } from 'react-router-dom'
+import Navbar from '../components/Navbar'
+import Footer from '../components/Footer'
+
+// Business / contact constants — keep these in one place.
+export const BIZ = {
+    name: 'Vloombox',
+    // Razorpay activation needs the registered legal name + address ON this page.
+    legalName: 'Vloombox (operated by Debopriyo Debnath)',
+    address: 'India',            // ← replace with the full registered business address before Razorpay submission
+    email: 'debopriyo.debnath1999@gmail.com',
+    site: 'https://www.vloombox.in',
+    jurisdiction: 'India',       // ← replace with your city, e.g. "Bengaluru, Karnataka, India"
+    effective: 'February 2026',
+}
+
+function LegalLayout({ title, children }) {
+    useEffect(() => { window.scrollTo(0, 0) }, [])
+    return (
+        <>
+            <Navbar />
+            <main className="wrap" style={{ maxWidth: 760, margin: '0 auto', padding: '80px 18px 40px' }}>
+                <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>{title}</h1>
+                <p style={{ color: 'var(--faint)', fontSize: '0.72rem', margin: '6px 0 22px' }}>
+                    Last updated: {BIZ.effective}
+                </p>
+                <div className="legal-body" style={{ fontSize: '0.86rem', lineHeight: 1.75, color: 'var(--accent)' }}>
+                    {children}
+                </div>
+                <p style={{ marginTop: 28 }}>
+                    <Link to="/" style={{ color: 'var(--pop)', fontSize: '0.8rem', textDecoration: 'none' }}>← Back to Vloombox</Link>
+                </p>
+            </main>
+            <Footer />
+        </>
+    )
+}
+
+const H = ({ children }) => (
+    <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--bright)', margin: '22px 0 8px', letterSpacing: '-0.01em' }}>{children}</h2>
+)
+const P = ({ children }) => <p style={{ margin: '0 0 10px' }}>{children}</p>
+const UL = ({ children }) => <ul style={{ margin: '0 0 10px', paddingLeft: 20 }}>{children}</ul>
+
+// ── Terms & Conditions ─────────────────────────────────────────────
+export function TermsPage() {
+    return (
+        <LegalLayout title="Terms & Conditions">
+            <P>These Terms govern your use of {BIZ.name} ({BIZ.site}), a web application for technical-interview preparation and AI-assisted résumé optimisation operated by {BIZ.legalName} (&ldquo;we&rdquo;, &ldquo;us&rdquo;). By creating an account or making a payment you agree to these Terms.</P>
+
+            <H>1. The service</H>
+            <P>{BIZ.name} provides practice content and tools including data-structures &amp; algorithms, low-level and high-level design practice, interview questions, a résumé optimiser, a referral request board and a jobs listing. Features available on each plan are described on the <Link to="/pricing" style={{ color: 'var(--pop)' }}>Pricing</Link> page. We may add, change or remove features over time.</P>
+
+            <H>2. Accounts</H>
+            <P>You must provide accurate information, keep your credentials secure, and are responsible for activity under your account. You must be at least 16 years old (or the age of digital consent in your country) to use {BIZ.name}. One account per person.</P>
+
+            <H>3. Plans, payments and term</H>
+            <UL>
+                <li>Paid plans (Pro, Max) are sold as a <strong>one-time payment for a fixed term</strong> — monthly (30 days) or yearly (365 days). Nothing renews automatically; access ends when the term expires unless you purchase again.</li>
+                <li>Prices are shown in Indian Rupees (INR) and are processed by our payment partner, Razorpay. Applicable taxes, if any, are included or added at checkout.</li>
+                <li>Access to a paid plan begins immediately after a successful payment is verified.</li>
+                <li>Refunds and cancellations are covered by our <Link to="/refunds" style={{ color: 'var(--pop)' }}>Refund &amp; Cancellation Policy</Link>.</li>
+            </UL>
+
+            <H>4. Acceptable use</H>
+            <P>You agree not to: resell or share paid access; scrape, bulk-download or redistribute our content; attempt to bypass usage limits, authentication or payment; probe or disrupt our infrastructure; upload unlawful, infringing or malicious content; or use the service to harass others. We may suspend or terminate accounts that violate these Terms.</P>
+
+            <H>5. User content</H>
+            <P>You retain ownership of files you upload (e.g. résumés) and text you submit. You grant us a limited licence to process that content solely to provide the service (for example, sending résumé text to an AI model to generate a tailored version). See our <Link to="/privacy" style={{ color: 'var(--pop)' }}>Privacy Policy</Link> for details.</P>
+
+            <H>6. AI-generated output</H>
+            <P>Résumé suggestions, scores and explanations are generated by automated models and may contain errors or omissions. They are provided for your review and editing — you are responsible for the final content you submit to employers. We do not guarantee interviews, offers or any specific outcome.</P>
+
+            <H>7. Third-party content</H>
+            <P>Job listings and company information are aggregated from public sources and may be out of date or inaccurate. Always confirm details on the employer&rsquo;s official page before applying.</P>
+
+            <H>8. Availability and changes</H>
+            <P>We aim for high availability but do not guarantee uninterrupted service. We may modify or discontinue features, and we may update these Terms; material changes will be posted on this page with a new &ldquo;last updated&rdquo; date.</P>
+
+            <H>9. Disclaimers and liability</H>
+            <P>The service is provided &ldquo;as is&rdquo; without warranties of any kind. To the maximum extent permitted by law, our total liability for any claim relating to the service is limited to the amount you paid us in the 3 months before the claim.</P>
+
+            <H>10. Governing law</H>
+            <P>These Terms are governed by the laws of {BIZ.jurisdiction}, and any disputes are subject to the exclusive jurisdiction of the courts located there.</P>
+
+            <H>11. Contact</H>
+            <P>Questions about these Terms: <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a>. See also our <Link to="/contact" style={{ color: 'var(--pop)' }}>Contact / About</Link> page.</P>
+        </LegalLayout>
+    )
+}
+
+// ── Privacy Policy ─────────────────────────────────────────────────
+export function PrivacyPage() {
+    return (
+        <LegalLayout title="Privacy Policy">
+            <P>This policy explains what personal data {BIZ.name} collects, why, and your choices. It applies to {BIZ.site} and is operated by {BIZ.legalName}.</P>
+
+            <H>1. Data we collect</H>
+            <UL>
+                <li><strong>Account data:</strong> email address, name (if provided), and — for Google sign-in — your Google profile name and picture.</li>
+                <li><strong>Profile data you add:</strong> current company, position, years of experience, notification preference, profile photo.</li>
+                <li><strong>Content you submit:</strong> résumé PDFs, résumé text, job descriptions, referral requests, feedback messages, and practice progress.</li>
+                <li><strong>Payment data:</strong> processed entirely by Razorpay. We receive a payment/order identifier and status; we do <strong>not</strong> receive or store your card, UPI or bank details.</li>
+                <li><strong>Usage &amp; device data:</strong> pages visited, feature usage and basic device/browser info, via product analytics (PostHog).</li>
+            </UL>
+
+            <H>2. How we use it</H>
+            <UL>
+                <li>To provide and operate the service and your account.</li>
+                <li>To process payments and grant plan access (via Razorpay).</li>
+                <li>To generate résumé suggestions and scores — your résumé text and the job description are sent to a third-party AI provider (Google Gemini) for this purpose only.</li>
+                <li>To send transactional email (e.g. referral notifications, feedback replies) via Resend.</li>
+                <li>To understand usage and improve the product.</li>
+                <li>To prevent abuse and enforce our Terms.</li>
+            </UL>
+
+            <H>3. Sub-processors</H>
+            <P>We rely on: Supabase (database, authentication, file storage), Razorpay (payments), Google Gemini (AI résumé processing), Resend (transactional email), PostHog (analytics), and our hosting provider. Each processes data only to perform its function.</P>
+
+            <H>4. Retention</H>
+            <P>Account and profile data are kept while your account is active. Uploaded résumé files are stored to provide the feature and can be deleted on request. Aggregated, non-identifying analytics may be retained longer. We delete or anonymise personal data within a reasonable period after you delete your account.</P>
+
+            <H>5. Your rights</H>
+            <P>You can access, correct or delete your personal data, and request a copy or export, by emailing <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a>. You can edit most profile fields in-app. You can turn off referral notification emails in your profile.</P>
+
+            <H>6. Cookies &amp; local storage</H>
+            <P>We use strictly-necessary storage for authentication and preferences (e.g. your light/dark theme), and analytics cookies from PostHog. We do not run third-party advertising trackers.</P>
+
+            <H>7. Security</H>
+            <P>Data is transmitted over HTTPS. Access to production data is restricted. The résumé storage bucket is private and served only through short-lived signed links. No method of transmission or storage is 100% secure.</P>
+
+            <H>8. Children</H>
+            <P>{BIZ.name} is not directed to children under 16 and we do not knowingly collect their data.</P>
+
+            <H>9. Changes</H>
+            <P>We will post any changes on this page and update the date above.</P>
+
+            <H>10. Contact</H>
+            <P>Privacy questions or requests: <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a>.</P>
+        </LegalLayout>
+    )
+}
+
+// ── Refund & Cancellation Policy ──────────────────────────────────
+export function RefundPage() {
+    return (
+        <LegalLayout title="Refund & Cancellation Policy">
+            <P>This policy applies to paid {BIZ.name} plans (Pro and Max) purchased through Razorpay.</P>
+
+            <H>1. How billing works</H>
+            <P>Paid plans are a <strong>one-time payment for a fixed term</strong> (monthly = 30 days, yearly = 365 days). There is no automatic renewal and no recurring charge. When the term ends, your account simply reverts to the Free plan unless you choose to buy again.</P>
+
+            <H>2. Cancellation</H>
+            <P>Because nothing auto-renews, there is nothing to cancel to stop future charges — simply do not purchase again. You keep access to your paid features until the end of the term you already paid for.</P>
+
+            <H>3. Refunds</H>
+            <P>Plan access is delivered digitally and immediately, so fees are generally <strong>non-refundable</strong>. We will, however, issue a refund in these cases:</P>
+            <UL>
+                <li><strong>Duplicate or accidental charge</strong> — you were billed more than once for the same plan/term, or charged in error.</li>
+                <li><strong>Payment succeeded but the plan was not activated</strong> due to a technical fault on our side and we cannot resolve it promptly.</li>
+                <li><strong>Service materially not as described</strong> — if, within <strong>7 days</strong> of purchase, the paid features are substantially unavailable or do not work as described on the Pricing page, and you have made only minimal use of them, we will refund in full or on a pro-rata basis at our discretion.</li>
+            </UL>
+            <P>Refunds are not provided for change of mind after use, for failure to use the service, or for dissatisfaction with AI-generated output (which is inherently variable and provided for your review).</P>
+
+            <H>4. How to request a refund</H>
+            <P>Email <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a> from your account email within <strong>7 days</strong> of the charge, with your registered email and the Razorpay payment ID. We aim to respond within 3 business days.</P>
+
+            <H>5. Processing time</H>
+            <P>Approved refunds are issued to the original payment method via Razorpay and typically settle within <strong>5–7 business days</strong>, depending on your bank or card issuer.</P>
+
+            <H>6. Contact</H>
+            <P>{BIZ.legalName} · <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></P>
+        </LegalLayout>
+    )
+}
+
+// ── Contact / About ──────────────────────────────────────────────
+export function ContactPage() {
+    return (
+        <LegalLayout title="Contact & About">
+            <H>About Vloombox</H>
+            <P>{BIZ.name} is a technical-interview preparation platform. It brings together DSA, low-level design and high-level design practice, curated interview questions, an AI résumé optimiser that tailors your résumé to a specific job description, a peer referral-request board, and an aggregated jobs listing — in one place.</P>
+            <P>{BIZ.name} is operated by {BIZ.legalName}.</P>
+
+            <H>Contact us</H>
+            <UL>
+                <li><strong>Support &amp; general enquiries:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></li>
+                <li><strong>Billing &amp; refunds:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a> (see the <Link to="/refunds" style={{ color: 'var(--pop)' }}>Refund &amp; Cancellation Policy</Link>)</li>
+                <li><strong>Privacy requests:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></li>
+                <li><strong>Website:</strong> <a href={BIZ.site} style={{ color: 'var(--pop)' }}>{BIZ.site}</a></li>
+            </UL>
+            <P>Registered address: {BIZ.address}</P>
+
+            <H>Response time</H>
+            <P>We usually reply within 2 business days. You can also send a feature request or bug report from the Feedback section of your profile once signed in.</P>
+
+            <H>Policies</H>
+            <UL>
+                <li><Link to="/terms" style={{ color: 'var(--pop)' }}>Terms &amp; Conditions</Link></li>
+                <li><Link to="/privacy" style={{ color: 'var(--pop)' }}>Privacy Policy</Link></li>
+                <li><Link to="/refunds" style={{ color: 'var(--pop)' }}>Refund &amp; Cancellation Policy</Link></li>
+                <li><Link to="/pricing" style={{ color: 'var(--pop)' }}>Pricing</Link></li>
+            </UL>
+        </LegalLayout>
+    )
+}

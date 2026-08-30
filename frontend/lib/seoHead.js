@@ -63,6 +63,10 @@ export function classifyRoute(pathname) {
 
   if (p === "/") return { kind: "public", key: "home" };
   if (p === "/pricing") return { kind: "public", key: "pricing" };
+  if (p === "/terms") return { kind: "public", key: "terms" };
+  if (p === "/privacy") return { kind: "public", key: "privacy" };
+  if (p === "/refunds") return { kind: "public", key: "refunds" };
+  if (p === "/contact") return { kind: "public", key: "contact" };
   if (p === "/blog" || p === "/blog/") return { kind: "public", key: "blog" };
 
   if (p.startsWith("/blog/")) {
@@ -107,8 +111,44 @@ function routeMeta({ key, base, path, post }) {
     return {
       title: "Pricing — Free, Pro & Max Plans | Vloombox",
       description:
-        "Start on the free tier, then upgrade to Pro at $9/mo or Max at $19/mo for unlimited AI resume tailoring, system-design practice, and interview prep.",
+        "Start free, then unlock Pro or Max for unlimited AI resume tailoring, system-design practice, and interview prep. One-time payment per term, billed in INR.",
       canonical: `${base}/pricing`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "terms") {
+    return {
+      title: "Terms & Conditions | Vloombox",
+      description: "The terms that govern your use of Vloombox.",
+      canonical: `${base}/terms`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "privacy") {
+    return {
+      title: "Privacy Policy | Vloombox",
+      description: "What data Vloombox collects, why, and your choices.",
+      canonical: `${base}/privacy`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "refunds") {
+    return {
+      title: "Refund & Cancellation Policy | Vloombox",
+      description: "How refunds and cancellations work for Vloombox paid plans.",
+      canonical: `${base}/refunds`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "contact") {
+    return {
+      title: "Contact & About | Vloombox",
+      description: "How to reach the Vloombox team and what Vloombox is.",
+      canonical: `${base}/contact`,
       ogType: "website",
       ogImage: base + SITE.defaultOgImage,
     };

@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
-import { TIERS, PLAN_ORDER } from '../../config/tiers.js'
+import Footer from '../components/Footer'
+import { TIERS, PLAN_ORDER, priceInrPaise } from '../../config/tiers.js'
 import { useEntitlements } from '../lib/useEntitlements'
-import { apiFetch, ApiError } from '../lib/apiClient'
+import { useAuth } from '../contexts/AuthContext'
 import { ErrorState } from '../components/shared/states'
 import { track, EVENTS } from '../lib/analytics'
+import { startRazorpayCheckout } from '../lib/razorpay'
 
 // ── Pricing (config-driven) ─────────────────────────────────────────
 // Renders Free / Pro / Max straight from `config/tiers.js`. The Pro/Max CTAs
-// call POST /api/checkout and redirect to the hosted Lemon Squeezy checkout;
-// on return (?checkout=success) we show a banner and re-poll entitlements to
-// catch the webhook that activates the plan.
+// open Razorpay Standard Checkout (one-time payment for a monthly / yearly
+// term). On a verified payment we re-poll entitlements.
 
 const PLAN_META = {
     free: { name: 'Free', tagline: 'Get a feel for it', accent: '#71717a' },
@@ -20,7 +21,7 @@ const PLAN_META = {
 }
 
 const isInf = (v) => v === Infinity || v === 'unlimited'
-const dollars = (cents) => `$${Math.round((cents || 0) / 100)}`
+const rupees = (paise) => `₹${Math.round((paise || 0) / 100).toLocaleString('en-IN')}`
 
 // Human-readable feature bullets derived from a plan's limits.
 function describeLimits(plan) {
@@ -66,45 +67,37 @@ function describeLimits(plan) {
 
 export default function PricingPage() {
     const { plan: currentPlan, refetch } = useEntitlements()
+    const { user } = useAuth()
     const [billing, setBilling] = useState('monthly') // 'monthly' | 'yearly'
     const [note, setNote] = useState('')
-    const [pending, setPending] = useState('') // plan id currently starting checkout
-    const [searchParams, setSearchParams] = useSearchParams()
-    const checkoutSuccess = searchParams.get('checkout') === 'success'
+    const [ok, setOk] = useState('')
+    const [pending, setPending] = useState('') // plan id currently in checkout
 
     useEffect(() => {
         track(EVENTS.PRICING_VIEWED)
     }, [])
 
-    // Returning from a successful checkout: the webhook that flips the plan may
-    // lag the browser redirect, so refetch now and once more after a beat, then
-    // strip the query param so a refresh doesn't replay the banner.
-    useEffect(() => {
-        if (!checkoutSuccess) return
-        refetch()
-        const t = setTimeout(() => refetch(), 4000)
-        const next = new URLSearchParams(searchParams)
-        next.delete('checkout')
-        setSearchParams(next, { replace: true })
-        return () => clearTimeout(t)
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [checkoutSuccess])
-
     async function startCheckout(plan) {
+        if (!user) { setNote('Please sign in first.'); return }
         setNote('')
+        setOk('')
         setPending(plan)
         track(EVENTS.CHECKOUT_STARTED, { plan, billing })
         try {
-            const { url } = await apiFetch('/api/checkout', { json: { plan, billingPeriod: billing } })
-            window.location.href = url
+            const res = await startRazorpayCheckout({ plan, billingPeriod: billing, user })
+            track(EVENTS.CHECKOUT_COMPLETED, { plan, billing })
+            setOk(`Payment received — your ${PLAN_META[plan]?.name || plan} plan is active.`)
+            refetch()
+            setTimeout(refetch, 3000)
         } catch (err) {
-            if (err instanceof ApiError && err.code === 'checkout_unconfigured') {
-                setNote('Checkout isn’t connected yet. To test, set your plan in Supabase.')
-            } else if (err && err.status === 401) {
-                setNote('Please sign in first.')
+            if (err?.code === 'dismissed') {
+                // user closed the modal — no error message needed
+            } else if (err?.code === 'unconfigured') {
+                setNote('Payments aren’t connected yet.')
             } else {
-                setNote('Could not start checkout — try again.')
+                setNote(err?.message || 'Could not complete the payment.')
             }
+        } finally {
             setPending('')
         }
     }
@@ -113,13 +106,13 @@ export default function PricingPage() {
         <>
             <Navbar />
             <main className="wrap" style={{ maxWidth: 980, margin: '0 auto', padding: '72px 16px 32px' }}>
-                {checkoutSuccess && (
+                {ok && (
                     <p style={{
                         textAlign: 'center', marginBottom: 18, fontSize: '0.8rem', color: '#4ade80',
                         background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.25)',
                         borderRadius: 8, padding: '10px 14px',
                     }}>
-                        Payment received — your plan will activate shortly.
+                        {ok}
                     </p>
                 )}
                 <header style={{ textAlign: 'center', marginBottom: 22 }}>
@@ -147,8 +140,7 @@ export default function PricingPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                     {PLAN_ORDER.map((id) => {
                         const meta = PLAN_META[id] || { name: id, accent: '#71717a' }
-                        const price = TIERS[id].price
-                        const cents = billing === 'yearly' ? price.yearly : price.monthly
+                        const paise = priceInrPaise(id, billing)
                         const period = billing === 'yearly' ? '/yr' : '/mo'
                         const isCurrent = currentPlan === id
                         const bullets = describeLimits(id)
@@ -173,8 +165,8 @@ export default function PricingPage() {
                                 <div>
                                     <div style={{ fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: meta.accent }}>{meta.name}</div>
                                     <div style={{ marginTop: 6 }}>
-                                        <span style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--bright)' }}>{dollars(cents)}</span>
-                                        {cents > 0 && <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{period}</span>}
+                                        <span style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--bright)' }}>{id === 'free' ? '₹0' : rupees(paise)}</span>
+                                        {paise > 0 && <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{period}</span>}
                                     </div>
                                     <div style={{ color: 'var(--muted)', fontSize: '0.76rem', marginTop: 2 }}>{meta.tagline}</div>
                                 </div>
@@ -213,10 +205,15 @@ export default function PricingPage() {
                     <ErrorState compact title="Checkout" message={note} style={{ marginTop: 18 }} />
                 )}
 
-                <p style={{ textAlign: 'center', marginTop: 24 }}>
-                    <Link to="/" style={{ color: '#22d3ee', fontSize: '0.8rem', textDecoration: 'none' }}>← Back</Link>
+                <p style={{ textAlign: 'center', marginTop: 20, fontSize: '0.72rem', color: 'var(--faint)' }}>
+                    Prices in INR, billed by Razorpay. Payments are one-time for the selected term — nothing auto-renews.
+                    See our <Link to="/refunds" style={{ color: 'var(--pop)' }}>Refund &amp; Cancellation Policy</Link>.
+                </p>
+                <p style={{ textAlign: 'center', marginTop: 12 }}>
+                    <Link to="/" style={{ color: 'var(--pop)', fontSize: '0.8rem', textDecoration: 'none' }}>← Back</Link>
                 </p>
             </main>
+            <Footer />
         </>
     )
 }

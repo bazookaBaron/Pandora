@@ -19,6 +19,7 @@ import HLDWorkspacePage from './pages/hld/HLDWorkspacePage'
 import InterviewPage from './pages/interview/InterviewPage'
 import ReferralsPage from './pages/referrals/ReferralsPage'
 import JobsPage from './pages/jobs/JobsPage'
+import { TermsPage, PrivacyPage, RefundPage, ContactPage } from './pages/LegalPages'
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -41,6 +42,10 @@ export default function App() {
                         <Route path="/" element={<HomePage />} />
                         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                         <Route path="/pricing" element={<PricingPage />} />
+                        <Route path="/terms" element={<TermsPage />} />
+                        <Route path="/privacy" element={<PrivacyPage />} />
+                        <Route path="/refunds" element={<RefundPage />} />
+                        <Route path="/contact" element={<ContactPage />} />
                         <Route path="/dashboard" element={<Navigate to="/profile" replace />} />
                         <Route path="/dsa" element={<ProtectedRoute><DSAListPage /></ProtectedRoute>} />
                         <Route path="/dsa/company/:companyName" element={<ProtectedRoute><DSACompanyPage /></ProtectedRoute>} />

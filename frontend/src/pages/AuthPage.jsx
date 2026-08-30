@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useCompanyOptions } from '../lib/useReferrals'
@@ -338,7 +338,7 @@ export default function AuthPage() {
                 </div>
 
                 <p className="auth-footer-note">
-                    By continuing, you agree to our <span className="accent-link">Terms</span> &amp; <span className="accent-link">Privacy Policy</span>.
+                    By continuing, you agree to our <Link className="accent-link" to="/terms">Terms</Link> &amp; <Link className="accent-link" to="/privacy">Privacy Policy</Link>.
                 </p>
             </div>
         </div>

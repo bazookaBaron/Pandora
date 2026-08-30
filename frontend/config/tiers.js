@@ -26,7 +26,9 @@ export const TIERS = {
         },
     },
     pro: {
-        price: { monthly: 900, yearly: 7900 }, // cents, USD — $9/mo, $79/yr
+        price: { monthly: 900, yearly: 7900 }, // cents, USD — display only
+        // Razorpay charges in paise (INR). This is the amount actually billed.
+        price_inr: { monthly: 79900, yearly: 699900 }, // ₹799/mo, ₹6,999/yr
         limits: {
             dsa_catalog_visible: Infinity,
             lld_catalog_visible: Infinity,
@@ -39,7 +41,8 @@ export const TIERS = {
         },
     },
     max: {
-        price: { monthly: 1900, yearly: 17900 }, // $19/mo, $179/yr
+        price: { monthly: 1900, yearly: 17900 }, // cents, USD — display only
+        price_inr: { monthly: 169900, yearly: 1499900 }, // ₹1,699/mo, ₹14,999/yr
         limits: {
             dsa_catalog_visible: Infinity,
             lld_catalog_visible: Infinity,
@@ -65,9 +68,20 @@ export const USAGE_LIMIT_KEY = {
     referral_request: 'referral_requests_per_month',
 }
 
+export const BILLING_PERIODS = ['monthly', 'yearly']
+
 // ── Helpers (config-driven; never hard-code plan names elsewhere) ────
 export function isValidPlan(plan) {
     return PLAN_ORDER.includes(plan)
+}
+
+// Amount Razorpay should charge, in paise. 0 for a plan with no INR price
+// (e.g. free). period must be 'monthly' | 'yearly'.
+export function priceInrPaise(plan, period) {
+    const p = TIERS[plan] && TIERS[plan].price_inr
+    if (!p) return 0
+    const v = period === 'yearly' ? p.yearly : p.monthly
+    return Number.isFinite(v) ? v : 0
 }
 
 export function planLimits(plan) {

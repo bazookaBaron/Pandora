@@ -22,6 +22,7 @@ export const EVENTS = {
     RESUME_OPTIMIZER_COMPLETED: 'resume_optimizer_completed',
     PRICING_VIEWED: 'pricing_viewed',
     CHECKOUT_STARTED: 'checkout_started',
+    CHECKOUT_COMPLETED: 'checkout_completed',
     REFERRAL_REQUEST_POSTED: 'referral_request_posted',
 }
 

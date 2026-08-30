@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Navbar from '../components/Navbar'
+import Footer from '../components/Footer'
 import { useMediaQuery } from '../lib/useMediaQuery'
 import { useEntitlements } from '../lib/useEntitlements'
 import { apiFetch, isUsageLimit } from '../lib/apiClient'
@@ -325,6 +326,7 @@ export default function HomePage() {
                     />
                 ) : body}
             </main>
+            <Footer />
         </>
     )
 }

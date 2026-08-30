@@ -32,8 +32,14 @@ import {
   referralRequestCreated,
   referralAccepted,
 } from "./lib/referralEmails.js";
-import * as lemonSqueezy from "./services/lemonSqueezy.js";
-import { getLimit, isUnlimited, serializeLimit } from "./config/tiers.js";
+import {
+  getLimit,
+  isUnlimited,
+  serializeLimit,
+  isValidPlan,
+  priceInrPaise,
+} from "./config/tiers.js";
+import * as razorpay from "./services/razorpay.js";
 import {
   assert,
   isNonEmptyString,
@@ -2342,150 +2348,158 @@ app.post("/api/run", requireAuth, async (req, res) => {
   }
 });
 
-// ── Billing / checkout (Lemon Squeezy) ───────────────────────────
-// All provider-specific logic lives in ./services/lemonSqueezy.js. These routes
-// are dormant until every LEMONSQUEEZY_* env var is set (see .env), at which
-// point `lemonSqueezy.isEnabled()` flips true.
+// ── Billing / payments (Razorpay Standard Checkout) ─────────────────
+// Provider logic: ./services/razorpay.js. One-time orders that grant a plan
+// for a fixed term; when it lapses the entitlements lazy check drops the user
+// to free. DORMANT until RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are set.
 const checkoutLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 10,
+  max: 12,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests — slow down." },
 });
 
-// GET /api/billing/status → { configured } so PricingPage can pick the button state.
+const PAID_PLANS = ["pro", "max"];
+const PERIODS = ["monthly", "yearly"];
+const TERM_DAYS = { monthly: 30, yearly: 365 };
+
+// GET /api/billing/status → { configured, provider, keyId } for the client.
 app.get("/api/billing/status", requireAuth, (_req, res) => {
-  res.json({ configured: lemonSqueezy.isEnabled() });
+  res.json({
+    configured: razorpay.isEnabled(),
+    provider: "razorpay",
+    keyId: razorpay.isEnabled() ? razorpay.keyId() : null,
+  });
 });
 
-// POST /api/checkout  body: { plan: 'pro'|'max', billingPeriod: 'monthly'|'yearly' }
-//   → { url }  hosted Lemon Squeezy checkout URL
-app.post("/api/checkout", checkoutLimiter, requireAuth, async (req, res) => {
-  try {
-    const { plan, billingPeriod } = req.body || {};
-    assert(plan === "pro" || plan === "max", "plan must be 'pro' or 'max'.");
-    assert(
-      billingPeriod === "monthly" || billingPeriod === "yearly",
-      "billingPeriod must be 'monthly' or 'yearly'.",
-    );
+// POST /api/payments/razorpay/order
+//   body: { plan: 'pro'|'max', billingPeriod: 'monthly'|'yearly' }
+//   → { order_id, amount, currency, keyId }
+app.post(
+  "/api/payments/razorpay/order",
+  checkoutLimiter,
+  requireAuth,
+  async (req, res) => {
+    try {
+      if (!razorpay.isEnabled()) {
+        return res.status(503).json({ error: "checkout_unconfigured" });
+      }
+      const { plan, billingPeriod } = req.body || {};
+      assert(PAID_PLANS.includes(plan), "plan must be 'pro' or 'max'.");
+      assert(PERIODS.includes(billingPeriod), "billingPeriod must be 'monthly' or 'yearly'.");
 
-    const origin =
-      req.headers.origin && CORS_ALLOWLIST.includes(req.headers.origin)
-        ? req.headers.origin
-        : CORS_ALLOWLIST[0] || "http://localhost:5173";
-    const redirectUrl = `${origin}/pricing?checkout=success`;
+      const amountPaise = priceInrPaise(plan, billingPeriod);
+      assert(Number.isInteger(amountPaise) && amountPaise >= 100, "Plan price is not configured.");
 
-    const url = await lemonSqueezy.createCheckout({
-      userId: req.user.id,
-      email: req.user.email,
-      plan,
-      billingPeriod,
-      redirectUrl,
-    });
-    res.json({ url });
-  } catch (err) {
-    const status = Number(err && err.status) || 500;
-    if (status === 503) {
-      return res.status(503).json({ error: "checkout_unconfigured" });
+      const order = await razorpay.createOrder({
+        amountPaise,
+        currency: "INR",
+        receipt: `u${String(req.user.id).slice(0, 8)}_${Date.now().toString(36)}`,
+        notes: { user_id: req.user.id, plan, billingPeriod },
+      });
+
+      res.json({
+        order_id: order.id,
+        amount: order.amount,
+        currency: order.currency,
+        keyId: razorpay.keyId(),
+      });
+    } catch (err) {
+      const status = Number(err && err.status) || 500;
+      if (status === 400) {
+        return res.status(400).json({ error: err.message || "Invalid request." });
+      }
+      if (status === 503) {
+        return res.status(503).json({ error: "checkout_unconfigured" });
+      }
+      console.error("[razorpay/order]", redact((err && err.message) || String(err)));
+      res.status(502).json({ error: "order_failed" });
     }
-    if (status === 400) {
-      return res.status(400).json({ error: err.message || "Invalid request." });
-    }
-    console.error("[checkout]", redact((err && err.message) || String(err)));
-    res.status(502).json({ error: "checkout_failed" });
-  }
-});
+  },
+);
 
-// POST /api/webhooks/lemonsqueezy — subscription lifecycle from Lemon Squeezy.
-// No auth: authenticity is the HMAC signature. Uses the global express.json +
-// its `verify` hook for req.rawBody — do NOT mount express.raw here (it would
-// double-read the stream). Registered before the SPA fallback.
-app.post("/api/webhooks/lemonsqueezy", async (req, res) => {
-  if (!lemonSqueezy.isEnabled()) {
-    return res.status(503).json({ error: "webhook_unconfigured" });
-  }
-  if (
-    !lemonSqueezy.verifyWebhookSignature(req.rawBody, req.get("X-Signature"))
-  ) {
-    return res.status(401).json({ error: "bad_signature" });
-  }
+// POST /api/payments/razorpay/verify
+//   body: { razorpay_order_id, razorpay_payment_id, razorpay_signature,
+//           plan, billingPeriod }
+//   → { ok: true, plan }  (only when the signature is valid)
+app.post(
+  "/api/payments/razorpay/verify",
+  checkoutLimiter,
+  requireAuth,
+  async (req, res) => {
+    try {
+      if (!razorpay.isEnabled()) {
+        return res.status(503).json({ error: "checkout_unconfigured" });
+      }
+      const {
+        razorpay_order_id,
+        razorpay_payment_id,
+        razorpay_signature,
+        plan,
+        billingPeriod,
+      } = req.body || {};
 
-  try {
-    const norm = lemonSqueezy.mapWebhook(req.body || {});
+      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+        return res.status(400).json({ error: "missing_fields" });
+      }
+      if (!PAID_PLANS.includes(plan) || !PERIODS.includes(billingPeriod)) {
+        return res.status(400).json({ error: "missing_fields" });
+      }
 
-    if (!lemonSqueezy.HANDLED_EVENTS.has(norm.event)) {
-      // Ack so LS stops retrying an event we don't act on.
-      return res.status(200).json({ ok: true, ignored: norm.event });
-    }
+      const ok = razorpay.verifyPaymentSignature({
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        signature: razorpay_signature,
+      });
+      if (!ok) {
+        return res.status(400).json({ error: "signature_mismatch" });
+      }
 
-    // Resolve the user: prefer the custom user_id echoed from checkout; else
-    // match the LS customer id against an existing subscriptions row.
-    let userId = norm.userId;
-    if (!userId && norm.providerCustomerId) {
-      const { data: match } = await supabaseAdmin
-        .from("subscriptions")
-        .select("user_id")
-        .eq("provider_customer_id", norm.providerCustomerId)
-        .maybeSingle();
-      if (match && match.user_id) userId = match.user_id;
-    }
-    if (!userId) {
-      console.warn(
-        `[ls-webhook] ${norm.event}: no user mapping for sub ${redact(
-          String(norm.providerSubscriptionId),
-        )} — acking without a write`,
-      );
-      return res.status(202).json({ ok: true, note: "no user mapping" });
-    }
+      // Defence-in-depth: pull the order back and confirm it is the one this
+      // user created for this plan/amount (guards against a tampered body).
+      const order = await razorpay.fetchOrder(razorpay_order_id);
+      if (order) {
+        const n = order.notes || {};
+        const expected = priceInrPaise(plan, billingPeriod);
+        if (
+          String(n.user_id || "") !== String(req.user.id) ||
+          String(n.plan || "") !== plan ||
+          String(n.billingPeriod || "") !== billingPeriod ||
+          Number(order.amount) !== expected
+        ) {
+          console.warn("[razorpay/verify] order/claim mismatch", redact(JSON.stringify({ n, amount: order.amount, expected })));
+          return res.status(400).json({ error: "order_mismatch" });
+        }
+      }
 
-    const status = lemonSqueezy.statusForEvent(
-      norm.event,
-      norm.lsStatus,
-      norm.currentPeriodEnd,
-    );
-
-    if (lemonSqueezy.isUpsertEvent(norm.event)) {
-      // Full row. UNIQUE(user_id) → LS retries land on the same row → the
-      // upsert is naturally idempotent.
+      const now = new Date();
+      const end = new Date(now.getTime() + TERM_DAYS[billingPeriod] * 86400000);
       const row = {
-        user_id: userId,
-        plan: norm.planFromVariant,
-        status,
-        provider: "lemonsqueezy",
-        provider_customer_id: norm.providerCustomerId,
-        provider_subscription_id: norm.providerSubscriptionId,
-        billing_period: norm.billingPeriod,
-        current_period_end: norm.currentPeriodEnd,
+        user_id: req.user.id,
+        plan,
+        status: "active",
+        provider: "razorpay",
+        provider_customer_id: null,
+        provider_subscription_id: razorpay_order_id, // UNIQUE — idempotent per order
+        billing_period: billingPeriod,
+        current_period_end: end.toISOString(),
       };
       const { error } = await supabaseAdmin
         .from("subscriptions")
         .upsert(row, { onConflict: "user_id" });
       if (error) throw error;
-    } else {
-      // cancelled | expired | payment_failed — KEEP the existing plan so the
-      // entitlements lazy check-on-access preserves access until the period
-      // ends. Targeted update; never nulls plan.
-      const patch = { status };
-      if (norm.currentPeriodEnd) patch.current_period_end = norm.currentPeriodEnd;
-      const { error } = await supabaseAdmin
-        .from("subscriptions")
-        .update(patch)
-        .eq("user_id", userId);
-      if (error) throw error;
-    }
 
-    invalidateUser(userId); // drop the ~15s plan cache so the change is seen now
-    res.status(200).json({ ok: true });
-  } catch (err) {
-    console.error(
-      "[ls-webhook] processing failed:",
-      redact((err && (err.stack || err.message)) || String(err)),
-    );
-    // 500 → LS retries with backoff.
-    res.status(500).json({ error: "processing_failed" });
-  }
-});
+      invalidateUser(req.user.id); // drop the ~15s plan cache
+
+      res.json({ ok: true, plan, current_period_end: row.current_period_end });
+    } catch (err) {
+      console.error("[razorpay/verify]", redact((err && (err.stack || err.message)) || String(err)));
+      res.status(500).json({ error: "verify_failed" });
+    }
+  },
+);
+
 
 // SPA + SEO fallback: for any non-/api route, serve the built index.html with a
 // route-aware <head> — correct <title>, description, canonical, Open Graph +
@@ -2510,6 +2524,10 @@ app.get("/robots.txt", (req, res) => {
       "User-agent: *",
       "Allow: /$",
       "Allow: /pricing",
+      "Allow: /terms",
+      "Allow: /privacy",
+      "Allow: /refunds",
+      "Allow: /contact",
       "Allow: /blog",
       "Disallow: /api/",
       "Disallow: /auth",
@@ -2534,6 +2552,10 @@ app.get("/sitemap.xml", async (req, res) => {
     { loc: `${base}/`, priority: "1.0", changefreq: "weekly" },
     { loc: `${base}/pricing`, priority: "0.8", changefreq: "monthly" },
     { loc: `${base}/blog`, priority: "0.7", changefreq: "weekly" },
+    { loc: `${base}/terms`, priority: "0.3", changefreq: "yearly" },
+    { loc: `${base}/privacy`, priority: "0.3", changefreq: "yearly" },
+    { loc: `${base}/refunds`, priority: "0.3", changefreq: "yearly" },
+    { loc: `${base}/contact`, priority: "0.4", changefreq: "yearly" },
   ];
   try {
     const { data } = await supabaseAdmin
