@@ -127,6 +127,8 @@ export default function Navbar() {
 
             {isMobile ? (
                 <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <ThemeToggle />
                     <button
                         type="button"
                         className="nav-pill"
@@ -150,6 +152,7 @@ export default function Navbar() {
                             )}
                         </svg>
                     </button>
+                  </div>
 
                     {menuOpen && (
                         <div
@@ -184,8 +187,6 @@ export default function Navbar() {
                                 {avatar}
                                 {profileLabel}
                             </Link>
-
-                            <ThemeToggle full />
 
                             <button
                                 type="button"
