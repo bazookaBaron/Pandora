@@ -9,7 +9,7 @@ export const STATUS_CONFIG = {
 }
 
 export default function StatusBadge({ status }) {
-    const cfg = STATUS_CONFIG[status] || { label: status || '…', color: '#71717a', bg: 'transparent', border: '#3f3f46' }
+    const cfg = STATUS_CONFIG[status] || { label: status || '…', color: 'var(--muted)', bg: 'transparent', border: 'var(--subtle-strong)' }
     return (
         <span style={{
             fontSize: '0.58rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.07em',

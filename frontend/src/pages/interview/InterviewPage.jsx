@@ -65,9 +65,9 @@ export default function InterviewPage() {
 
     // ── Panel contents ────────────────────────────────────────────
     const LeftPanel = (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', borderRight: '1px solid #27272a' }}>
-            <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #27272a', flexShrink: 0 }}>
-                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#52525b', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Topics</span>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', borderRight: '1px solid var(--subtle)' }}>
+            <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid var(--subtle)', flexShrink: 0 }}>
+                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Topics</span>
             </div>
             <SubcategoryList
                 pairs={pairs}
@@ -80,10 +80,10 @@ export default function InterviewPage() {
     )
 
     const MiddlePanel = (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', borderRight: '1px solid #27272a' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', borderRight: '1px solid var(--subtle)' }}>
             {activeQId && (
-                <div style={{ padding: '8px 14px', borderBottom: '1px solid #27272a', flexShrink: 0 }}>
-                    <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#52525b', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Answer</span>
+                <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--subtle)', flexShrink: 0 }}>
+                    <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Answer</span>
                 </div>
             )}
             <div style={{ flex: 1, overflow: 'hidden' }}>
@@ -94,8 +94,8 @@ export default function InterviewPage() {
 
     const RightPanel = (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <div style={{ padding: '10px 12px 8px', borderBottom: '1px solid #27272a', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#52525b', textTransform: 'uppercase', letterSpacing: '0.1em', flex: 1 }}>Questions</span>
+            <div style={{ padding: '10px 12px 8px', borderBottom: '1px solid var(--subtle)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.1em', flex: 1 }}>Questions</span>
                 {activeSub && (
                     <span style={{
                         fontSize: '0.65rem', color: accent, fontWeight: 700,
@@ -115,11 +115,11 @@ export default function InterviewPage() {
             <Navbar />
             <div style={{ height: '100vh', paddingTop: 56, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {/* Header bar */}
-                <div style={{ borderBottom: '1px solid #27272a', background: '#0d0d0f', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
-                    <h2 style={{ fontSize: '0.9rem', fontWeight: 900, color: '#fafafa', letterSpacing: '-0.02em' }}>Interview Q&amp;A</h2>
-                    {!isMobile && <span style={{ color: '#27272a' }}>|</span>}
+                <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
+                    <h2 style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.02em' }}>Interview Q&amp;A</h2>
+                    {!isMobile && <span style={{ color: 'var(--subtle)' }}>|</span>}
                     {!isMobile && (
-                        <span style={{ fontSize: '0.72rem', color: '#52525b' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--faint)' }}>
                             {pairs.length} subcategories
                         </span>
                     )}
@@ -136,8 +136,8 @@ export default function InterviewPage() {
                                     flex: 1, minWidth: 0,
                                     padding: '5px 8px', borderRadius: 4, border: 'none', cursor: 'pointer',
                                     fontSize: '0.62rem', fontWeight: 900, textTransform: 'uppercase',
-                                    background: mobileTab === t.id ? '#22d3ee' : '#27272a',
-                                    color: mobileTab === t.id ? '#09090b' : '#71717a',
+                                    background: mobileTab === t.id ? '#22d3ee' : 'var(--subtle)',
+                                    color: mobileTab === t.id ? 'var(--surface)' : 'var(--muted)',
                                     transition: 'background 0.12s',
                                 }}>
                                     {t.label}
@@ -151,23 +151,23 @@ export default function InterviewPage() {
                 {!isMobile ? (
                     <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
                         {/* Left — 20% */}
-                        <div style={{ width: '20%', minWidth: 160, flexShrink: 0, overflow: 'hidden', background: '#111113' }}>
+                        <div style={{ width: '20%', minWidth: 160, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)' }}>
                             {LeftPanel}
                         </div>
                         {/* Middle — 47% */}
-                        <div style={{ flex: '1 1 0', overflow: 'hidden', background: '#0f0f11' }}>
+                        <div style={{ flex: '1 1 0', overflow: 'hidden', background: 'var(--surface-2)' }}>
                             {MiddlePanel}
                         </div>
                         {/* Right — 33% */}
-                        <div style={{ width: '33%', minWidth: 240, flexShrink: 0, overflow: 'hidden', background: '#111113', borderLeft: '1px solid #27272a' }}>
+                        <div style={{ width: '33%', minWidth: 240, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', borderLeft: '1px solid var(--subtle)' }}>
                             {RightPanel}
                         </div>
                     </div>
                 ) : (
                     // Mobile: single pane, tab-controlled
-                    <div style={{ flex: 1, overflow: 'hidden', background: '#111113' }}>
+                    <div style={{ flex: 1, overflow: 'hidden', background: 'var(--surface-2)' }}>
                         {mobileTab === 'subcategories' && LeftPanel}
-                        {mobileTab === 'answer' && <div style={{ height: '100%', background: '#0f0f11' }}>{MiddlePanel}</div>}
+                        {mobileTab === 'answer' && <div style={{ height: '100%', background: 'var(--surface-2)' }}>{MiddlePanel}</div>}
                         {mobileTab === 'questions' && RightPanel}
                     </div>
                 )}

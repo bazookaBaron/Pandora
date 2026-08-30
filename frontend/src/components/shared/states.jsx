@@ -7,8 +7,8 @@ import { UsageMeter, UpgradeButton } from './PaywallGate'
 // `className` passthrough and a `compact` flag (smaller, for inline use next
 // to a control) vs the default full-panel treatment.
 //
-// Tokens: --surface #09090b · --panel #18181b · --subtle #27272a
-//         --pop #22d3ee · --warm #f472b6 · --muted #71717a · --bright #fafafa
+// Tokens: --surface var(--surface) · --panel var(--panel) · --subtle var(--subtle)
+//         --pop #22d3ee · --warm #f472b6 · --muted var(--muted) · --bright var(--bright)
 
 // ── errorText(err) ────────────────────────────────────────────────
 // Map an ApiError (or any thrown value) to one short, human sentence. Never
@@ -50,7 +50,7 @@ export function LoadingState({ label = 'Loading…', compact = false, style, cla
             width: compact ? 13 : 22,
             height: compact ? 13 : 22,
             borderRadius: '50%',
-            border: '2px solid #27272a',
+            border: '2px solid var(--subtle)',
             borderTopColor: '#22d3ee',
             animation: 'spin 0.7s linear infinite',
             flexShrink: 0,
@@ -59,7 +59,7 @@ export function LoadingState({ label = 'Loading…', compact = false, style, cla
 
     if (compact) {
         return (
-            <div className={className} style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#71717a', fontSize: '0.78rem', ...style }}>
+            <div className={className} style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: '0.78rem', ...style }}>
                 {spinner}
                 {label && <span>{label}</span>}
             </div>
@@ -72,7 +72,7 @@ export function LoadingState({ label = 'Loading…', compact = false, style, cla
             gap: 12, padding: '60px 20px', textAlign: 'center', ...style,
         }}>
             {spinner}
-            {label && <span style={{ color: '#71717a', fontSize: '0.82rem' }}>{label}</span>}
+            {label && <span style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>{label}</span>}
         </div>
     )
 }
@@ -98,7 +98,7 @@ export function ErrorState({
             onClick={onRetry}
             style={{
                 padding: compact ? '5px 14px' : '7px 18px', background: 'none',
-                border: '1px solid #27272a', borderRadius: 6, color: '#22d3ee',
+                border: '1px solid var(--subtle)', borderRadius: 6, color: '#22d3ee',
                 cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700,
             }}
         >
@@ -111,7 +111,7 @@ export function ErrorState({
             to="/auth"
             style={{
                 display: 'inline-block', padding: compact ? '5px 14px' : '7px 18px',
-                background: 'none', border: '1px solid #27272a', borderRadius: 6,
+                background: 'none', border: '1px solid var(--subtle)', borderRadius: 6,
                 color: '#f472b6', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700,
                 textDecoration: 'none',
             }}
@@ -143,16 +143,16 @@ export function ErrorState({
             gap: 10, padding: '60px 20px', textAlign: 'center', ...style,
         }}>
             <div aria-hidden style={{ fontSize: '2rem' }}>⚠️</div>
-            <p style={{ margin: 0, color: '#fafafa', fontWeight: 900, fontSize: '0.95rem' }}>{title}</p>
+            <p style={{ margin: 0, color: 'var(--bright)', fontWeight: 900, fontSize: '0.95rem' }}>{title}</p>
             {text && (
-                <p style={{ margin: 0, color: '#a1a1aa', fontSize: '0.8rem', maxWidth: 380, lineHeight: 1.6 }}>
+                <p style={{ margin: 0, color: 'var(--accent)', fontSize: '0.8rem', maxWidth: 380, lineHeight: 1.6 }}>
                     {text}
                 </p>
             )}
             {(retryBtn || signInBtn) && (
                 <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>{retryBtn}{signInBtn}</div>
             )}
-            <p style={{ margin: '4px 0 0', color: '#52525b', fontSize: '0.72rem' }}>
+            <p style={{ margin: '4px 0 0', color: 'var(--faint)', fontSize: '0.72rem' }}>
                 If this keeps happening, reload the page.
             </p>
         </div>
@@ -171,10 +171,10 @@ export function EmptyState({ icon, title, message, action, compact = false, styl
                 <div aria-hidden style={{ fontSize: compact ? '1.5rem' : '2rem', marginBottom: 4 }}>{icon}</div>
             )}
             {title && (
-                <p style={{ margin: 0, color: '#71717a', fontSize: compact ? '0.85rem' : '0.9rem' }}>{title}</p>
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: compact ? '0.85rem' : '0.9rem' }}>{title}</p>
             )}
             {message && (
-                <p style={{ margin: 0, color: '#52525b', fontSize: '0.76rem', maxWidth: 340, lineHeight: 1.6 }}>{message}</p>
+                <p style={{ margin: 0, color: 'var(--faint)', fontSize: '0.76rem', maxWidth: 340, lineHeight: 1.6 }}>{message}</p>
             )}
             {action && <div style={{ marginTop: 8 }}>{action}</div>}
         </div>
@@ -208,7 +208,7 @@ export function LimitReached({ feature, used, limit, resetsAt, compact = false, 
                 border: '1px solid rgba(248,113,113,0.35)', borderRadius: 6, ...style,
             }}>
                 <span style={{ fontSize: '0.72rem', color: '#f87171', fontWeight: 700 }}>{headline}.</span>
-                {resetLine && <span style={{ fontSize: '0.66rem', color: '#71717a' }}>{resetLine}.</span>}
+                {resetLine && <span style={{ fontSize: '0.66rem', color: 'var(--muted)' }}>{resetLine}.</span>}
                 <UpgradeButton size="sm">Upgrade to Pro</UpgradeButton>
             </div>
         )
@@ -218,9 +218,9 @@ export function LimitReached({ feature, used, limit, resetsAt, compact = false, 
         <div className={className} style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             gap: 12, padding: '32px 24px', textAlign: 'center',
-            background: '#18181b', border: '1px solid #27272a', borderRadius: 12, ...style,
+            background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 12, ...style,
         }}>
-            <h2 style={{ margin: 0, color: '#fafafa', fontWeight: 900, fontSize: '1.05rem', letterSpacing: '-0.02em' }}>
+            <h2 style={{ margin: 0, color: 'var(--bright)', fontWeight: 900, fontSize: '1.05rem', letterSpacing: '-0.02em' }}>
                 {headline}
             </h2>
             {finite && (
@@ -229,7 +229,7 @@ export function LimitReached({ feature, used, limit, resetsAt, compact = false, 
                 </div>
             )}
             {resetLine && (
-                <p style={{ margin: 0, color: '#71717a', fontSize: '0.78rem' }}>{resetLine}.</p>
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.78rem' }}>{resetLine}.</p>
             )}
             <UpgradeButton>Upgrade to Pro</UpgradeButton>
         </div>

@@ -17,7 +17,7 @@ const PAGE_SIZE = 6
 function LLDSkeleton() {
     return Array.from({ length: PAGE_SIZE }).map((_, i) => (
         <div key={i} style={{
-            background: '#18181b', border: '1px solid #27272a', borderRadius: 8, padding: 16, height: 120,
+            background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8, padding: 16, height: 120,
             animation: 'pulse 1.5s ease-in-out infinite',
         }} />
     ))
@@ -39,22 +39,22 @@ function Pagination({ page, totalPages, onChange }) {
                 onClick={() => onChange(page - 1)}
                 disabled={page === 1}
                 style={{
-                    padding: '5px 12px', borderRadius: 6, border: '1px solid #27272a',
-                    background: 'none', color: page === 1 ? '#3f3f46' : '#a1a1aa', cursor: page === 1 ? 'default' : 'pointer',
+                    padding: '5px 12px', borderRadius: 6, border: '1px solid var(--subtle)',
+                    background: 'none', color: page === 1 ? 'var(--subtle-strong)' : 'var(--accent)', cursor: page === 1 ? 'default' : 'pointer',
                     fontSize: '0.78rem',
                 }}
             >← Prev</button>
             {pages.map((p, idx) => (
                 p === '…' ? (
-                    <span key={`e${idx}`} style={{ color: '#52525b', fontSize: '0.78rem', padding: '0 4px' }}>…</span>
+                    <span key={`e${idx}`} style={{ color: 'var(--faint)', fontSize: '0.78rem', padding: '0 4px' }}>…</span>
                 ) : (
                     <button
                         key={p}
                         onClick={() => onChange(p)}
                         style={{
-                            width: 32, height: 32, borderRadius: 6, border: `1px solid ${p === page ? '#f472b6' : '#27272a'}`,
+                            width: 32, height: 32, borderRadius: 6, border: `1px solid ${p === page ? '#f472b6' : 'var(--subtle)'}`,
                             background: p === page ? 'rgba(244,114,182,0.12)' : 'none',
-                            color: p === page ? '#f472b6' : '#71717a', cursor: 'pointer', fontSize: '0.78rem', fontWeight: p === page ? 900 : 400,
+                            color: p === page ? '#f472b6' : 'var(--muted)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: p === page ? 900 : 400,
                         }}
                     >{p}</button>
                 )
@@ -63,8 +63,8 @@ function Pagination({ page, totalPages, onChange }) {
                 onClick={() => onChange(page + 1)}
                 disabled={page === totalPages}
                 style={{
-                    padding: '5px 12px', borderRadius: 6, border: '1px solid #27272a',
-                    background: 'none', color: page === totalPages ? '#3f3f46' : '#a1a1aa', cursor: page === totalPages ? 'default' : 'pointer',
+                    padding: '5px 12px', borderRadius: 6, border: '1px solid var(--subtle)',
+                    background: 'none', color: page === totalPages ? 'var(--subtle-strong)' : 'var(--accent)', cursor: page === totalPages ? 'default' : 'pointer',
                     fontSize: '0.78rem',
                 }}
             >Next →</button>
@@ -139,13 +139,13 @@ export default function LLDListPage() {
         const isSolved = prog?.status === 'solved'
         return (
             <div key={p.id} style={{
-                background: '#18181b', border: `1px solid ${isSolved ? 'rgba(244,114,182,0.3)' : '#27272a'}`,
+                background: 'var(--panel)', border: `1px solid ${isSolved ? 'rgba(244,114,182,0.3)' : 'var(--subtle)'}`,
                 borderRadius: 8, padding: '14px 16px', position: 'relative',
                 transition: 'border-color 0.15s, transform 0.15s',
                 display: 'flex', flexDirection: 'column', gap: 10,
             }}
-                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = isSolved ? 'rgba(244,114,182,0.5)' : '#3f3f46' }}
-                onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = isSolved ? 'rgba(244,114,182,0.3)' : '#27272a' }}
+                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = isSolved ? 'rgba(244,114,182,0.5)' : 'var(--subtle-strong)' }}
+                onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = isSolved ? 'rgba(244,114,182,0.3)' : 'var(--subtle)' }}
             >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <FluidCheckbox
@@ -161,7 +161,7 @@ export default function LLDListPage() {
 
                 <Link to={`/lld/${p.slug}`} style={{ textDecoration: 'none' }}>
                     <h3 style={{
-                        fontSize: '0.92rem', fontWeight: 900, color: isSolved ? '#71717a' : '#fafafa',
+                        fontSize: '0.92rem', fontWeight: 900, color: isSolved ? 'var(--muted)' : 'var(--bright)',
                         letterSpacing: '-0.02em', lineHeight: 1.3, textDecoration: isSolved ? 'line-through' : 'none',
                     }}>
                         {p.title}
@@ -170,7 +170,7 @@ export default function LLDListPage() {
 
                 {p.requirements && (
                     <p style={{
-                        fontSize: '0.73rem', color: '#71717a', lineHeight: 1.5,
+                        fontSize: '0.73rem', color: 'var(--muted)', lineHeight: 1.5,
                         overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
                     }}>
                         {p.requirements.replace(/[#*`]/g, '').slice(0, 120)}…
@@ -183,7 +183,7 @@ export default function LLDListPage() {
                             <CompanyLogo key={c} company={c} />
                         ))}
                         {(p.companies || []).length > 3 && (
-                            <span style={{ fontSize: '0.62rem', color: '#52525b', alignSelf: 'center' }}>+{p.companies.length - 3}</span>
+                            <span style={{ fontSize: '0.62rem', color: 'var(--faint)', alignSelf: 'center' }}>+{p.companies.length - 3}</span>
                         )}
                     </div>
                 )}
@@ -206,14 +206,14 @@ export default function LLDListPage() {
                 {/* Header */}
                 <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'flex-end', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
                     <div>
-                        <h1 style={{ fontSize: '1.2rem', fontWeight: 900, letterSpacing: '-0.03em', color: '#fafafa' }}>LLD Problems</h1>
-                        <p style={{ color: '#71717a', fontSize: '0.78rem', marginTop: 2 }}>Low-level design — class diagrams + code walkthroughs</p>
+                        <h1 style={{ fontSize: '1.2rem', fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--bright)' }}>LLD Problems</h1>
+                        <p style={{ color: 'var(--muted)', fontSize: '0.78rem', marginTop: 2 }}>Low-level design — class diagrams + code walkthroughs</p>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#18181b', border: '1px solid #27272a', borderRadius: 8, padding: '6px 12px' }}>
-                        <span style={{ fontSize: '0.72rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Practiced</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8, padding: '6px 12px' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Practiced</span>
                         <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#f472b6' }}>{solved}</span>
-                        <span style={{ color: '#3f3f46' }}>/</span>
-                        <span style={{ fontSize: '0.82rem', color: '#a1a1aa' }}>{total}</span>
+                        <span style={{ color: 'var(--subtle-strong)' }}>/</span>
+                        <span style={{ fontSize: '0.82rem', color: 'var(--accent)' }}>{total}</span>
                     </div>
                 </div>
 
@@ -228,11 +228,11 @@ export default function LLDListPage() {
                             onChange={e => updateSearch(e.target.value)}
                             placeholder="Search by title or requirements…"
                             style={{
-                                width: '100%', padding: '8px 10px 8px 32px', background: '#18181b', border: '1px solid #27272a',
-                                borderRadius: 6, color: '#fafafa', font: 'inherit', fontSize: '0.82rem', outline: 'none',
+                                width: '100%', padding: '8px 10px 8px 32px', background: 'var(--panel)', border: '1px solid var(--subtle)',
+                                borderRadius: 6, color: 'var(--bright)', font: 'inherit', fontSize: '0.82rem', outline: 'none',
                             }}
                             onFocus={e => e.target.style.borderColor = '#f472b6'}
-                            onBlur={e => e.target.style.borderColor = '#27272a'}
+                            onBlur={e => e.target.style.borderColor = 'var(--subtle)'}
                         />
                     </div>
                     <CompanySelector selected={companies} onChange={v => updateParam('company', v)} />
@@ -254,7 +254,7 @@ export default function LLDListPage() {
                         icon="🧩"
                         title="No LLD problems match your filters."
                         action={(
-                            <button onClick={() => { setSearchInput(''); setSearchParams({}); setPage(1) }} style={{ padding: '6px 16px', background: 'none', border: '1px solid #27272a', borderRadius: 6, color: '#f472b6', cursor: 'pointer', fontSize: '0.78rem' }}>
+                            <button onClick={() => { setSearchInput(''); setSearchParams({}); setPage(1) }} style={{ padding: '6px 16px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 6, color: '#f472b6', cursor: 'pointer', fontSize: '0.78rem' }}>
                                 Clear filters
                             </button>
                         )}
@@ -273,7 +273,7 @@ export default function LLDListPage() {
                             <Pagination page={data?.page ?? page} totalPages={pageCount} onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
                         )}
 
-                        <div style={{ textAlign: 'center', marginTop: 12, color: '#52525b', fontSize: '0.72rem' }}>
+                        <div style={{ textAlign: 'center', marginTop: 12, color: 'var(--faint)', fontSize: '0.72rem' }}>
                             {unlimited
                                 ? `Showing ${items.length} of ${filteredCount}${pageCount > 1 ? ` · page ${data?.page ?? page} of ${pageCount}` : ''} · ${total} total`
                                 : `Preview: ${items.length} of ${total} — upgrade for all`}

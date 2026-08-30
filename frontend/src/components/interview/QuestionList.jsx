@@ -18,7 +18,7 @@ export default function QuestionList({ subcategory, activeId, onSelect, accent =
     if (isLoading) return (
         <div style={{ padding: 16 }}>
             {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} style={{ height: 52, background: '#18181b', borderRadius: 6, marginBottom: 6, animation: 'pulse 1.5s ease-in-out infinite', opacity: 1 - i * 0.12 }} />
+                <div key={i} style={{ height: 52, background: 'var(--panel)', borderRadius: 6, marginBottom: 6, animation: 'pulse 1.5s ease-in-out infinite', opacity: 1 - i * 0.12 }} />
             ))}
         </div>
     )
@@ -57,7 +57,7 @@ export default function QuestionList({ subcategory, activeId, onSelect, accent =
                             background: isActive ? `${accent}12` : 'transparent',
                             transition: 'background 0.12s, border-color 0.12s',
                         }}
-                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = '#18181b' }}
+                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--panel)' }}
                         onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
                     >
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
@@ -67,7 +67,7 @@ export default function QuestionList({ subcategory, activeId, onSelect, accent =
                             <div style={{ flex: 1, minWidth: 0 }}>
                                 <p style={{
                                     fontSize: '0.8rem', lineHeight: 1.45,
-                                    color: isActive ? '#fafafa' : '#a1a1aa',
+                                    color: isActive ? 'var(--bright)' : 'var(--accent)',
                                     fontWeight: isActive ? 700 : 400,
                                     marginBottom: showStatus ? 5 : 0,
                                     display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',

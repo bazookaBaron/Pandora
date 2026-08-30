@@ -22,7 +22,7 @@ export default function SubcategoryList({ pairs = [], isLoading, error, activeSu
     if (isLoading) return (
         <div style={{ padding: 12 }}>
             {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} style={{ height: 30, background: '#18181b', borderRadius: 4, marginBottom: 5, animation: 'pulse 1.5s ease-in-out infinite', opacity: 1 - i * 0.1 }} />
+                <div key={i} style={{ height: 30, background: 'var(--panel)', borderRadius: 4, marginBottom: 5, animation: 'pulse 1.5s ease-in-out infinite', opacity: 1 - i * 0.1 }} />
             ))}
         </div>
     )
@@ -60,13 +60,13 @@ export default function SubcategoryList({ pairs = [], isLoading, error, activeSu
                                     padding: '7px 14px',
                                     borderLeft: `2px solid ${isActive ? hue : 'transparent'}`,
                                     background: isActive ? `${hue}14` : 'transparent',
-                                    color: isActive ? hue : '#71717a',
+                                    color: isActive ? hue : 'var(--muted)',
                                     fontSize: '0.8rem', fontWeight: isActive ? 700 : 400,
                                     transition: 'all 0.12s',
                                     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                                 }}
-                                onMouseEnter={e => { if (!isActive) { e.currentTarget.style.color = '#fafafa'; e.currentTarget.style.background = `${hue}0d` } }}
-                                onMouseLeave={e => { if (!isActive) { e.currentTarget.style.color = '#71717a'; e.currentTarget.style.background = 'transparent' } }}
+                                onMouseEnter={e => { if (!isActive) { e.currentTarget.style.color = 'var(--bright)'; e.currentTarget.style.background = `${hue}0d` } }}
+                                onMouseLeave={e => { if (!isActive) { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.background = 'transparent' } }}
                             >
                                 {sub}
                             </button>

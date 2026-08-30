@@ -123,8 +123,8 @@ export default function PricingPage() {
                     </p>
                 )}
                 <header style={{ textAlign: 'center', marginBottom: 22 }}>
-                    <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#fafafa', letterSpacing: '-0.03em' }}>Pricing</h1>
-                    <p style={{ color: '#71717a', fontSize: '0.85rem', marginTop: 6 }}>
+                    <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>Pricing</h1>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: 6 }}>
                         Pick the plan that fits your prep. Cancel anytime.
                     </p>
 
@@ -155,15 +155,15 @@ export default function PricingPage() {
 
                         return (
                             <div key={id} style={{
-                                background: '#18181b',
-                                border: `1px solid ${meta.featured ? meta.accent + '66' : '#27272a'}`,
+                                background: 'var(--panel)',
+                                border: `1px solid ${meta.featured ? meta.accent + '66' : 'var(--subtle)'}`,
                                 borderRadius: 14, padding: '22px 20px', display: 'flex', flexDirection: 'column', gap: 14,
                                 position: 'relative',
                             }}>
                                 {isCurrent && (
                                     <span style={{
                                         position: 'absolute', top: 14, right: 14, fontSize: '0.6rem', fontWeight: 900,
-                                        textTransform: 'uppercase', letterSpacing: '0.08em', color: '#09090b',
+                                        textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--surface)',
                                         background: meta.accent, borderRadius: 6, padding: '3px 8px',
                                     }}>
                                         Current
@@ -173,15 +173,15 @@ export default function PricingPage() {
                                 <div>
                                     <div style={{ fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: meta.accent }}>{meta.name}</div>
                                     <div style={{ marginTop: 6 }}>
-                                        <span style={{ fontSize: '1.8rem', fontWeight: 900, color: '#fafafa' }}>{dollars(cents)}</span>
-                                        {cents > 0 && <span style={{ color: '#71717a', fontSize: '0.8rem' }}>{period}</span>}
+                                        <span style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--bright)' }}>{dollars(cents)}</span>
+                                        {cents > 0 && <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{period}</span>}
                                     </div>
-                                    <div style={{ color: '#71717a', fontSize: '0.76rem', marginTop: 2 }}>{meta.tagline}</div>
+                                    <div style={{ color: 'var(--muted)', fontSize: '0.76rem', marginTop: 2 }}>{meta.tagline}</div>
                                 </div>
 
                                 <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
                                     {bullets.map((f) => (
-                                        <li key={f} style={{ fontSize: '0.78rem', color: '#a1a1aa', display: 'flex', gap: 8 }}>
+                                        <li key={f} style={{ fontSize: '0.78rem', color: 'var(--accent)', display: 'flex', gap: 8 }}>
                                             <span style={{ color: meta.accent }}>✓</span>{f}
                                         </li>
                                     ))}
@@ -198,8 +198,8 @@ export default function PricingPage() {
                                         cursor: (isCurrent || id === 'free' || pending === id) ? 'default' : 'pointer', fontWeight: 900, fontSize: '0.78rem',
                                         textTransform: 'uppercase', letterSpacing: '0.06em',
                                         opacity: pending === id ? 0.7 : 1,
-                                        background: isCurrent ? '#27272a' : id === 'free' ? '#27272a' : meta.featured ? 'linear-gradient(135deg, #22d3ee, #a78bfa)' : '#27272a',
-                                        color: isCurrent ? '#71717a' : id === 'free' ? '#71717a' : meta.featured ? '#09090b' : '#fafafa',
+                                        background: isCurrent ? 'var(--subtle)' : id === 'free' ? 'var(--subtle)' : meta.featured ? 'linear-gradient(135deg, #22d3ee, #a78bfa)' : 'var(--subtle)',
+                                        color: isCurrent ? 'var(--muted)' : id === 'free' ? 'var(--muted)' : meta.featured ? 'var(--surface)' : 'var(--bright)',
                                     }}
                                 >
                                     {pending === id ? 'Starting…' : isCurrent ? 'Current plan' : id === 'free' ? 'Free forever' : `Upgrade to ${meta.name}`}

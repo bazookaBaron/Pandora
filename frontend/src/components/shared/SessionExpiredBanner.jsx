@@ -56,7 +56,7 @@ export default function SessionExpiredBanner() {
                 onClick={() => setShow(false)}
                 aria-label="Dismiss"
                 style={{
-                    background: 'none', border: 'none', color: '#71717a', cursor: 'pointer',
+                    background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer',
                     fontSize: '1rem', lineHeight: 1, padding: '0 4px',
                 }}
             >

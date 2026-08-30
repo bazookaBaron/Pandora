@@ -23,9 +23,9 @@ function RingProgress({ pct, color, size = 80, stroke = 8 }) {
 
 function StatCard({ label, value, color, link }) {
     return (
-        <div style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 10, padding: '16px 20px' }}>
+        <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '16px 20px' }}>
             <div style={{ fontSize: '1.8rem', fontWeight: 900, color }}>{value}</div>
-            <div style={{ fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717a', marginTop: 4 }}>{label}</div>
+            <div style={{ fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginTop: 4 }}>{label}</div>
             {link && <Link to={link} style={{ fontSize: '0.68rem', color, textDecoration: 'none', marginTop: 6, display: 'block', opacity: 0.7 }}>View →</Link>}
         </div>
     )
@@ -149,8 +149,8 @@ export default function DashboardPage() {
             <Navbar />
             <div style={{ paddingTop: 56, minHeight: '100vh', maxWidth: 1100, margin: '0 auto', padding: '80px 16px 60px' }}>
                 <div style={{ marginBottom: 28 }}>
-                    <h1 style={{ fontSize: '1.2rem', fontWeight: 900, letterSpacing: '-0.03em', color: '#fafafa' }}>Dashboard</h1>
-                    <p style={{ color: '#71717a', fontSize: '0.78rem', marginTop: 2 }}>Your interview prep at a glance</p>
+                    <h1 style={{ fontSize: '1.2rem', fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--bright)' }}>Dashboard</h1>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.78rem', marginTop: 2 }}>Your interview prep at a glance</p>
                 </div>
 
                 {/* Stat cards */}
@@ -164,7 +164,7 @@ export default function DashboardPage() {
                 {/* Progress rings */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 28 }}>
                     {modules.map(m => (
-                        <div key={m.label} style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 10, padding: '20px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                        <div key={m.label} style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '20px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                             <div style={{ position: 'relative' }}>
                                 <RingProgress pct={m.pct} color={m.color} size={80} stroke={7} />
                                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
@@ -172,8 +172,8 @@ export default function DashboardPage() {
                                 </div>
                             </div>
                             <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontWeight: 900, fontSize: '0.82rem', color: '#fafafa' }}>{m.label}</div>
-                                <div style={{ fontSize: '0.68rem', color: '#71717a', marginTop: 2 }}>{m.solved} / {m.total}</div>
+                                <div style={{ fontWeight: 900, fontSize: '0.82rem', color: 'var(--bright)' }}>{m.label}</div>
+                                <div style={{ fontSize: '0.68rem', color: 'var(--muted)', marginTop: 2 }}>{m.solved} / {m.total}</div>
                             </div>
                             <Link to={m.link} style={{ fontSize: '0.68rem', color: m.color, textDecoration: 'none', opacity: 0.8 }}>Open →</Link>
                         </div>
@@ -182,8 +182,8 @@ export default function DashboardPage() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 28 }}>
                     {/* Difficulty Breakdown */}
-                    <div style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 10, padding: '18px 20px' }}>
-                        <h2 style={{ fontSize: '0.78rem', fontWeight: 900, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>DSA Difficulty Breakdown</h2>
+                    <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '18px 20px' }}>
+                        <h2 style={{ fontSize: '0.78rem', fontWeight: 900, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>DSA Difficulty Breakdown</h2>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                             {diffBreakdown.map(({ d, total, done }) => {
                                 const pct = total ? Math.round((done / total) * 100) : 0
@@ -191,9 +191,9 @@ export default function DashboardPage() {
                                     <div key={d}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                                             <span style={{ fontSize: '0.72rem', fontWeight: 700, color: diffColors[d] }}>{d}</span>
-                                            <span style={{ fontSize: '0.72rem', color: '#71717a' }}>{done}/{total}</span>
+                                            <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>{done}/{total}</span>
                                         </div>
-                                        <div style={{ height: 6, background: '#27272a', borderRadius: 3, overflow: 'hidden' }}>
+                                        <div style={{ height: 6, background: 'var(--subtle)', borderRadius: 3, overflow: 'hidden' }}>
                                             <div style={{ width: `${pct}%`, height: '100%', background: diffColors[d], borderRadius: 3, transition: 'width 0.6s ease' }} />
                                         </div>
                                     </div>
@@ -203,10 +203,10 @@ export default function DashboardPage() {
                     </div>
 
                     {/* Recent Activity */}
-                    <div style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 10, padding: '18px 20px' }}>
-                        <h2 style={{ fontSize: '0.78rem', fontWeight: 900, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>Recent Activity</h2>
+                    <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '18px 20px' }}>
+                        <h2 style={{ fontSize: '0.78rem', fontWeight: 900, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>Recent Activity</h2>
                         {recentActivity.length === 0 ? (
-                            <p style={{ color: '#52525b', fontSize: '0.82rem' }}>No activity yet. Start solving!</p>
+                            <p style={{ color: 'var(--faint)', fontSize: '0.82rem' }}>No activity yet. Start solving!</p>
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 {recentActivity.map((r, i) => {
@@ -218,7 +218,7 @@ export default function DashboardPage() {
                                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                             <span style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', color: typeColor, background: typeColor + '18', border: `1px solid ${typeColor}33`, borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>{r.problem_type}</span>
                                             <span style={{ fontSize: '0.72rem', color: r.status === 'solved' ? '#4ade80' : '#facc15', fontWeight: 700, textTransform: 'uppercase', flexShrink: 0 }}>{r.status}</span>
-                                            <span style={{ fontSize: '0.68rem', color: '#52525b', marginLeft: 'auto', flexShrink: 0 }}>{agoStr}</span>
+                                            <span style={{ fontSize: '0.68rem', color: 'var(--faint)', marginLeft: 'auto', flexShrink: 0 }}>{agoStr}</span>
                                         </div>
                                     )
                                 })}
@@ -229,17 +229,17 @@ export default function DashboardPage() {
 
                 {/* Weak Topics */}
                 {weakTopics.length > 0 && (
-                    <div style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 10, padding: '18px 20px', marginBottom: 28 }}>
-                        <h2 style={{ fontSize: '0.78rem', fontWeight: 900, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>
-                            ⚠️ Weak Topics <span style={{ color: '#52525b', fontWeight: 400, textTransform: 'none' }}>(low solve rate)</span>
+                    <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '18px 20px', marginBottom: 28 }}>
+                        <h2 style={{ fontSize: '0.78rem', fontWeight: 900, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>
+                            ⚠️ Weak Topics <span style={{ color: 'var(--faint)', fontWeight: 400, textTransform: 'none' }}>(low solve rate)</span>
                         </h2>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                             {weakTopics.map(([topic, s]) => {
                                 const pct = Math.round((s.solved / s.total) * 100)
                                 return (
                                     <Link key={topic} to={`/dsa?q=${encodeURIComponent(topic)}`} style={{ textDecoration: 'none' }}>
-                                        <div style={{ background: '#27272a', border: '1px solid #3f3f46', borderRadius: 6, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                                            <span style={{ fontSize: '0.75rem', color: '#fafafa', fontWeight: 700 }}>{topic}</span>
+                                        <div style={{ background: 'var(--subtle)', border: '1px solid var(--subtle-strong)', borderRadius: 6, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <span style={{ fontSize: '0.75rem', color: 'var(--bright)', fontWeight: 700 }}>{topic}</span>
                                             <span style={{ fontSize: '0.65rem', color: '#f87171', fontWeight: 900 }}>{pct}%</span>
                                         </div>
                                     </Link>
@@ -252,20 +252,20 @@ export default function DashboardPage() {
                 {/* Focus Companies */}
                 <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                        <h2 style={{ fontSize: '0.9rem', fontWeight: 900, color: '#fafafa', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                        <h2 style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--bright)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                             Focus Companies
                         </h2>
-                        <span style={{ fontSize: '0.72rem', color: '#52525b' }}>Companies you've started</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--faint)' }}>Companies you've started</span>
                     </div>
 
                     {readinessLoading ? (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
                             {Array.from({ length: 6 }).map((_, i) => (
-                                <div key={i} style={{ height: 80, background: '#18181b', borderRadius: 8, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                                <div key={i} style={{ height: 80, background: 'var(--panel)', borderRadius: 8, animation: 'pulse 1.5s ease-in-out infinite' }} />
                             ))}
                         </div>
                     ) : focusCompanies.length === 0 ? (
-                        <div style={{ padding: '32px 0', textAlign: 'center', color: '#71717a', fontSize: '0.88rem' }}>
+                        <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--muted)', fontSize: '0.88rem' }}>
                             <div style={{ fontSize: '2rem', marginBottom: 8 }}>🎯</div>
                             Start solving problems to see your focus companies here.
                         </div>
@@ -275,14 +275,14 @@ export default function DashboardPage() {
                                 const dsaTotal = data.dsa?.total ?? 0, dsaDone = data.dsa?.solved ?? 0
                                 const lldTotal = data.lld?.total ?? 0, lldDone = data.lld?.solved ?? 0
                                 const overallPct = (dsaTotal + lldTotal) ? Math.round(((dsaDone + lldDone) / (dsaTotal + lldTotal)) * 100) : 0
-                                const pctColor = overallPct > 50 ? '#4ade80' : overallPct > 20 ? '#facc15' : '#71717a'
+                                const pctColor = overallPct > 50 ? '#4ade80' : overallPct > 20 ? '#facc15' : 'var(--muted)'
                                 return (
-                                    <div key={name} style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 8, padding: '12px 14px', transition: 'border-color 0.15s' }}
-                                        onMouseEnter={e => e.currentTarget.style.borderColor = '#3f3f46'}
-                                        onMouseLeave={e => e.currentTarget.style.borderColor = '#27272a'}
+                                    <div key={name} style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8, padding: '12px 14px', transition: 'border-color 0.15s' }}
+                                        onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--subtle-strong)'}
+                                        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--subtle)'}
                                     >
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                            <span style={{ fontWeight: 900, fontSize: '0.82rem', color: '#fafafa' }}>{name}</span>
+                                            <span style={{ fontWeight: 900, fontSize: '0.82rem', color: 'var(--bright)' }}>{name}</span>
                                             <span style={{ fontSize: '0.72rem', fontWeight: 900, color: pctColor }}>{overallPct}%</span>
                                         </div>
                                         <div style={{ display: 'flex', gap: 8 }}>
@@ -293,7 +293,7 @@ export default function DashboardPage() {
                                                 <Link to={`/lld?company=${encodeURIComponent(name)}`} style={{ fontSize: '0.62rem', color: '#f472b6', textDecoration: 'none', fontWeight: 700 }}>LLD {lldDone}/{lldTotal}</Link>
                                             )}
                                         </div>
-                                        <div style={{ marginTop: 8, height: 4, background: '#27272a', borderRadius: 2, overflow: 'hidden' }}>
+                                        <div style={{ marginTop: 8, height: 4, background: 'var(--subtle)', borderRadius: 2, overflow: 'hidden' }}>
                                             <div style={{ width: `${overallPct}%`, height: '100%', background: pctColor, borderRadius: 2, transition: 'width 0.5s' }} />
                                         </div>
                                     </div>

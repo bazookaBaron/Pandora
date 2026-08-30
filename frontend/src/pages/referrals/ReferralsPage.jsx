@@ -81,7 +81,7 @@ function CompanyAutocomplete({ value, onChange, placeholder = 'Start typing a co
             {open && options.length > 0 && (
                 <div style={{
                     position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
-                    background: '#18181b', border: '1px solid #27272a', borderRadius: 6,
+                    background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6,
                     maxHeight: 220, overflowY: 'auto', zIndex: 50,
                     boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
                 }}>
@@ -91,10 +91,10 @@ function CompanyAutocomplete({ value, onChange, placeholder = 'Start typing a co
                             onMouseDown={(e) => { e.preventDefault(); onChange(c); setOpen(false) }}
                             style={{
                                 padding: '7px 12px', cursor: 'pointer', fontSize: '0.82rem',
-                                color: '#a1a1aa', borderBottom: '1px solid rgba(39,39,42,0.5)',
+                                color: 'var(--accent)', borderBottom: '1px solid rgba(39,39,42,0.5)',
                             }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = '#27272a'; e.currentTarget.style.color = '#fafafa' }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#a1a1aa' }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--subtle)'; e.currentTarget.style.color = 'var(--bright)' }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--accent)' }}
                         >
                             {c}
                         </div>
@@ -111,14 +111,14 @@ function QuotaLine({ usage }) {
     const unlimited = isUnlimited(usage.limit)
     return (
         <div style={{
-            background: '#18181b', border: '1px solid #27272a', borderRadius: 8,
-            padding: '10px 14px', fontSize: '0.76rem', color: '#a1a1aa', fontWeight: 700,
+            background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8,
+            padding: '10px 14px', fontSize: '0.76rem', color: 'var(--accent)', fontWeight: 700,
         }}>
             {unlimited
                 ? 'Unlimited referral posts this month'
                 : `${usage.used ?? 0} / ${usage.limit} referral posts used this month`}
             {!unlimited && usage.resetsAt && (
-                <span style={{ color: '#71717a', fontWeight: 400 }}> · resets {fmtDate(usage.resetsAt)}</span>
+                <span style={{ color: 'var(--muted)', fontWeight: 400 }}> · resets {fmtDate(usage.resetsAt)}</span>
             )}
         </div>
     )
@@ -163,12 +163,12 @@ function StatusPill({ status }) {
 }
 
 const cardStyle = {
-    background: '#161618', border: '1px solid #27272a', borderRadius: 10,
+    background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10,
     padding: '11px 14px', display: 'flex', flexDirection: 'column', gap: 7,
 }
 
 const btnStyle = {
-    padding: '5px 12px', background: 'none', border: '1px solid #27272a',
+    padding: '5px 12px', background: 'none', border: '1px solid var(--subtle)',
     borderRadius: 6, color: '#22d3ee', cursor: 'pointer', fontSize: '0.74rem', fontWeight: 700,
 }
 
@@ -247,7 +247,7 @@ function PostTab({ limits, onPosted }) {
             </div>
 
             <div className="form-group">
-                <label className="field-label">Job ID <span style={{ color: '#52525b', fontWeight: 400 }}>(optional)</span></label>
+                <label className="field-label">Job ID <span style={{ color: 'var(--faint)', fontWeight: 400 }}>(optional)</span></label>
                 <input
                     className="input-field"
                     placeholder="e.g. R-123456"
@@ -257,7 +257,7 @@ function PostTab({ limits, onPosted }) {
             </div>
 
             <div className="form-group">
-                <label className="field-label">Job title <span style={{ color: '#52525b', fontWeight: 400 }}>(optional)</span></label>
+                <label className="field-label">Job title <span style={{ color: 'var(--faint)', fontWeight: 400 }}>(optional)</span></label>
                 <input
                     className="input-field"
                     placeholder="e.g. Senior Backend Engineer"
@@ -271,13 +271,13 @@ function PostTab({ limits, onPosted }) {
                 <div
                     onClick={() => fileRef.current?.click()}
                     style={{
-                        border: `2px dashed ${resumeFile ? '#22d3ee' : '#27272a'}`,
+                        border: `2px dashed ${resumeFile ? '#22d3ee' : 'var(--subtle)'}`,
                         borderRadius: 8, padding: '20px 16px', textAlign: 'center',
                         cursor: 'pointer', transition: 'border-color 0.2s',
                         background: resumeFile ? 'rgba(34,211,238,0.04)' : 'transparent',
                     }}
-                    onMouseEnter={(e) => { if (!resumeFile) e.currentTarget.style.borderColor = '#3f3f46' }}
-                    onMouseLeave={(e) => { if (!resumeFile) e.currentTarget.style.borderColor = '#27272a' }}
+                    onMouseEnter={(e) => { if (!resumeFile) e.currentTarget.style.borderColor = 'var(--subtle-strong)' }}
+                    onMouseLeave={(e) => { if (!resumeFile) e.currentTarget.style.borderColor = 'var(--subtle)' }}
                 >
                     {resumeFile ? (
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -286,14 +286,14 @@ function PostTab({ limits, onPosted }) {
                             <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); setResumeFile(null); if (fileRef.current) fileRef.current.value = '' }}
-                                style={{ background: 'none', border: 'none', color: '#52525b', cursor: 'pointer', fontSize: '1rem', lineHeight: 1 }}
+                                style={{ background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer', fontSize: '1rem', lineHeight: 1 }}
                             >×</button>
                         </div>
                     ) : (
                         <>
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#52525b" strokeWidth="1.5" style={{ marginBottom: 8 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
-                            <p style={{ color: '#71717a', fontSize: '0.85rem', margin: 0 }}>Click to upload your resume PDF</p>
-                            <p style={{ color: '#52525b', fontSize: '0.72rem', margin: '4px 0 0' }}>PDF only · max 10MB</p>
+                            <p style={{ color: 'var(--muted)', fontSize: '0.85rem', margin: 0 }}>Click to upload your resume PDF</p>
+                            <p style={{ color: 'var(--faint)', fontSize: '0.72rem', margin: '4px 0 0' }}>PDF only · max 10MB</p>
                         </>
                     )}
                 </div>
@@ -391,7 +391,7 @@ function OpenCard({ r }) {
     return (
         <div style={cardStyle}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 900, fontSize: '0.86rem', color: '#fafafa', letterSpacing: '-0.01em' }}>
+                <span style={{ fontWeight: 900, fontSize: '0.86rem', color: 'var(--bright)', letterSpacing: '-0.01em' }}>
                     {r.job_title || 'Referral request'}
                 </span>
                 <Chip tone="company">{r.target_company}</Chip>
@@ -418,7 +418,7 @@ function OpenCard({ r }) {
                     )}
                 </div>
             </div>
-            <span style={{ fontSize: '0.66rem', color: '#52525b' }}>
+            <span style={{ fontSize: '0.66rem', color: 'var(--faint)' }}>
                 Posted {relTime(r.created_at)} · expires {relTime(r.expires_at)}
             </span>
 
@@ -486,22 +486,22 @@ function MineCard({ r }) {
     return (
         <div style={cardStyle}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 900, fontSize: '0.86rem', color: '#fafafa', letterSpacing: '-0.01em' }}>{r.target_company}</span>
+                <span style={{ fontWeight: 900, fontSize: '0.86rem', color: 'var(--bright)', letterSpacing: '-0.01em' }}>{r.target_company}</span>
                 {r.job_title && <Chip tone="role">{r.job_title}</Chip>}
                 {r.job_id && <Chip tone="jobId" label="ID">{r.job_id}</Chip>}
                 <span style={{ flex: 1 }} />
                 <StatusPill status={r.status} />
             </div>
-            <span style={{ fontSize: '0.66rem', color: '#52525b' }}>
+            <span style={{ fontSize: '0.66rem', color: 'var(--faint)' }}>
                 Posted {relTime(r.created_at)} · expires {relTime(r.expires_at)}
             </span>
 
             {r.status === 'accepted' && r.accepter && (
                 <div style={{
                     background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.3)',
-                    borderRadius: 8, padding: '7px 11px', fontSize: '0.78rem', color: '#a1a1aa',
+                    borderRadius: 8, padding: '7px 11px', fontSize: '0.78rem', color: 'var(--accent)',
                 }}>
-                    <strong style={{ color: '#fafafa' }}>{r.accepter.name}</strong> accepted — reach out:{' '}
+                    <strong style={{ color: 'var(--bright)' }}>{r.accepter.name}</strong> accepted — reach out:{' '}
                     <a href={`mailto:${r.accepter.email}`} style={{ color: '#22d3ee' }}>{r.accepter.email}</a>
                 </div>
             )}
@@ -509,7 +509,7 @@ function MineCard({ r }) {
             {r.status === 'open' && (
                 confirming ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <span style={{ fontSize: '0.74rem', color: '#a1a1aa' }}>
+                        <span style={{ fontSize: '0.74rem', color: 'var(--accent)' }}>
                             Cancel this request? Cancelling does not refund this month&apos;s quota.
                         </span>
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -586,8 +586,8 @@ export default function ReferralsPage() {
             <Navbar />
             <main className="wrap" style={{ maxWidth: 980, margin: '0 auto', padding: '72px 16px 48px' }}>
                 <header style={{ marginBottom: 18 }}>
-                    <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#fafafa', letterSpacing: '-0.03em' }}>Referrals</h1>
-                    <p style={{ color: '#71717a', fontSize: '0.85rem', marginTop: 6 }}>
+                    <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>Referrals</h1>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: 6 }}>
                         Ask verified employees to refer you — or refer candidates targeting your company.
                     </p>
                 </header>

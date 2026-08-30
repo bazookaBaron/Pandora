@@ -43,7 +43,7 @@ function ScorePanel({ title, metrics, accent, isMobile }) {
     if (!metrics) return null
     return (
         <div style={{
-            flex: 1, minWidth: 0, background: '#18181b', border: `1px solid ${accent}33`,
+            flex: 1, minWidth: 0, background: 'var(--panel)', border: `1px solid ${accent}33`,
             borderRadius: 10, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10,
         }}>
             <h3 style={{ fontSize: '0.72rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: accent, margin: 0 }}>
@@ -143,7 +143,7 @@ export default function HomePage() {
             {/* Name + Company row */}
             <section className="card" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
                 <div>
-                    <label className="field-label">Your Name <span style={{ color: '#52525b', fontWeight: 400 }}>(for filename)</span></label>
+                    <label className="field-label">Your Name <span style={{ color: 'var(--faint)', fontWeight: 400 }}>(for filename)</span></label>
                     <input
                         className="input-field"
                         style={{ padding: '10px 12px', borderRadius: 6, width: '100%', boxSizing: 'border-box', fontSize: '0.9rem' }}
@@ -153,7 +153,7 @@ export default function HomePage() {
                     />
                 </div>
                 <div>
-                    <label className="field-label">Target Company <span style={{ color: '#52525b', fontWeight: 400 }}>(for filename)</span></label>
+                    <label className="field-label">Target Company <span style={{ color: 'var(--faint)', fontWeight: 400 }}>(for filename)</span></label>
                     <input
                         className="input-field"
                         style={{ padding: '10px 12px', borderRadius: 6, width: '100%', boxSizing: 'border-box', fontSize: '0.9rem' }}
@@ -162,7 +162,7 @@ export default function HomePage() {
                         onChange={e => setCompanyName(e.target.value)}
                     />
                 </div>
-                <p style={{ gridColumn: '1/-1', margin: 0, fontSize: '0.7rem', color: '#52525b', overflowWrap: 'anywhere' }}>
+                <p style={{ gridColumn: '1/-1', margin: 0, fontSize: '0.7rem', color: 'var(--faint)', overflowWrap: 'anywhere' }}>
                     Downloaded file will be named: <code style={{ color: '#a78bfa' }}>{filenamePreview}</code>
                 </p>
             </section>
@@ -173,13 +173,13 @@ export default function HomePage() {
                 <div
                     onClick={() => fileInputRef.current?.click()}
                     style={{
-                        border: `2px dashed ${resumeFile ? '#22d3ee' : '#27272a'}`,
+                        border: `2px dashed ${resumeFile ? '#22d3ee' : 'var(--subtle)'}`,
                         borderRadius: 8, padding: '20px 16px', textAlign: 'center',
                         cursor: 'pointer', transition: 'border-color 0.2s',
                         background: resumeFile ? 'rgba(34,211,238,0.04)' : 'transparent',
                     }}
-                    onMouseEnter={e => { if (!resumeFile) e.currentTarget.style.borderColor = '#3f3f46' }}
-                    onMouseLeave={e => { if (!resumeFile) e.currentTarget.style.borderColor = '#27272a' }}
+                    onMouseEnter={e => { if (!resumeFile) e.currentTarget.style.borderColor = 'var(--subtle-strong)' }}
+                    onMouseLeave={e => { if (!resumeFile) e.currentTarget.style.borderColor = 'var(--subtle)' }}
                 >
                     {resumeFile ? (
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -188,14 +188,14 @@ export default function HomePage() {
                             <button
                                 type="button"
                                 onClick={e => { e.stopPropagation(); setResumeFile(null); if (fileInputRef.current) fileInputRef.current.value = '' }}
-                                style={{ background: 'none', border: 'none', color: '#52525b', cursor: 'pointer', fontSize: '1rem', lineHeight: 1 }}
+                                style={{ background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer', fontSize: '1rem', lineHeight: 1 }}
                             >×</button>
                         </div>
                     ) : (
                         <>
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#52525b" strokeWidth="1.5" style={{ marginBottom: 8 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
-                            <p style={{ color: '#71717a', fontSize: '0.85rem', margin: 0 }}>Click to upload your resume PDF</p>
-                            <p style={{ color: '#52525b', fontSize: '0.72rem', margin: '4px 0 0' }}>PDF only</p>
+                            <p style={{ color: 'var(--muted)', fontSize: '0.85rem', margin: 0 }}>Click to upload your resume PDF</p>
+                            <p style={{ color: 'var(--faint)', fontSize: '0.72rem', margin: '4px 0 0' }}>PDF only</p>
                         </>
                     )}
                 </div>
@@ -223,7 +223,7 @@ export default function HomePage() {
 
             {/* Inline validation */}
             {validationMsg() && !loading && (
-                <p style={{ fontSize: '0.78rem', color: '#71717a', marginBottom: 8, textAlign: 'center' }}>
+                <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginBottom: 8, textAlign: 'center' }}>
                     {validationMsg()}
                 </p>
             )}

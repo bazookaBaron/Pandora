@@ -59,9 +59,9 @@ export default function AnswerViewer({ questionId, questionText, accent = '#22d3
     if (data?.answer_status && data.answer_status !== 'completed') return (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 }}>
             <div style={{ fontSize: '2rem' }}>🔄</div>
-            <div style={{ fontSize: '0.85rem', color: '#a1a1aa', textAlign: 'center', maxWidth: 320 }}>
+            <div style={{ fontSize: '0.85rem', color: 'var(--accent)', textAlign: 'center', maxWidth: 320 }}>
                 Answer is being generated for:<br />
-                <strong style={{ color: '#fafafa' }}>{questionText}</strong>
+                <strong style={{ color: 'var(--bright)' }}>{questionText}</strong>
             </div>
             <StatusBadge status={data.answer_status} />
         </div>
@@ -71,7 +71,7 @@ export default function AnswerViewer({ questionId, questionText, accent = '#22d3
     if (!answer) return (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24 }}>
             <div style={{ fontSize: '2rem' }}>⏳</div>
-            <p style={{ color: '#71717a', fontSize: '0.82rem', textAlign: 'center' }}>Answer not yet generated for this question.</p>
+            <p style={{ color: 'var(--muted)', fontSize: '0.82rem', textAlign: 'center' }}>Answer not yet generated for this question.</p>
         </div>
     )
 
@@ -79,7 +79,7 @@ export default function AnswerViewer({ questionId, questionText, accent = '#22d3
         <div ref={scrollRef} style={{ height: '100%', overflowY: 'auto', padding: '20px 24px' }}>
             {/* Question title */}
             <h2 style={{
-                fontSize: '0.95rem', fontWeight: 900, color: '#fafafa', marginBottom: 20,
+                fontSize: '0.95rem', fontWeight: 900, color: 'var(--bright)', marginBottom: 20,
                 paddingBottom: 12, borderBottom: `2px solid ${accent}`,
                 lineHeight: 1.4, letterSpacing: '-0.01em',
             }}>
@@ -89,7 +89,7 @@ export default function AnswerViewer({ questionId, questionText, accent = '#22d3
             {data.chart_config && <ChartBlock config={data.chart_config} />}
 
             {/* Markdown answer */}
-            <div style={{ fontSize: '0.84rem', lineHeight: 1.75, color: '#a1a1aa' }}>
+            <div style={{ fontSize: '0.84rem', lineHeight: 1.75, color: 'var(--accent)' }}>
                 <MarkdownRenderer>{answer}</MarkdownRenderer>
             </div>
         </div>

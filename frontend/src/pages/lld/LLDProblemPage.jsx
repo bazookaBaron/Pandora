@@ -94,13 +94,13 @@ function FileTree({ node, depth = 0, onOpen, openFiles, activeFile }) {
                                 padding: `4px 8px 4px ${12 + depth * 14}px`,
                                 cursor: 'pointer', borderRadius: 4, margin: '1px 0',
                                 background: isActive ? 'rgba(244,114,182,0.12)' : 'transparent',
-                                color: isActive ? '#f472b6' : '#a1a1aa',
+                                color: isActive ? '#f472b6' : 'var(--accent)',
                                 fontSize: '0.78rem',
                                 transition: 'background 0.1s, color 0.1s',
                                 borderLeft: isActive ? '2px solid #f472b6' : '2px solid transparent',
                             }}
-                            onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = '#27272a'; e.currentTarget.style.color = '#fafafa' } }}
-                            onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#a1a1aa' } }}
+                            onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = 'var(--subtle)'; e.currentTarget.style.color = 'var(--bright)' } }}
+                            onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--accent)' } }}
                         >
                             <span style={{ flexShrink: 0 }}>{iconOf(key)}</span>
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
@@ -117,11 +117,11 @@ function FileTree({ node, depth = 0, onOpen, openFiles, activeFile }) {
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 5,
                                 padding: `4px 8px 4px ${12 + depth * 14}px`,
-                                cursor: 'pointer', color: '#71717a', fontSize: '0.75rem', fontWeight: 700,
+                                cursor: 'pointer', color: 'var(--muted)', fontSize: '0.75rem', fontWeight: 700,
                                 textTransform: 'uppercase', letterSpacing: '0.04em',
                             }}
-                            onMouseEnter={e => e.currentTarget.style.color = '#fafafa'}
-                            onMouseLeave={e => e.currentTarget.style.color = '#71717a'}
+                            onMouseEnter={e => e.currentTarget.style.color = 'var(--bright)'}
+                            onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}
                         >
                             <span style={{ fontSize: '0.6rem' }}>{isOpen ? '▼' : '▶'}</span>
                             <span>📁</span>
@@ -145,23 +145,23 @@ function ConsolePanel({ run, compile, apiError, status, onClose }) {
 
     return (
         <div style={{
-            borderTop: '1px solid #27272a', background: '#0a0a0c', flexShrink: 0,
+            borderTop: '1px solid var(--subtle)', background: '#0a0a0c', flexShrink: 0,
             display: 'flex', flexDirection: 'column', maxHeight: 260, minHeight: 120,
         }}>
             <div style={{
                 display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px',
-                borderBottom: '1px solid #1e1e22', background: '#0d0d0f', flexShrink: 0,
+                borderBottom: '1px solid var(--panel)', background: 'var(--surface-2)', flexShrink: 0,
             }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: status === 'running' ? '#facc15' : status === 'done' ? '#4ade80' : '#52525b', flexShrink: 0, transition: 'background 0.3s' }} />
-                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#52525b', textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>Console</span>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: status === 'running' ? '#facc15' : status === 'done' ? '#4ade80' : 'var(--faint)', flexShrink: 0, transition: 'background 0.3s' }} />
+                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>Console</span>
                 {run?.code !== undefined && run.code !== 0 && (
                     <span style={{ fontSize: '0.58rem', color: '#f87171', fontFamily: 'monospace' }}>exit {run.code}</span>
                 )}
-                <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#52525b', cursor: 'pointer', fontSize: '0.75rem', padding: '0 4px' }}>×</button>
+                <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 4px' }}>×</button>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px', fontFamily: 'monospace', fontSize: '0.75rem', lineHeight: 1.6 }}>
                 {status === 'running' && (
-                    <div style={{ color: '#71717a', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#facc15', animation: 'pulse 1s infinite' }} />
                         Running…
                     </div>
@@ -177,7 +177,7 @@ function ConsolePanel({ run, compile, apiError, status, onClose }) {
                     <pre style={{ color: '#fb923c', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[Compile Error]{`\n`}{compile.stderr}</pre>
                 )}
                 {compile?.stdout && (
-                    <pre style={{ color: '#71717a', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[Compile Output]{`\n`}{compile.stdout}</pre>
+                    <pre style={{ color: 'var(--muted)', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[Compile Output]{`\n`}{compile.stdout}</pre>
                 )}
 
                 {/* Runtime stage */}
@@ -189,7 +189,7 @@ function ConsolePanel({ run, compile, apiError, status, onClose }) {
                 )}
 
                 {status === 'done' && !hasOutput && (
-                    <span style={{ color: '#52525b' }}>(no output — program ran successfully with exit code {run?.code ?? '?'})</span>
+                    <span style={{ color: 'var(--faint)' }}>(no output — program ran successfully with exit code {run?.code ?? '?'})</span>
                 )}
                 <div ref={endRef} />
             </div>
@@ -378,10 +378,10 @@ export default function LLDProblemPage() {
             <>
                 <Navbar />
                 <div style={{ height: '100vh', paddingTop: 48, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                    <div style={{ borderBottom: '1px solid #27272a', background: '#0d0d0f', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-                        <Link to="/lld" style={{ color: '#71717a', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← LLD</Link>
-                        <span style={{ color: '#27272a', flexShrink: 0 }}>|</span>
-                        <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: '#fafafa' }}>Locked problem</h2>
+                    <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+                        <Link to="/lld" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← LLD</Link>
+                        <span style={{ color: 'var(--subtle)', flexShrink: 0 }}>|</span>
+                        <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--bright)' }}>Locked problem</h2>
                     </div>
                     <div style={{ flex: 1, overflow: 'auto' }}>
                         <LockedPanel
@@ -413,7 +413,7 @@ export default function LLDProblemPage() {
     const RequirementsPane = (
         <div style={{ padding: 16, height: '100%', overflowY: 'auto' }}>
             <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: '0.62rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Requirements</span>
+                <span style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Requirements</span>
                 {problem.difficulty && <DifficultyBadge difficulty={problem.difficulty} />}
             </div>
             <div className="markdown-body" style={{ fontSize: '0.83rem', lineHeight: 1.7 }}>
@@ -421,12 +421,12 @@ export default function LLDProblemPage() {
             </div>
 
             {/* Notes */}
-            <div style={{ marginTop: 20, borderTop: '1px solid #27272a', paddingTop: 16 }}>
+            <div style={{ marginTop: 20, borderTop: '1px solid var(--subtle)', paddingTop: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: '0.62rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Approach Notes</span>
+                    <span style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Approach Notes</span>
                     {notesOpen && (
                         <button onClick={() => { saveNotes(problem.id, notesText); setNotesOpen(false) }}
-                            style={{ fontSize: '0.68rem', padding: '3px 10px', background: '#f472b6', color: '#09090b', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 900 }}>
+                            style={{ fontSize: '0.68rem', padding: '3px 10px', background: '#f472b6', color: 'var(--surface)', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 900 }}>
                             Save
                         </button>
                     )}
@@ -438,16 +438,16 @@ export default function LLDProblemPage() {
                         placeholder="Your approach, patterns used, time complexity…"
                         rows={5}
                         style={{
-                            width: '100%', background: '#18181b', border: '1px solid #27272a', borderRadius: 6,
-                            color: '#fafafa', font: 'inherit', fontSize: '0.8rem', padding: '8px 10px',
+                            width: '100%', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6,
+                            color: 'var(--bright)', font: 'inherit', fontSize: '0.8rem', padding: '8px 10px',
                             resize: 'vertical', outline: 'none',
                         }}
                         autoFocus
                     />
                 ) : (
                     <button onClick={() => setNotesOpen(true)} style={{
-                        width: '100%', padding: '8px 12px', background: '#18181b', border: '1px dashed #27272a',
-                        borderRadius: 6, color: '#52525b', cursor: 'pointer', fontSize: '0.78rem', textAlign: 'left',
+                        width: '100%', padding: '8px 12px', background: 'var(--panel)', border: '1px dashed var(--subtle)',
+                        borderRadius: 6, color: 'var(--faint)', cursor: 'pointer', fontSize: '0.78rem', textAlign: 'left',
                     }}>
                         {notesText || '+ Add notes…'}
                     </button>
@@ -459,10 +459,10 @@ export default function LLDProblemPage() {
     const DiagramPane = (
         <div style={{ height: '100%', overflow: 'hidden', position: 'relative' }}>
             <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, display: 'flex', gap: 6 }}>
-                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.08em', alignSelf: 'center' }}>UML</span>
+                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', alignSelf: 'center' }}>UML</span>
                 {diagrams[0]?.original_url && (
                     <a href={diagrams[0].original_url} target="_blank" rel="noopener noreferrer"
-                        style={{ fontSize: '0.65rem', padding: '3px 8px', background: '#27272a', border: '1px solid #3f3f46', borderRadius: 4, color: '#a1a1aa', textDecoration: 'none' }}>
+                        style={{ fontSize: '0.65rem', padding: '3px 8px', background: 'var(--subtle)', border: '1px solid var(--subtle-strong)', borderRadius: 4, color: 'var(--accent)', textDecoration: 'none' }}>
                         Full res ↗
                     </a>
                 )}
@@ -478,7 +478,7 @@ export default function LLDProblemPage() {
                     </TransformComponent>
                 </TransformWrapper>
             ) : (
-                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#52525b', fontSize: '0.8rem' }}>
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: '0.8rem' }}>
                     No diagram available
                 </div>
             )}
@@ -488,18 +488,18 @@ export default function LLDProblemPage() {
     const CodePane = (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* Toolbar */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderBottom: '1px solid #27272a', background: '#0d0d0f', flexShrink: 0 }}>
-                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', flexShrink: 0 }}>
+                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                     {codeFiles.length} files
                 </span>
                 <div style={{ flex: 1 }} />
                 <button onClick={copyFile} disabled={!activeFile} style={{
-                    padding: '3px 10px', background: 'none', border: '1px solid #27272a', borderRadius: 4, color: copyMsg ? '#4ade80' : '#71717a', cursor: 'pointer', fontSize: '0.68rem',
+                    padding: '3px 10px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 4, color: copyMsg ? '#4ade80' : 'var(--muted)', cursor: 'pointer', fontSize: '0.68rem',
                 }}>
                     {copyMsg || 'Copy File'}
                 </button>
                 <button onClick={downloadZip} disabled={!codeFiles.length} style={{
-                    padding: '3px 10px', background: 'none', border: '1px solid #27272a', borderRadius: 4, color: '#71717a', cursor: 'pointer', fontSize: '0.68rem',
+                    padding: '3px 10px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 4, color: 'var(--muted)', cursor: 'pointer', fontSize: '0.68rem',
                 }}>
                     ⬇ ZIP
                 </button>
@@ -607,23 +607,23 @@ export default function LLDProblemPage() {
 
             {/* File tabs */}
             {openFiles.length > 0 && (
-                <div style={{ display: 'flex', overflowX: 'auto', background: '#0d0d0f', borderBottom: '1px solid #27272a', flexShrink: 0 }}>
+                <div style={{ display: 'flex', overflowX: 'auto', background: 'var(--surface-2)', borderBottom: '1px solid var(--subtle)', flexShrink: 0 }}>
                     {openFiles.map(f => {
                         const fname = (f.filepath || f.filename || '').split('/').pop()
                         const isActive = activeFile?.id === f.id
                         return (
                             <div key={f.id} onClick={() => setActiveFile(f)} style={{
                                 display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                                cursor: 'pointer', flexShrink: 0, borderRight: '1px solid #27272a',
+                                cursor: 'pointer', flexShrink: 0, borderRight: '1px solid var(--subtle)',
                                 background: isActive ? '#1e1e1e' : 'transparent',
                                 borderBottom: isActive ? '2px solid #f472b6' : '2px solid transparent',
-                                color: isActive ? '#fafafa' : '#71717a', fontSize: '0.75rem',
+                                color: isActive ? 'var(--bright)' : 'var(--muted)', fontSize: '0.75rem',
                                 transition: 'color 0.15s',
                             }}>
                                 <span style={{ flexShrink: 0 }}>{iconOf(fname)}</span>
                                 <span style={{ whiteSpace: 'nowrap' }}>{fname}</span>
                                 <button onClick={(e) => { e.stopPropagation(); closeFile(f.id) }}
-                                    style={{ background: 'none', border: 'none', color: '#52525b', cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1, marginLeft: 2 }}>
+                                    style={{ background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1, marginLeft: 2 }}>
                                     ×
                                 </button>
                             </div>
@@ -637,22 +637,22 @@ export default function LLDProblemPage() {
                 {/* File tree */}
                 <div style={{
                     width: isMobile ? '100%' : 200,
-                    borderRight: isMobile ? 'none' : '1px solid #27272a',
-                    borderBottom: isMobile ? '1px solid #27272a' : 'none',
+                    borderRight: isMobile ? 'none' : '1px solid var(--subtle)',
+                    borderBottom: isMobile ? '1px solid var(--subtle)' : 'none',
                     maxHeight: isMobile ? (treeOpen ? 180 : 36) : 'none',
-                    overflowY: 'auto', background: '#0d0d0f', flexShrink: 0,
+                    overflowY: 'auto', background: 'var(--surface-2)', flexShrink: 0,
                 }}>
                     {isMobile && (
                         <button onClick={() => setTreeOpen(o => !o)} style={{
                             width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px',
-                            border: 'none', color: '#a1a1aa', cursor: 'pointer',
+                            border: 'none', color: 'var(--accent)', cursor: 'pointer',
                             fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em',
-                            position: 'sticky', top: 0, background: '#0d0d0f',
+                            position: 'sticky', top: 0, background: 'var(--surface-2)',
                         }}>
                             <span style={{ fontSize: '0.6rem' }}>{treeOpen ? '▼' : '▶'}</span>
                             <span style={{ flexShrink: 0 }}>📁 Files ({codeFiles.length})</span>
                             {!treeOpen && (
-                                <span style={{ flexShrink: 0, color: '#52525b', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· tap to browse</span>
+                                <span style={{ flexShrink: 0, color: 'var(--faint)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· tap to browse</span>
                             )}
                             {activeFile && (
                                 <span style={{ marginLeft: 'auto', minWidth: 0, color: '#f472b6', fontWeight: 700, textTransform: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '42%' }}>
@@ -664,8 +664,8 @@ export default function LLDProblemPage() {
                     {!isMobile && codeFiles.length > 0 && openFiles.length <= 1 && (
                         <div style={{
                             display: 'flex', alignItems: 'center', gap: 5,
-                            padding: '8px 10px 6px', color: '#52525b', fontSize: '0.68rem',
-                            borderBottom: '1px solid #1a1a1d',
+                            padding: '8px 10px 6px', color: 'var(--faint)', fontSize: '0.68rem',
+                            borderBottom: '1px solid var(--panel)',
                         }}>
                             <span aria-hidden style={{ fontSize: '0.74rem' }}>👆</span>
                             <span>Click a file to open</span>
@@ -673,7 +673,7 @@ export default function LLDProblemPage() {
                     )}
                     {(!isMobile || treeOpen) && (
                         codeFiles.length === 0 ? (
-                            <div style={{ padding: 12, color: '#52525b', fontSize: '0.72rem' }}>No code files</div>
+                            <div style={{ padding: 12, color: 'var(--faint)', fontSize: '0.72rem' }}>No code files</div>
                         ) : (
                             <FileTree
                                 node={fileTree}
@@ -709,7 +709,7 @@ export default function LLDProblemPage() {
                                 }}
                             />
                         ) : (
-                            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#52525b', gap: 8 }}>
+                            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', gap: 8 }}>
                                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
                                 <span style={{ fontSize: '0.78rem' }}>Select a file from the tree</span>
                             </div>
@@ -743,10 +743,10 @@ export default function LLDProblemPage() {
             <Navbar />
             <div style={{ height: '100vh', paddingTop: 48, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {/* Problem header bar */}
-                <div style={{ borderBottom: '1px solid #27272a', background: '#0d0d0f', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexWrap: 'wrap', flexShrink: 0 }}>
-                    <Link to="/lld" style={{ color: '#71717a', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← LLD</Link>
-                    <span style={{ color: '#27272a', flexShrink: 0 }}>|</span>
-                    <h2 style={{ fontSize: isMobile ? '0.85rem' : '0.95rem', fontWeight: 900, color: '#fafafa', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{problem.title}</h2>
+                <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexWrap: 'wrap', flexShrink: 0 }}>
+                    <Link to="/lld" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← LLD</Link>
+                    <span style={{ color: 'var(--subtle)', flexShrink: 0 }}>|</span>
+                    <h2 style={{ fontSize: isMobile ? '0.85rem' : '0.95rem', fontWeight: 900, color: 'var(--bright)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{problem.title}</h2>
                     {problem.difficulty && <DifficultyBadge difficulty={problem.difficulty} />}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                         <FluidCheckbox
@@ -758,7 +758,7 @@ export default function LLDProblemPage() {
                                 toggleStatus(problem.id, prog?.status ?? 'unsolved')
                             }}
                         />
-                        <span style={{ fontSize: '0.68rem', color: isSolved ? '#f472b6' : '#71717a', fontWeight: 700 }}>
+                        <span style={{ fontSize: '0.68rem', color: isSolved ? '#f472b6' : 'var(--muted)', fontWeight: 700 }}>
                             {isSolved ? 'Practiced' : (isMobile ? 'Mark' : 'Mark practiced')}
                         </span>
                     </div>
@@ -769,8 +769,8 @@ export default function LLDProblemPage() {
                             {mobileTabs.map(t => (
                                 <button key={t} onClick={() => setMobileTab(t)} style={{
                                     flex: 1, padding: '5px 8px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase',
-                                    background: activeMobileTab === t ? '#f472b6' : '#27272a',
-                                    color: activeMobileTab === t ? '#09090b' : '#71717a',
+                                    background: activeMobileTab === t ? '#f472b6' : 'var(--subtle)',
+                                    color: activeMobileTab === t ? 'var(--surface)' : 'var(--muted)',
                                 }}>
                                     {t.slice(0, 3)}
                                 </button>
@@ -788,22 +788,22 @@ export default function LLDProblemPage() {
                         <Panel defaultSize={35} minSize={20} style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                             {hasDiagram ? (
                                 <Group direction="vertical" style={{ flex: 1 }}>
-                                    <Panel defaultSize={55} minSize={20} style={{ overflow: 'hidden', background: '#111113' }}>
+                                    <Panel defaultSize={55} minSize={20} style={{ overflow: 'hidden', background: 'var(--surface-2)' }}>
                                         {RequirementsPane}
                                     </Panel>
-                                    <Separator style={{ height: 4, background: '#27272a', cursor: 'row-resize' }} />
-                                    <Panel defaultSize={45} minSize={15} style={{ overflow: 'hidden', background: '#0d0d0f' }}>
+                                    <Separator style={{ height: 4, background: 'var(--subtle)', cursor: 'row-resize' }} />
+                                    <Panel defaultSize={45} minSize={15} style={{ overflow: 'hidden', background: 'var(--surface-2)' }}>
                                         {DiagramPane}
                                     </Panel>
                                 </Group>
                             ) : (
-                                <div style={{ flex: 1, overflow: 'hidden', background: '#111113' }}>
+                                <div style={{ flex: 1, overflow: 'hidden', background: 'var(--surface-2)' }}>
                                     {RequirementsPane}
                                 </div>
                             )}
                         </Panel>
 
-                        <Separator style={{ width: 4, background: '#27272a', cursor: 'col-resize' }} />
+                        <Separator style={{ width: 4, background: 'var(--subtle)', cursor: 'col-resize' }} />
 
                         {/* Right pane: code viewer */}
                         <Panel defaultSize={65} minSize={30} style={{ overflow: 'hidden' }}>
@@ -813,8 +813,8 @@ export default function LLDProblemPage() {
                 ) : (
                     // Mobile: tab view
                     <div style={{ flex: 1, overflow: 'hidden' }}>
-                        {activeMobileTab === 'requirements' && <div style={{ height: '100%', overflow: 'auto', background: '#111113' }}>{RequirementsPane}</div>}
-                        {activeMobileTab === 'diagram' && hasDiagram && <div style={{ height: '100%', overflow: 'hidden', background: '#0d0d0f' }}>{DiagramPane}</div>}
+                        {activeMobileTab === 'requirements' && <div style={{ height: '100%', overflow: 'auto', background: 'var(--surface-2)' }}>{RequirementsPane}</div>}
+                        {activeMobileTab === 'diagram' && hasDiagram && <div style={{ height: '100%', overflow: 'hidden', background: 'var(--surface-2)' }}>{DiagramPane}</div>}
                         {activeMobileTab === 'code' && <div style={{ height: '100%', overflow: 'hidden' }}>{CodePane}</div>}
                     </div>
                 )}

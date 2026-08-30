@@ -44,12 +44,12 @@ function JobCard({ j }) {
     const locTone = LOC_TONE[j.locationType] || '#a1a1aa'
     return (
         <div style={{
-            background: '#161618', border: '1px solid #27272a', borderRadius: 10,
+            background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10,
             padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6,
         }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                 <a href={j.url} target="_blank" rel="noopener noreferrer" style={{
-                    fontWeight: 900, fontSize: '0.88rem', color: '#fafafa', letterSpacing: '-0.01em',
+                    fontWeight: 900, fontSize: '0.88rem', color: 'var(--bright)', letterSpacing: '-0.01em',
                     textDecoration: 'none',
                 }}>
                     {j.title || 'Untitled role'}
@@ -76,7 +76,7 @@ function JobCard({ j }) {
                     Apply →
                 </a>
             </div>
-            <span style={{ fontSize: '0.64rem', color: '#52525b' }}>
+            <span style={{ fontSize: '0.64rem', color: 'var(--faint)' }}>
                 {j.firstSeen ? `First seen ${relTime(j.firstSeen)}` : ''}
                 {j.lastSeen ? `${j.firstSeen ? ' · ' : ''}still live ${relTime(j.lastSeen)}` : ''}
             </span>
@@ -88,15 +88,15 @@ function JobCard({ j }) {
 function Segmented({ value, onChange, options, size = 'md' }) {
     const pad = size === 'sm' ? '3px 9px' : '4px 11px'
     return (
-        <div style={{ display: 'inline-flex', background: '#161618', border: '1px solid #27272a', borderRadius: 8, padding: 3, gap: 2 }}>
+        <div style={{ display: 'inline-flex', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8, padding: 3, gap: 2 }}>
             {options.map((o) => {
                 const active = value === o.value
                 return (
                     <button key={o.value || 'all'} type="button" onClick={() => onChange(o.value)} style={{
                         padding: pad, borderRadius: 6, border: 'none', cursor: 'pointer',
                         fontSize: '0.72rem', fontWeight: 700,
-                        background: active ? '#27272a' : 'transparent',
-                        color: active ? '#fafafa' : '#71717a',
+                        background: active ? 'var(--subtle)' : 'transparent',
+                        color: active ? 'var(--bright)' : 'var(--muted)',
                     }}>
                         {o.label}
                     </button>
@@ -113,13 +113,13 @@ function BarRow({ label, value, max, tone }) {
     const pct = max > 0 ? Math.max(2, (value / max) * 100) : 0
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.74rem' }}>
-            <span style={{ width: 130, flexShrink: 0, color: '#a1a1aa', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ width: 130, flexShrink: 0, color: 'var(--accent)', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {label}
             </span>
-            <div style={{ flex: 1, height: 16, background: '#161618', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{ flex: 1, height: 16, background: 'var(--panel)', borderRadius: 4, overflow: 'hidden' }}>
                 <div style={{ width: pct + '%', height: '100%', background: tone || '#22d3ee', opacity: 0.85, borderRadius: 4, transition: 'width .4s' }} />
             </div>
-            <span style={{ width: 52, flexShrink: 0, color: '#fafafa', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ width: 52, flexShrink: 0, color: 'var(--bright)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                 {value.toLocaleString()}
             </span>
         </div>
@@ -130,8 +130,8 @@ function BarChart({ title, rows, toneFor }) {
     if (!rows || !rows.length) return null
     const max = Math.max(...rows.map((r) => r.value), 1)
     return (
-        <div style={{ background: '#161618', border: '1px solid #27272a', borderRadius: 10, padding: '14px 16px' }}>
-            <h3 style={{ fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717a', margin: '0 0 12px' }}>{title}</h3>
+        <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '14px 16px' }}>
+            <h3 style={{ fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', margin: '0 0 12px' }}>{title}</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                 {rows.map((r) => <BarRow key={r.label} {...r} max={max} tone={toneFor ? toneFor(r) : r.tone} />)}
             </div>
@@ -141,11 +141,11 @@ function BarChart({ title, rows, toneFor }) {
 
 function Metric({ label, value, accent }) {
     return (
-        <div style={{ background: '#161618', border: '1px solid #27272a', borderRadius: 10, padding: '12px 16px', flex: '1 1 150px' }}>
-            <div style={{ fontSize: '1.5rem', fontWeight: 900, color: accent || '#fafafa', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+        <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '12px 16px', flex: '1 1 150px' }}>
+            <div style={{ fontSize: '1.5rem', fontWeight: 900, color: accent || 'var(--bright)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
                 {value}
             </div>
-            <div style={{ fontSize: '0.66rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>
+            <div style={{ fontSize: '0.66rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>
                 {label}
             </div>
         </div>
@@ -272,9 +272,9 @@ function ListingsView() {
                 />
             ) : (
                 <>
-                    <div style={{ fontSize: '0.72rem', color: '#71717a', marginBottom: 10, fontWeight: 700 }}>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginBottom: 10, fontWeight: 700 }}>
                         {data.total.toLocaleString()} job{data.total === 1 ? '' : 's'}
-                        {isFetching && <span style={{ color: '#52525b', fontWeight: 400 }}> · updating…</span>}
+                        {isFetching && <span style={{ color: 'var(--faint)', fontWeight: 400 }}> · updating…</span>}
                     </div>
                     <div style={{ display: 'grid', gap: 9, opacity: isFetching ? 0.6 : 1, transition: 'opacity .15s' }}>
                         {data.items.map((j) => <JobCard key={j.id} j={j} />)}
@@ -282,7 +282,7 @@ function ListingsView() {
                     {data.pageCount > 1 && (
                         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 20 }}>
                             <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} style={pagerBtn(page <= 1)}>← Prev</button>
-                            <span style={{ fontSize: '0.74rem', color: '#71717a', fontWeight: 700 }}>{data.page} / {data.pageCount}</span>
+                            <span style={{ fontSize: '0.74rem', color: 'var(--muted)', fontWeight: 700 }}>{data.page} / {data.pageCount}</span>
                             <button type="button" onClick={() => setPage((p) => Math.min(data.pageCount, p + 1))} disabled={page >= data.pageCount} style={pagerBtn(page >= data.pageCount)}>Next →</button>
                         </div>
                     )}
@@ -294,8 +294,8 @@ function ListingsView() {
 
 function pagerBtn(disabled) {
     return {
-        padding: '6px 14px', borderRadius: 6, border: '1px solid #27272a',
-        background: 'none', color: disabled ? '#3f3f46' : '#a1a1aa',
+        padding: '6px 14px', borderRadius: 6, border: '1px solid var(--subtle)',
+        background: 'none', color: disabled ? 'var(--subtle-strong)' : 'var(--accent)',
         cursor: disabled ? 'default' : 'pointer', fontSize: '0.74rem', fontWeight: 700,
     }
 }
@@ -310,8 +310,8 @@ export default function JobsPage() {
             <Navbar />
             <main className="wrap" style={{ maxWidth: 980, margin: '0 auto', padding: '72px 16px 48px' }}>
                 <header style={{ marginBottom: 16 }}>
-                    <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#fafafa', letterSpacing: '-0.03em' }}>Jobs</h1>
-                    <p style={{ color: '#71717a', fontSize: '0.85rem', marginTop: 6 }}>
+                    <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>Jobs</h1>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: 6 }}>
                         Tech openings crawled from ~500 companies, refreshed through the day. Stale posts drop off after 5 days.
                     </p>
                 </header>

@@ -16,7 +16,7 @@ import CompanyLogo from '../../components/shared/CompanyLogo'
 function HLDSkeleton() {
     return Array.from({ length: 6 }).map((_, i) => (
         <div key={i} style={{
-            background: '#18181b', border: '1px solid #27272a', borderRadius: 8, padding: 16, height: 140,
+            background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8, padding: 16, height: 140,
             animation: 'pulse 1.5s ease-in-out infinite',
         }} />
     ))
@@ -81,25 +81,25 @@ export default function HLDListPage() {
     // Locked card (free / list_only) — muted, non-interactive target is /pricing.
     const renderLockedCard = (p) => (
         <Link key={p.id} to="/pricing" style={{
-            textDecoration: 'none', background: '#141416', border: '1px solid #27272a',
+            textDecoration: 'none', background: '#141416', border: '1px solid var(--subtle)',
             borderRadius: 8, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10,
             opacity: 0.72, transition: 'opacity 0.15s, border-color 0.15s',
         }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.borderColor = '#3f3f46' }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = 0.72; e.currentTarget.style.borderColor = '#27272a' }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.borderColor = 'var(--subtle-strong)' }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = 0.72; e.currentTarget.style.borderColor = 'var(--subtle)' }}
         >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 {p.difficulty && <DifficultyBadge difficulty={p.difficulty} />}
                 <span style={{ marginLeft: 'auto', color: '#a78bfa', display: 'flex', alignItems: 'center' }}><LockIcon /></span>
             </div>
-            <h3 style={{ fontSize: '0.92rem', fontWeight: 900, color: '#a1a1aa', letterSpacing: '-0.02em', lineHeight: 1.3 }}>
+            <h3 style={{ fontSize: '0.92rem', fontWeight: 900, color: 'var(--accent)', letterSpacing: '-0.02em', lineHeight: 1.3 }}>
                 {p.title}
             </h3>
             {(p.companies || []).length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {(p.companies || []).slice(0, 4).map(c => <CompanyLogo key={c} company={c} />)}
                     {(p.companies || []).length > 4 && (
-                        <span style={{ fontSize: '0.62rem', color: '#52525b', alignSelf: 'center' }}>+{p.companies.length - 4}</span>
+                        <span style={{ fontSize: '0.62rem', color: 'var(--faint)', alignSelf: 'center' }}>+{p.companies.length - 4}</span>
                     )}
                 </div>
             )}
@@ -118,13 +118,13 @@ export default function HLDListPage() {
         const isAttempted = prog?.status === 'solved'
         return (
             <div key={p.id} style={{
-                background: '#18181b', border: `1px solid ${isAttempted ? 'rgba(167,139,250,0.3)' : '#27272a'}`,
+                background: 'var(--panel)', border: `1px solid ${isAttempted ? 'rgba(167,139,250,0.3)' : 'var(--subtle)'}`,
                 borderRadius: 8, padding: '14px 16px', position: 'relative',
                 transition: 'border-color 0.15s, transform 0.15s',
                 display: 'flex', flexDirection: 'column', gap: 10,
             }}
-                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = isAttempted ? 'rgba(167,139,250,0.5)' : '#3f3f46' }}
-                onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = isAttempted ? 'rgba(167,139,250,0.3)' : '#27272a' }}
+                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = isAttempted ? 'rgba(167,139,250,0.5)' : 'var(--subtle-strong)' }}
+                onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = isAttempted ? 'rgba(167,139,250,0.3)' : 'var(--subtle)' }}
             >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <FluidCheckbox
@@ -141,7 +141,7 @@ export default function HLDListPage() {
 
                 <Link to={`/hld/${p.slug || p.id}`} style={{ textDecoration: 'none' }}>
                     <h3 style={{
-                        fontSize: '0.92rem', fontWeight: 900, color: isAttempted ? '#71717a' : '#fafafa',
+                        fontSize: '0.92rem', fontWeight: 900, color: isAttempted ? 'var(--muted)' : 'var(--bright)',
                         letterSpacing: '-0.02em', lineHeight: 1.3,
                     }}>
                         {p.title}
@@ -150,7 +150,7 @@ export default function HLDListPage() {
 
                 {p.description && (
                     <p style={{
-                        fontSize: '0.73rem', color: '#71717a', lineHeight: 1.5,
+                        fontSize: '0.73rem', color: 'var(--muted)', lineHeight: 1.5,
                         overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
                     }}>
                         {p.description.replace(/[#*`]/g, '').slice(0, 130)}…
@@ -163,7 +163,7 @@ export default function HLDListPage() {
                             <CompanyLogo key={c} company={c} />
                         ))}
                         {(p.companies || []).length > 4 && (
-                            <span style={{ fontSize: '0.62rem', color: '#52525b', alignSelf: 'center' }}>+{p.companies.length - 4}</span>
+                            <span style={{ fontSize: '0.62rem', color: 'var(--faint)', alignSelf: 'center' }}>+{p.companies.length - 4}</span>
                         )}
                     </div>
                 )}
@@ -186,15 +186,15 @@ export default function HLDListPage() {
                 {/* Header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
                     <div>
-                        <h1 style={{ fontSize: '1.2rem', fontWeight: 900, letterSpacing: '-0.03em', color: '#fafafa' }}>HLD Questions</h1>
-                        <p style={{ color: '#71717a', fontSize: '0.78rem', marginTop: 2 }}>High-level system design — architecture, scalability, trade-offs</p>
+                        <h1 style={{ fontSize: '1.2rem', fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--bright)' }}>HLD Questions</h1>
+                        <p style={{ color: 'var(--muted)', fontSize: '0.78rem', marginTop: 2 }}>High-level system design — architecture, scalability, trade-offs</p>
                     </div>
                     {!listOnly && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#18181b', border: '1px solid #27272a', borderRadius: 8, padding: '6px 12px' }}>
-                            <span style={{ fontSize: '0.72rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attempted</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8, padding: '6px 12px' }}>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attempted</span>
                             <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#a78bfa' }}>{attempted}</span>
-                            <span style={{ color: '#3f3f46' }}>/</span>
-                            <span style={{ fontSize: '0.82rem', color: '#a1a1aa' }}>{total}</span>
+                            <span style={{ color: 'var(--subtle-strong)' }}>/</span>
+                            <span style={{ fontSize: '0.82rem', color: 'var(--accent)' }}>{total}</span>
                         </div>
                     )}
                 </div>
@@ -203,11 +203,11 @@ export default function HLDListPage() {
                 {listOnly && !isLoading && !isError && (
                     <div style={{
                         display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-                        background: '#141416', border: '1px solid #27272a', borderRadius: 8,
+                        background: '#141416', border: '1px solid var(--subtle)', borderRadius: 8,
                         padding: '12px 16px', marginBottom: 20,
                     }}>
                         <span style={{ color: '#a78bfa', display: 'flex', alignItems: 'center' }}><LockIcon size={16} /></span>
-                        <span style={{ fontSize: '0.8rem', color: '#a1a1aa', flex: 1, minWidth: 180 }}>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--accent)', flex: 1, minWidth: 180 }}>
                             HLD practice is a Pro feature — you can browse the list.
                         </span>
                         <UpgradeButton size="sm" />
@@ -225,11 +225,11 @@ export default function HLDListPage() {
                             onChange={e => { setSearch(e.target.value); updateParam('q', e.target.value) }}
                             placeholder="Search by title or description…"
                             style={{
-                                width: '100%', padding: '8px 10px 8px 32px', background: '#18181b', border: '1px solid #27272a',
-                                borderRadius: 6, color: '#fafafa', font: 'inherit', fontSize: '0.82rem', outline: 'none',
+                                width: '100%', padding: '8px 10px 8px 32px', background: 'var(--panel)', border: '1px solid var(--subtle)',
+                                borderRadius: 6, color: 'var(--bright)', font: 'inherit', fontSize: '0.82rem', outline: 'none',
                             }}
                             onFocus={e => e.target.style.borderColor = '#a78bfa'}
-                            onBlur={e => e.target.style.borderColor = '#27272a'}
+                            onBlur={e => e.target.style.borderColor = 'var(--subtle)'}
                         />
                     </div>
 
@@ -241,9 +241,9 @@ export default function HLDListPage() {
                                     const next = active ? difficulties.filter(x => x !== d) : [...difficulties, d]
                                     updateParam('difficulty', next)
                                 }} style={{
-                                    padding: '5px 10px', borderRadius: 6, border: `1px solid ${active ? DIFF_COLORS[d] : '#27272a'}`,
+                                    padding: '5px 10px', borderRadius: 6, border: `1px solid ${active ? DIFF_COLORS[d] : 'var(--subtle)'}`,
                                     background: active ? `${DIFF_COLORS[d]}1F` : 'transparent',
-                                    color: active ? DIFF_COLORS[d] : '#71717a', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 900,
+                                    color: active ? DIFF_COLORS[d] : 'var(--muted)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 900,
                                     textTransform: 'uppercase', letterSpacing: '0.06em',
                                 }}>{d}</button>
                             )
@@ -269,7 +269,7 @@ export default function HLDListPage() {
                         icon="🏗️"
                         title="No HLD questions match your filters."
                         action={(
-                            <button onClick={() => { setSearch(''); setSearchParams({}) }} style={{ padding: '6px 16px', background: 'none', border: '1px solid #27272a', borderRadius: 6, color: '#a78bfa', cursor: 'pointer', fontSize: '0.78rem' }}>
+                            <button onClick={() => { setSearch(''); setSearchParams({}) }} style={{ padding: '6px 16px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 6, color: '#a78bfa', cursor: 'pointer', fontSize: '0.78rem' }}>
                                 Clear filters
                             </button>
                         )}
@@ -279,7 +279,7 @@ export default function HLDListPage() {
                         <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 12 }}>
                             {filtered.map(listOnly ? renderLockedCard : renderCard)}
                         </div>
-                        <div style={{ textAlign: 'center', marginTop: 12, color: '#52525b', fontSize: '0.72rem' }}>
+                        <div style={{ textAlign: 'center', marginTop: 12, color: 'var(--faint)', fontSize: '0.72rem' }}>
                             {filtered.length} of {total} questions
                         </div>
                     </>

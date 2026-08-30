@@ -71,7 +71,7 @@ export function UpgradeButton({ children = 'Unlock Pro', size = 'md' }) {
                 display: 'inline-flex', alignItems: 'center', gap: 8, padding: pad,
                 borderRadius: 8, textDecoration: 'none',
                 background: 'linear-gradient(135deg, #22d3ee, #a78bfa)',
-                color: '#09090b', fontWeight: 900, fontSize: fs,
+                color: 'var(--surface)', fontWeight: 900, fontSize: fs,
                 textTransform: 'uppercase', letterSpacing: '0.06em',
                 boxShadow: '0 4px 20px rgba(34,211,238,0.25)',
             }}
@@ -86,7 +86,7 @@ export function UpgradeButton({ children = 'Unlock Pro', size = 'md' }) {
 function Bar({ w = '100%', h = 12, r = 4 }) {
     return (
         <div style={{
-            width: w, height: h, borderRadius: r, background: '#27272a',
+            width: w, height: h, borderRadius: r, background: 'var(--subtle)',
             animation: 'pulse 1.5s ease-in-out infinite',
         }} />
     )
@@ -97,7 +97,7 @@ const BAR_WIDTHS = ['92%', '64%', '81%', '54%', '73%', '60%', '88%', '48%']
 function SkeletonCard({ i = 0 }) {
     return (
         <div style={{
-            background: '#18181b', border: '1px solid #27272a', borderRadius: 8,
+            background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8,
             padding: 16, display: 'flex', flexDirection: 'column', gap: 10,
         }}>
             <Bar w={18} h={18} r={4} />
@@ -159,10 +159,10 @@ export function LockedSlice({ count, noun = 'items', rows = 4, variant = 'row', 
                 alignItems: 'center', justifyContent: 'center', gap: 10, textAlign: 'center', padding: 20,
             }}>
                 <div style={{ color: '#a78bfa' }}><LockIcon /></div>
-                <p style={{ margin: 0, color: '#fafafa', fontWeight: 900, fontSize: '0.95rem' }}>
+                <p style={{ margin: 0, color: 'var(--bright)', fontWeight: 900, fontSize: '0.95rem' }}>
                     {count > 0 ? `${count} more ${noun} locked` : `More ${noun} locked`}
                 </p>
-                <p style={{ margin: 0, color: '#71717a', fontSize: '0.78rem', maxWidth: 320 }}>
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.78rem', maxWidth: 320 }}>
                     Free tier shows a preview. Upgrade to unlock everything and remove limits.
                 </p>
                 <UpgradeButton />
@@ -197,10 +197,10 @@ export function LockedPanel({
             }}>
                 {children != null ? children : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                        <div style={{ height: 88, background: '#18181b', border: '1px solid #27272a', borderRadius: 10 }} />
-                        <div style={{ height: 132, background: '#18181b', border: '1px solid #27272a', borderRadius: 10 }} />
-                        <div style={{ height: 200, background: '#18181b', border: '1px solid #27272a', borderRadius: 10 }} />
-                        <div style={{ height: 44, background: '#27272a', borderRadius: 8 }} />
+                        <div style={{ height: 88, background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10 }} />
+                        <div style={{ height: 132, background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10 }} />
+                        <div style={{ height: 200, background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10 }} />
+                        <div style={{ height: 44, background: 'var(--subtle)', borderRadius: 8 }} />
                     </div>
                 )}
             </div>
@@ -210,15 +210,15 @@ export function LockedPanel({
             }}>
                 <div style={{
                     width: 56, height: 56, borderRadius: 14, display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', color: '#09090b',
+                    justifyContent: 'center', color: 'var(--surface)',
                     background: 'linear-gradient(135deg, #22d3ee, #a78bfa)',
                 }}>
                     <LockIcon size={26} />
                 </div>
-                <h2 style={{ margin: 0, color: '#fafafa', fontWeight: 900, fontSize: '1.1rem', letterSpacing: '-0.02em' }}>
+                <h2 style={{ margin: 0, color: 'var(--bright)', fontWeight: 900, fontSize: '1.1rem', letterSpacing: '-0.02em' }}>
                     {title}
                 </h2>
-                <p style={{ margin: 0, color: '#a1a1aa', fontSize: '0.85rem', maxWidth: 380, lineHeight: 1.6 }}>
+                <p style={{ margin: 0, color: 'var(--accent)', fontSize: '0.85rem', maxWidth: 380, lineHeight: 1.6 }}>
                     {subtitle}
                 </p>
                 {showUsage && (
@@ -250,20 +250,20 @@ export function UsageMeter({ feature }) {
 
     return (
         <div style={{
-            background: '#18181b', border: '1px solid #27272a', borderRadius: 8,
+            background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8,
             padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6,
         }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: '0.76rem', fontWeight: 700, color: spent ? '#f87171' : '#a1a1aa' }}>
+                <span style={{ fontSize: '0.76rem', fontWeight: 700, color: spent ? '#f87171' : 'var(--accent)' }}>
                     {used} / {limit} {noun} this month
                 </span>
                 {u.resetsAt && (
-                    <span style={{ fontSize: '0.68rem', color: '#71717a' }}>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--muted)' }}>
                         Resets {formatResetDate(u.resetsAt)}
                     </span>
                 )}
             </div>
-            <div style={{ height: 6, background: '#27272a', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ height: 6, background: 'var(--subtle)', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{
                     width: `${pct}%`, height: '100%', borderRadius: 3,
                     background: spent ? '#f87171' : '#22d3ee', transition: 'width 0.4s ease',

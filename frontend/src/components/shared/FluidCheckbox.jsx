@@ -16,7 +16,7 @@ export default function FluidCheckbox({ checked, onChange, size = 20 }) {
                 width: size,
                 height: size,
                 borderRadius: 5,
-                border: `2px solid ${checked ? '#22d3ee' : '#3f3f46'}`,
+                border: `2px solid ${checked ? '#22d3ee' : 'var(--subtle-strong)'}`,
                 background: checked ? '#22d3ee' : 'transparent',
                 cursor: 'pointer',
                 display: 'flex',
@@ -28,7 +28,7 @@ export default function FluidCheckbox({ checked, onChange, size = 20 }) {
             }}
             animate={{
                 backgroundColor: checked ? '#22d3ee' : 'rgba(0,0,0,0)',
-                borderColor: checked ? '#22d3ee' : '#3f3f46',
+                borderColor: checked ? '#22d3ee' : 'var(--subtle-strong)',
             }}
             transition={{ duration: 0.22, ease: 'easeOut' }}
             title={checked ? 'Mark as unsolved' : 'Mark as solved'}

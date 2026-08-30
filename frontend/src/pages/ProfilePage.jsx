@@ -71,9 +71,9 @@ function RingProgress({ pct, color, size = 72, stroke = 7 }) {
 
 function StatCard({ label, value, color, link }) {
     return (
-        <div style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 10, padding: '14px 18px' }}>
+        <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '14px 18px' }}>
             <div style={{ fontSize: '1.6rem', fontWeight: 900, color }}>{value}</div>
-            <div style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717a', marginTop: 4 }}>{label}</div>
+            <div style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginTop: 4 }}>{label}</div>
             {link && <Link to={link} style={{ fontSize: '0.65rem', color, textDecoration: 'none', marginTop: 6, display: 'block', opacity: 0.7 }}>View →</Link>}
         </div>
     )
@@ -165,7 +165,7 @@ function ProgressSection({ user }) {
             {/* Progress rings */}
             <div style={{ display: 'grid', gridTemplateColumns: ringCols, gap: 10, marginBottom: 16 }}>
                 {modules.map(m => (
-                    <div key={m.label} style={{ background: '#0d0d0f', border: '1px solid #27272a', borderRadius: 10, padding: '16px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                    <div key={m.label} style={{ background: 'var(--surface-2)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '16px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
                         <div style={{ position: 'relative' }}>
                             <RingProgress pct={m.pct} color={m.color} />
                             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -173,8 +173,8 @@ function ProgressSection({ user }) {
                             </div>
                         </div>
                         <div style={{ textAlign: 'center' }}>
-                            <div style={{ fontWeight: 900, fontSize: '0.78rem', color: '#fafafa' }}>{m.label}</div>
-                            <div style={{ fontSize: '0.65rem', color: '#71717a', marginTop: 2 }}>{m.solved} / {m.total}</div>
+                            <div style={{ fontWeight: 900, fontSize: '0.78rem', color: 'var(--bright)' }}>{m.label}</div>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--muted)', marginTop: 2 }}>{m.solved} / {m.total}</div>
                         </div>
                         <Link to={m.link} style={{ fontSize: '0.65rem', color: m.color, textDecoration: 'none', opacity: 0.8 }}>Open →</Link>
                     </div>
@@ -183,8 +183,8 @@ function ProgressSection({ user }) {
 
             {/* Difficulty + Recent Activity side by side */}
             <div style={{ display: 'grid', gridTemplateColumns: pairCols, gap: 16, marginBottom: 16 }}>
-                <div style={{ background: '#0d0d0f', border: '1px solid #27272a', borderRadius: 10, padding: '16px 18px' }}>
-                    <h3 style={{ fontSize: '0.72rem', fontWeight: 900, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>DSA Difficulty</h3>
+                <div style={{ background: 'var(--surface-2)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '16px 18px' }}>
+                    <h3 style={{ fontSize: '0.72rem', fontWeight: 900, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>DSA Difficulty</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {diffBreakdown.map(({ d, total, done }) => {
                             const pct = total ? Math.round((done / total) * 100) : 0
@@ -192,9 +192,9 @@ function ProgressSection({ user }) {
                                 <div key={d}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                                         <span style={{ fontSize: '0.7rem', fontWeight: 700, color: diffColors[d] }}>{d}</span>
-                                        <span style={{ fontSize: '0.7rem', color: '#71717a' }}>{done}/{total}</span>
+                                        <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>{done}/{total}</span>
                                     </div>
-                                    <div style={{ height: 5, background: '#27272a', borderRadius: 3, overflow: 'hidden' }}>
+                                    <div style={{ height: 5, background: 'var(--subtle)', borderRadius: 3, overflow: 'hidden' }}>
                                         <div style={{ width: `${pct}%`, height: '100%', background: diffColors[d], borderRadius: 3, transition: 'width 0.6s ease' }} />
                                     </div>
                                 </div>
@@ -203,10 +203,10 @@ function ProgressSection({ user }) {
                     </div>
                 </div>
 
-                <div style={{ background: '#0d0d0f', border: '1px solid #27272a', borderRadius: 10, padding: '16px 18px' }}>
-                    <h3 style={{ fontSize: '0.72rem', fontWeight: 900, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Recent Activity</h3>
+                <div style={{ background: 'var(--surface-2)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '16px 18px' }}>
+                    <h3 style={{ fontSize: '0.72rem', fontWeight: 900, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Recent Activity</h3>
                     {recentActivity.length === 0 ? (
-                        <p style={{ color: '#52525b', fontSize: '0.78rem' }}>No activity yet.</p>
+                        <p style={{ color: 'var(--faint)', fontSize: '0.78rem' }}>No activity yet.</p>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                             {recentActivity.map((r, i) => {
@@ -217,7 +217,7 @@ function ProgressSection({ user }) {
                                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                         <span style={{ fontSize: '0.58rem', fontWeight: 900, textTransform: 'uppercase', color: typeColor, background: typeColor + '18', border: `1px solid ${typeColor}33`, borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>{r.problem_type}</span>
                                         <span style={{ fontSize: '0.7rem', color: r.status === 'solved' ? '#4ade80' : '#facc15', fontWeight: 700, textTransform: 'uppercase', flexShrink: 0 }}>{r.status}</span>
-                                        <span style={{ fontSize: '0.65rem', color: '#52525b', marginLeft: 'auto', flexShrink: 0 }}>{agoStr}</span>
+                                        <span style={{ fontSize: '0.65rem', color: 'var(--faint)', marginLeft: 'auto', flexShrink: 0 }}>{agoStr}</span>
                                     </div>
                                 )
                             })}
@@ -229,14 +229,14 @@ function ProgressSection({ user }) {
             {/* Weak Topics */}
             {weakTopics.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
-                    <h3 style={{ fontSize: '0.72rem', fontWeight: 900, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
-                        ⚠️ Weak Topics <span style={{ color: '#52525b', fontWeight: 400, textTransform: 'none' }}>(low solve rate)</span>
+                    <h3 style={{ fontSize: '0.72rem', fontWeight: 900, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+                        ⚠️ Weak Topics <span style={{ color: 'var(--faint)', fontWeight: 400, textTransform: 'none' }}>(low solve rate)</span>
                     </h3>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                         {weakTopics.map(([topic, s]) => (
                             <Link key={topic} to={`/dsa?q=${encodeURIComponent(topic)}`} style={{ textDecoration: 'none' }}>
-                                <div style={{ background: '#27272a', border: '1px solid #3f3f46', borderRadius: 6, padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 7 }}>
-                                    <span style={{ fontSize: '0.72rem', color: '#fafafa', fontWeight: 700 }}>{topic}</span>
+                                <div style={{ background: 'var(--subtle)', border: '1px solid var(--subtle-strong)', borderRadius: 6, padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 7 }}>
+                                    <span style={{ fontSize: '0.72rem', color: 'var(--bright)', fontWeight: 700 }}>{topic}</span>
                                     <span style={{ fontSize: '0.62rem', color: '#f87171', fontWeight: 900 }}>{Math.round((s.solved / s.total) * 100)}%</span>
                                 </div>
                             </Link>
@@ -352,7 +352,7 @@ function CompanyAutocomplete({ value, onChange, placeholder = 'Start typing a co
             {open && options.length > 0 && (
                 <div style={{
                     position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
-                    background: '#18181b', border: '1px solid #27272a', borderRadius: 6,
+                    background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6,
                     maxHeight: 200, overflowY: 'auto', zIndex: 50,
                     boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
                 }}>
@@ -362,10 +362,10 @@ function CompanyAutocomplete({ value, onChange, placeholder = 'Start typing a co
                             onMouseDown={(e) => { e.preventDefault(); onChange(c); setOpen(false) }}
                             style={{
                                 padding: '7px 12px', cursor: 'pointer', fontSize: '0.82rem',
-                                color: '#a1a1aa', borderBottom: '1px solid rgba(39,39,42,0.5)',
+                                color: 'var(--accent)', borderBottom: '1px solid rgba(39,39,42,0.5)',
                             }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = '#27272a'; e.currentTarget.style.color = '#fafafa' }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#a1a1aa' }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--subtle)'; e.currentTarget.style.color = 'var(--bright)' }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--accent)' }}
                         >
                             {c}
                         </div>
@@ -431,9 +431,9 @@ function ReferralProfileCard({ user }) {
             <h2 className="profile-section-title">Referral profile</h2>
             {isLoading ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div style={{ height: 38, background: '#27272a', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
-                    <div style={{ height: 38, background: '#27272a', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
-                    <div style={{ height: 38, width: '50%', background: '#27272a', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                    <div style={{ height: 38, background: 'var(--subtle)', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                    <div style={{ height: 38, background: 'var(--subtle)', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                    <div style={{ height: 38, width: '50%', background: 'var(--subtle)', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
                 </div>
             ) : (
                 <form onSubmit={save}>
@@ -462,7 +462,7 @@ function ReferralProfileCard({ user }) {
                             onChange={e => setNotify(e.target.checked)}
                             style={{ marginTop: 2, accentColor: '#22d3ee' }}
                         />
-                        <span style={{ fontSize: '0.82rem', color: '#a1a1aa', lineHeight: 1.5 }}>
+                        <span style={{ fontSize: '0.82rem', color: 'var(--accent)', lineHeight: 1.5 }}>
                             Email me when someone posts a referral request for my company
                         </span>
                     </label>
@@ -622,8 +622,8 @@ export default function ProfilePage() {
                     <h2 className="profile-section-title">Subscription</h2>
                     {planLoading ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            <div style={{ height: 16, width: '40%', background: '#27272a', borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite' }} />
-                            <div style={{ height: 14, width: '25%', background: '#27272a', borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                            <div style={{ height: 16, width: '40%', background: 'var(--subtle)', borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                            <div style={{ height: 14, width: '25%', background: 'var(--subtle)', borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite' }} />
                         </div>
                     ) : (
                         <>

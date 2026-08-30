@@ -33,8 +33,8 @@ export default function CompanySelector({ selected = [], onChange }) {
                     flexWrap: 'wrap',
                     gap: 4,
                     padding: '6px 10px',
-                    background: '#18181b',
-                    border: `1px solid ${open ? '#22d3ee' : '#27272a'}`,
+                    background: 'var(--panel)',
+                    border: `1px solid ${open ? '#22d3ee' : 'var(--subtle)'}`,
                     borderRadius: 6,
                     cursor: 'text',
                     minHeight: 36,
@@ -45,7 +45,7 @@ export default function CompanySelector({ selected = [], onChange }) {
                 onClick={() => { setOpen(true); }}
             >
                 {selected.length === 0 && !open && (
-                    <span style={{ color: '#71717a', fontSize: '0.8rem' }}>Company…</span>
+                    <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Company…</span>
                 )}
                 {selected.map(c => (
                     <span key={c} style={{
@@ -68,7 +68,7 @@ export default function CompanySelector({ selected = [], onChange }) {
                         onChange={e => setSearch(e.target.value)}
                         placeholder={selected.length ? '' : 'Search company…'}
                         style={{
-                            background: 'none', border: 'none', outline: 'none', color: '#fafafa',
+                            background: 'none', border: 'none', outline: 'none', color: 'var(--bright)',
                             font: 'inherit', fontSize: '0.8rem', minWidth: 80, flex: 1,
                         }}
                         onKeyDown={e => {
@@ -82,7 +82,7 @@ export default function CompanySelector({ selected = [], onChange }) {
                 {selected.length > 0 && (
                     <button onClick={(e) => { e.stopPropagation(); clear() }}
                         title="Clear all"
-                        style={{ background: 'none', border: 'none', color: '#71717a', cursor: 'pointer', fontSize: 14, marginLeft: 'auto', padding: '0 2px' }}>
+                        style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 14, marginLeft: 'auto', padding: '0 2px' }}>
                         ×
                     </button>
                 )}
@@ -92,15 +92,15 @@ export default function CompanySelector({ selected = [], onChange }) {
             {open && (
                 <div style={{
                     position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
-                    background: '#18181b', border: '1px solid #27272a', borderRadius: 6,
+                    background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6,
                     maxHeight: 240, overflowY: 'auto', zIndex: 200,
                     boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
                 }}>
                     {isLoading && (
-                        <div style={{ padding: '8px 12px', color: '#71717a', fontSize: '0.8rem' }}>Loading…</div>
+                        <div style={{ padding: '8px 12px', color: 'var(--muted)', fontSize: '0.8rem' }}>Loading…</div>
                     )}
                     {!isLoading && filtered.length === 0 && (
-                        <div style={{ padding: '8px 12px', color: '#71717a', fontSize: '0.8rem' }}>
+                        <div style={{ padding: '8px 12px', color: 'var(--muted)', fontSize: '0.8rem' }}>
                             {search ? 'No match' : 'All companies selected'}
                         </div>
                     )}
@@ -108,12 +108,12 @@ export default function CompanySelector({ selected = [], onChange }) {
                         <div key={c}
                             onMouseDown={(e) => { e.preventDefault(); add(c) }}
                             style={{
-                                padding: '7px 12px', cursor: 'pointer', fontSize: '0.82rem', color: '#a1a1aa',
+                                padding: '7px 12px', cursor: 'pointer', fontSize: '0.82rem', color: 'var(--accent)',
                                 borderBottom: '1px solid rgba(39,39,42,0.5)',
                                 transition: 'background 0.1s, color 0.1s',
                             }}
-                            onMouseEnter={e => { e.target.style.background = '#27272a'; e.target.style.color = '#fafafa' }}
-                            onMouseLeave={e => { e.target.style.background = 'none'; e.target.style.color = '#a1a1aa' }}
+                            onMouseEnter={e => { e.target.style.background = 'var(--subtle)'; e.target.style.color = 'var(--bright)' }}
+                            onMouseLeave={e => { e.target.style.background = 'none'; e.target.style.color = 'var(--accent)' }}
                         >
                             {c}
                         </div>

@@ -30,11 +30,11 @@ function normalizeSeries(config) {
 
 function JsonFallback({ config }) {
     return (
-        <details style={{ margin: '12px 0', border: '1px solid #27272a', borderRadius: 6, background: '#0d0d0f' }}>
-            <summary style={{ cursor: 'pointer', padding: '8px 12px', fontSize: '0.62rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.09em', color: '#52525b' }}>
+        <details style={{ margin: '12px 0', border: '1px solid var(--subtle)', borderRadius: 6, background: 'var(--surface-2)' }}>
+            <summary style={{ cursor: 'pointer', padding: '8px 12px', fontSize: '0.62rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--faint)' }}>
                 Chart data
             </summary>
-            <pre style={{ margin: 0, padding: '10px 12px', overflowX: 'auto', fontSize: '0.72rem', lineHeight: 1.6, color: '#a1a1aa' }}>
+            <pre style={{ margin: 0, padding: '10px 12px', overflowX: 'auto', fontSize: '0.72rem', lineHeight: 1.6, color: 'var(--accent)' }}>
                 {JSON.stringify(config, null, 2)}
             </pre>
         </details>
@@ -64,12 +64,12 @@ export default function ChartBlock({ config }) {
     return (
         <figure style={{ margin: '12px 0' }}>
             {title && (
-                <figcaption style={{ fontSize: '0.62rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.09em', color: '#52525b', marginBottom: 6 }}>
+                <figcaption style={{ fontSize: '0.62rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--faint)', marginBottom: 6 }}>
                     {title}
                 </figcaption>
             )}
             <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={title || `${type} chart`}
-                style={{ background: '#0d0d0f', border: '1px solid #27272a', borderRadius: 6 }}>
+                style={{ background: 'var(--surface-2)', border: '1px solid var(--subtle)', borderRadius: 6 }}>
                 <line x1={padL} y1={y(0)} x2={W - padR} y2={y(0)} stroke="#27272a" strokeWidth="1" />
 
                 {isLine ? (

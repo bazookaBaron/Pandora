@@ -83,11 +83,11 @@ export default function CommandPalette() {
             onClick={e => { if (e.target === e.currentTarget) setOpen(false) }}
         >
             <div style={{
-                width: '100%', maxWidth: 540, background: '#18181b', border: '1px solid #27272a',
+                width: '100%', maxWidth: 540, background: 'var(--panel)', border: '1px solid var(--subtle)',
                 borderRadius: 10, overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,0.7)',
             }}>
                 {/* Search input */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid #27272a' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid var(--subtle)' }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#71717a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
                     </svg>
@@ -98,23 +98,23 @@ export default function CommandPalette() {
                         onKeyDown={handleKeyDown}
                         placeholder="Search DSA + LLD problems…"
                         style={{
-                            flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fafafa',
+                            flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--bright)',
                             font: 'inherit', fontSize: '0.9rem',
                         }}
                     />
-                    <kbd style={{ fontSize: '0.65rem', color: '#71717a', border: '1px solid #3f3f46', borderRadius: 4, padding: '2px 6px' }}>ESC</kbd>
+                    <kbd style={{ fontSize: '0.65rem', color: 'var(--muted)', border: '1px solid var(--subtle-strong)', borderRadius: 4, padding: '2px 6px' }}>ESC</kbd>
                 </div>
 
                 {/* Results */}
                 <div style={{ maxHeight: 340, overflowY: 'auto' }}>
                     {loading && (
-                        <div style={{ padding: 16, color: '#71717a', fontSize: '0.82rem', textAlign: 'center' }}>Searching…</div>
+                        <div style={{ padding: 16, color: 'var(--muted)', fontSize: '0.82rem', textAlign: 'center' }}>Searching…</div>
                     )}
                     {!loading && query && results.length === 0 && (
-                        <div style={{ padding: 16, color: '#71717a', fontSize: '0.82rem', textAlign: 'center' }}>No results for "{query}"</div>
+                        <div style={{ padding: 16, color: 'var(--muted)', fontSize: '0.82rem', textAlign: 'center' }}>No results for "{query}"</div>
                     )}
                     {!query && (
-                        <div style={{ padding: 16, color: '#52525b', fontSize: '0.78rem', textAlign: 'center' }}>
+                        <div style={{ padding: 16, color: 'var(--faint)', fontSize: '0.78rem', textAlign: 'center' }}>
                             Type to search across all DSA &amp; LLD problems
                         </div>
                     )}
@@ -126,7 +126,7 @@ export default function CommandPalette() {
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 12,
                                 padding: '10px 16px', cursor: 'pointer',
-                                background: i === selected ? '#27272a' : 'transparent',
+                                background: i === selected ? 'var(--subtle)' : 'transparent',
                                 borderBottom: '1px solid rgba(39,39,42,0.5)',
                                 transition: 'background 0.1s',
                             }}
@@ -141,7 +141,7 @@ export default function CommandPalette() {
                             }}>
                                 {item.type}
                             </span>
-                            <span style={{ color: '#fafafa', fontSize: '0.88rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</span>
+                            <span style={{ color: 'var(--bright)', fontSize: '0.88rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</span>
                             {item.difficulty && (
                                 <span style={{
                                     fontSize: '0.65rem', fontWeight: 700, color: item.difficulty === 'Easy' ? '#4ade80' : item.difficulty === 'Medium' ? '#facc15' : '#f87171',
@@ -156,10 +156,10 @@ export default function CommandPalette() {
                 </div>
 
                 {/* Footer */}
-                <div style={{ padding: '8px 16px', borderTop: '1px solid #27272a', display: 'flex', gap: 16, color: '#52525b', fontSize: '0.65rem' }}>
-                    <span><kbd style={{ fontSize: '0.65rem', border: '1px solid #3f3f46', borderRadius: 3, padding: '1px 5px', color: '#71717a' }}>↑↓</kbd> navigate</span>
-                    <span><kbd style={{ fontSize: '0.65rem', border: '1px solid #3f3f46', borderRadius: 3, padding: '1px 5px', color: '#71717a' }}>↵</kbd> open</span>
-                    <span><kbd style={{ fontSize: '0.65rem', border: '1px solid #3f3f46', borderRadius: 3, padding: '1px 5px', color: '#71717a' }}>ESC</kbd> close</span>
+                <div style={{ padding: '8px 16px', borderTop: '1px solid var(--subtle)', display: 'flex', gap: 16, color: 'var(--faint)', fontSize: '0.65rem' }}>
+                    <span><kbd style={{ fontSize: '0.65rem', border: '1px solid var(--subtle-strong)', borderRadius: 3, padding: '1px 5px', color: 'var(--muted)' }}>↑↓</kbd> navigate</span>
+                    <span><kbd style={{ fontSize: '0.65rem', border: '1px solid var(--subtle-strong)', borderRadius: 3, padding: '1px 5px', color: 'var(--muted)' }}>↵</kbd> open</span>
+                    <span><kbd style={{ fontSize: '0.65rem', border: '1px solid var(--subtle-strong)', borderRadius: 3, padding: '1px 5px', color: 'var(--muted)' }}>ESC</kbd> close</span>
                 </div>
             </div>
         </div>

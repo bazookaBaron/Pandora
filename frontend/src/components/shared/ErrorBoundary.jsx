@@ -29,18 +29,18 @@ class ErrorBoundary extends Component {
         return (
             <div style={{
                 minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                padding: 24, background: '#09090b',
+                padding: 24, background: 'var(--surface)',
             }}>
                 <div style={{
                     maxWidth: 420, width: '100%', display: 'flex', flexDirection: 'column',
                     alignItems: 'center', gap: 14, textAlign: 'center',
-                    background: '#18181b', border: '1px solid #27272a', borderRadius: 14, padding: '36px 28px',
+                    background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 14, padding: '36px 28px',
                 }}>
                     <div aria-hidden style={{ fontSize: '2rem' }}>⚠️</div>
-                    <h1 style={{ margin: 0, color: '#fafafa', fontWeight: 900, fontSize: '1.1rem', letterSpacing: '-0.02em' }}>
+                    <h1 style={{ margin: 0, color: 'var(--bright)', fontWeight: 900, fontSize: '1.1rem', letterSpacing: '-0.02em' }}>
                         Something broke on this page.
                     </h1>
-                    <p style={{ margin: 0, color: '#a1a1aa', fontSize: '0.82rem', lineHeight: 1.6 }}>
+                    <p style={{ margin: 0, color: 'var(--accent)', fontSize: '0.82rem', lineHeight: 1.6 }}>
                         The page hit an unexpected error. Reloading usually clears it.
                     </p>
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
@@ -48,7 +48,7 @@ class ErrorBoundary extends Component {
                             onClick={() => window.location.reload()}
                             style={{
                                 padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                                background: 'linear-gradient(135deg, #22d3ee, #a78bfa)', color: '#09090b',
+                                background: 'linear-gradient(135deg, #22d3ee, #a78bfa)', color: 'var(--surface)',
                                 fontWeight: 900, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.06em',
                             }}
                         >
@@ -57,8 +57,8 @@ class ErrorBoundary extends Component {
                         <Link
                             to="/"
                             style={{
-                                padding: '8px 18px', borderRadius: 8, border: '1px solid #27272a',
-                                color: '#a1a1aa', fontWeight: 700, fontSize: '0.8rem', textDecoration: 'none',
+                                padding: '8px 18px', borderRadius: 8, border: '1px solid var(--subtle)',
+                                color: 'var(--accent)', fontWeight: 700, fontSize: '0.8rem', textDecoration: 'none',
                                 display: 'inline-flex', alignItems: 'center',
                             }}
                         >

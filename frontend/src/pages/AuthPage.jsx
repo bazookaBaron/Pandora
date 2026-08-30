@@ -45,7 +45,7 @@ function CompanyAutocomplete({ value, onChange, placeholder = 'Start typing a co
             {open && options.length > 0 && (
                 <div style={{
                     position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
-                    background: '#18181b', border: '1px solid #27272a', borderRadius: 6,
+                    background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6,
                     maxHeight: 200, overflowY: 'auto', zIndex: 50,
                     boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
                 }}>
@@ -55,10 +55,10 @@ function CompanyAutocomplete({ value, onChange, placeholder = 'Start typing a co
                             onMouseDown={(e) => { e.preventDefault(); onChange(c); setOpen(false) }}
                             style={{
                                 padding: '7px 12px', cursor: 'pointer', fontSize: '0.82rem',
-                                color: '#a1a1aa', borderBottom: '1px solid rgba(39,39,42,0.5)',
+                                color: 'var(--accent)', borderBottom: '1px solid rgba(39,39,42,0.5)',
                             }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = '#27272a'; e.currentTarget.style.color = '#fafafa' }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#a1a1aa' }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--subtle)'; e.currentTarget.style.color = 'var(--bright)' }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--accent)' }}
                         >
                             {c}
                         </div>

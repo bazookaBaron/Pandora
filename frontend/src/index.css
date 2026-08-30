@@ -7,14 +7,32 @@
     padding: 0;
 }
 
-/* ── Dark Mono Design Tokens ────────────────────────────────────────── */
+/* ── Design Tokens ──────────────────────────────────────────────────── */
+/* Dark is the default. `data-theme="light"` on <html> flips the grayscale
+   ramp; accent hues (pop/warm/green/red) are shared. Components reference
+   these tokens (directly or via the hex→token map applied across the app),
+   so a palette swap here re-themes everything. */
 :root {
     --surface: #09090b;
+    /* page background */
+    --surface-2: #0f0f11;
+    /* raised wells: editors, code blocks, inset panels */
     --panel: #18181b;
+    /* cards */
     --subtle: #27272a;
+    /* borders, hairlines, track fills */
+    --subtle-strong: #3f3f46;
+    /* hover borders */
+    --border: #27272a;
+    /* alias of --subtle for older call sites */
+    --faint: #52525b;
+    /* dimmest text, placeholders, axis labels */
     --muted: #71717a;
+    /* muted body text */
     --accent: #a1a1aa;
+    /* secondary text */
     --bright: #fafafa;
+    /* primary text */
     --pop: #22d3ee;
     /* cyan — primary accent */
     --warm: #f472b6;
@@ -25,9 +43,38 @@
     --green-bg: rgba(74, 222, 128, 0.1);
     --red: #f87171;
     --red-bg: rgba(248, 113, 113, 0.1);
+    --scanline: rgba(255, 255, 255, 0.013);
+    --nav-bg: rgba(9, 9, 11, 0.92);
+    --overlay: rgba(0, 0, 0, 0.7);
     --radius: 6px;
     --transition: 0.18s ease;
+    color-scheme: dark;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+:root[data-theme="light"] {
+    --surface: #fbfbfc;
+    --surface-2: #f1f1f3;
+    --panel: #ffffff;
+    --subtle: #e4e4e7;
+    --subtle-strong: #d4d4d8;
+    --border: #e4e4e7;
+    --faint: #a1a1aa;
+    --muted: #6b6b73;
+    --accent: #52525b;
+    --bright: #18181b;
+    --pop: #0891b2;
+    --warm: #db2777;
+    --pop-dim: rgba(8, 145, 178, 0.10);
+    --warm-dim: rgba(219, 39, 119, 0.10);
+    --green: #16a34a;
+    --green-bg: rgba(22, 163, 74, 0.10);
+    --red: #dc2626;
+    --red-bg: rgba(220, 38, 38, 0.09);
+    --scanline: rgba(0, 0, 0, 0.02);
+    --nav-bg: rgba(255, 255, 255, 0.88);
+    --overlay: rgba(24, 24, 27, 0.45);
+    color-scheme: light;
 }
 
 body {
@@ -37,11 +84,12 @@ body {
     overflow-x: hidden;
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
+    transition: background var(--transition), color var(--transition);
     background-image: repeating-linear-gradient(0deg,
             transparent,
             transparent 1px,
-            rgba(255, 255, 255, 0.013) 1px,
-            rgba(255, 255, 255, 0.013) 2px);
+            var(--scanline) 1px,
+            var(--scanline) 2px);
 }
 
 ::selection {
@@ -579,7 +627,7 @@ h3 {
     justify-content: space-between;
     padding: 0 24px;
     height: 56px;
-    background: rgba(9, 9, 11, 0.92);
+    background: var(--nav-bg);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--subtle);
@@ -1049,7 +1097,7 @@ h3 {
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(9, 9, 11, 0.8);
+    background: var(--overlay);
     backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
@@ -1189,7 +1237,7 @@ h3 {
 }
 
 .markdown-body pre {
-    background: #0d0d0f;
+    background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 10px 12px;
@@ -1199,14 +1247,14 @@ h3 {
 
 .markdown-body pre code {
     background: none;
-    color: #a1a1aa;
+    color: var(--accent);
 }
 
 .markdown-body blockquote {
     border-left: 3px solid var(--pop);
     margin: 0.6em 0;
     padding-left: 12px;
-    color: #71717a;
+    color: var(--muted);
     font-style: italic;
 }
 
@@ -1218,7 +1266,7 @@ h3 {
 }
 
 .markdown-body th {
-    background: #18181b;
+    background: var(--panel);
     color: var(--bright);
     padding: 6px 10px;
     border: 1px solid var(--border);

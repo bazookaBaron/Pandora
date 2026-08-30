@@ -67,8 +67,8 @@ function HLDNode({ id, data, selected }) {
         <div
             style={{
                 padding: '8px 14px', borderRadius: 8,
-                background: '#1e1e24', border: `2px solid ${selected ? '#fff' : (data.color || '#3f3f46')}`,
-                color: '#fafafa', fontSize: '0.78rem', fontWeight: 700,
+                background: 'var(--panel)', border: `2px solid ${selected ? '#fff' : (data.color || 'var(--subtle-strong)')}`,
+                color: 'var(--bright)', fontSize: '0.78rem', fontWeight: 700,
                 display: 'flex', alignItems: 'center', gap: 6,
                 boxShadow: `0 0 12px ${data.color || '#3f3f46'}33`,
                 minWidth: 100, cursor: 'default', position: 'relative',
@@ -102,7 +102,7 @@ function HLDNode({ id, data, selected }) {
                     className="nodrag"
                     style={{
                         background: 'transparent', border: 'none', borderBottom: '1px solid #a78bfa',
-                        color: '#fafafa', font: 'inherit', fontSize: '0.78rem', fontWeight: 700,
+                        color: 'var(--bright)', font: 'inherit', fontSize: '0.78rem', fontWeight: 700,
                         outline: 'none', width: 100, padding: '0 2px',
                     }}
                 />
@@ -123,7 +123,7 @@ function HLDNode({ id, data, selected }) {
                     style={{
                         position: 'absolute', top: -8, right: -8,
                         width: 18, height: 18, borderRadius: '50%',
-                        background: '#f87171', border: '2px solid #09090b',
+                        background: '#f87171', border: '2px solid var(--surface)',
                         color: '#fff', cursor: 'pointer', fontSize: '0.55rem',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         padding: 0, lineHeight: 1, fontWeight: 900,
@@ -159,8 +159,8 @@ function CustomEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, ta
                             transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
                             pointerEvents: 'all',
                             fontSize: '0.58rem', fontWeight: 700,
-                            background: '#1e1e24', border: '1px solid #3f3f46',
-                            padding: '1px 5px', borderRadius: 3, color: '#a1a1aa',
+                            background: 'var(--panel)', border: '1px solid var(--subtle-strong)',
+                            padding: '1px 5px', borderRadius: 3, color: 'var(--accent)',
                             whiteSpace: 'nowrap',
                         }}
                         className="nodrag nopan"
@@ -194,7 +194,7 @@ function ScoreRing({ score }) {
             </svg>
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                 <span style={{ fontSize: '1.1rem', fontWeight: 900, color }}>{score}</span>
-                <span style={{ fontSize: '0.55rem', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>/100</span>
+                <span style={{ fontSize: '0.55rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>/100</span>
             </div>
         </div>
     )
@@ -212,16 +212,16 @@ function ApiEndpointDesigner({ endpoints, onChange }) {
             {endpoints.map((ep, i) => (
                 <div key={i} style={{ display: 'grid', gridTemplateColumns: '76px 1fr auto', gap: 5, alignItems: 'center' }}>
                     <select value={ep.method} onChange={e => update(i, 'method', e.target.value)}
-                        style={{ padding: '3px 4px', background: '#18181b', border: `1px solid ${METHOD_COLORS[ep.method]}44`, borderRadius: 4, color: METHOD_COLORS[ep.method], font: 'inherit', fontSize: '0.65rem', fontWeight: 900, outline: 'none', cursor: 'pointer' }}>
+                        style={{ padding: '3px 4px', background: 'var(--panel)', border: `1px solid ${METHOD_COLORS[ep.method]}44`, borderRadius: 4, color: METHOD_COLORS[ep.method], font: 'inherit', fontSize: '0.65rem', fontWeight: 900, outline: 'none', cursor: 'pointer' }}>
                         {METHODS.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
                     <input value={ep.path} onChange={e => update(i, 'path', e.target.value)}
                         placeholder="/api/resource"
-                        style={{ padding: '3px 6px', background: '#18181b', border: '1px solid #27272a', borderRadius: 4, color: '#fafafa', font: 'inherit', fontSize: '0.72rem', outline: 'none' }} />
-                    <button onClick={() => remove(i)} style={{ background: 'none', border: 'none', color: '#52525b', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1, padding: '0 2px' }}>×</button>
+                        style={{ padding: '3px 6px', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 4, color: 'var(--bright)', font: 'inherit', fontSize: '0.72rem', outline: 'none' }} />
+                    <button onClick={() => remove(i)} style={{ background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1, padding: '0 2px' }}>×</button>
                 </div>
             ))}
-            <button onClick={addRow} style={{ padding: '5px 10px', background: 'none', border: '1px dashed #27272a', borderRadius: 5, color: '#52525b', fontSize: '0.7rem', cursor: 'pointer', textAlign: 'left', marginTop: 2 }}>+ Add endpoint</button>
+            <button onClick={addRow} style={{ padding: '5px 10px', background: 'none', border: '1px dashed var(--subtle)', borderRadius: 5, color: 'var(--faint)', fontSize: '0.7rem', cursor: 'pointer', textAlign: 'left', marginTop: 2 }}>+ Add endpoint</button>
         </div>
     )
 }
@@ -232,8 +232,8 @@ function CapacityEstimator({ value, onChange }) {
     const set = (field, val) => onChange({ ...v, [field]: val })
     const totalStorageGB = v.storagePerDayGB * 365 * v.replication
     const totalCost = v.instanceCount * v.instanceCostPerMonth
-    const inputStyle = { padding: '4px 8px', background: '#18181b', border: '1px solid #27272a', borderRadius: 4, color: '#fafafa', font: 'inherit', fontSize: '0.75rem', outline: 'none', width: '100%' }
-    const label = (txt) => <label style={{ fontSize: '0.6rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: 4, marginTop: 10 }}>{txt}</label>
+    const inputStyle = { padding: '4px 8px', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 4, color: 'var(--bright)', font: 'inherit', fontSize: '0.75rem', outline: 'none', width: '100%' }
+    const label = (txt) => <label style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: 4, marginTop: 10 }}>{txt}</label>
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {label('DAU (millions)')}
@@ -250,18 +250,18 @@ function CapacityEstimator({ value, onChange }) {
             <input type="number" value={v.instanceCostPerMonth} onChange={e => set('instanceCostPerMonth', +e.target.value)} style={inputStyle} />
 
             {/* Estimates */}
-            <div style={{ marginTop: 14, padding: '10px 12px', background: '#18181b', border: '1px solid #27272a', borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Estimates</span>
+            <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Estimates</span>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem' }}>
-                    <span style={{ color: '#71717a' }}>Yearly storage (with replication)</span>
+                    <span style={{ color: 'var(--muted)' }}>Yearly storage (with replication)</span>
                     <span style={{ color: '#4ade80', fontWeight: 700 }}>{totalStorageGB.toFixed(0)} GB</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem' }}>
-                    <span style={{ color: '#71717a' }}>Monthly infra cost</span>
+                    <span style={{ color: 'var(--muted)' }}>Monthly infra cost</span>
                     <span style={{ color: '#facc15', fontWeight: 700 }}>${totalCost.toFixed(0)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem' }}>
-                    <span style={{ color: '#71717a' }}>Peak QPS burst (10×)</span>
+                    <span style={{ color: 'var(--muted)' }}>Peak QPS burst (10×)</span>
                     <span style={{ color: '#f87171', fontWeight: 700 }}>{(v.qps * 10).toLocaleString()}</span>
                 </div>
             </div>
@@ -282,19 +282,19 @@ function EdgeToolbar({ edge, onUpdate, onDelete }) {
         <div style={{
             position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 20,
             display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
-            background: 'rgba(13,13,15,0.96)', border: '1px solid #3f3f46', borderRadius: 8,
+            background: 'rgba(13,13,15,0.96)', border: '1px solid var(--subtle-strong)', borderRadius: 8,
             backdropFilter: 'blur(8px)', boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
         }}>
-            <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Edge:</span>
+            <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Edge:</span>
             <input
                 value={edge.data?.label || ''}
                 onChange={e => onUpdate(edge.id, { label: e.target.value })}
                 placeholder="Label…"
-                style={{ padding: '3px 7px', background: '#18181b', border: '1px solid #27272a', borderRadius: 4, color: '#fafafa', font: 'inherit', fontSize: '0.72rem', outline: 'none', width: 120 }}
+                style={{ padding: '3px 7px', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 4, color: 'var(--bright)', font: 'inherit', fontSize: '0.72rem', outline: 'none', width: 120 }}
             />
             <button
                 onClick={() => onUpdate(edge.id, { style: edge.data?.style === 'dashed' ? 'solid' : 'dashed' })}
-                style={{ padding: '3px 9px', borderRadius: 4, border: '1px solid #3f3f46', background: 'none', cursor: 'pointer', fontSize: '0.68rem', fontWeight: 700, color: edge.data?.style === 'dashed' ? '#fb923c' : '#a78bfa' }}
+                style={{ padding: '3px 9px', borderRadius: 4, border: '1px solid var(--subtle-strong)', background: 'none', cursor: 'pointer', fontSize: '0.68rem', fontWeight: 700, color: edge.data?.style === 'dashed' ? '#fb923c' : '#a78bfa' }}
             >
                 {edge.data?.style === 'dashed' ? '- - Async' : '— Sync'}
             </button>
@@ -511,7 +511,8 @@ function HLDWorkspaceInner() {
         if (!canvasRef.current || judging) return
         setJudging(true); setJudgeResult(null)
         try {
-            const imgData = await toPng(canvasRef.current, { backgroundColor: '#09090b', pixelRatio: 1.5 })
+            const bg = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#09090b'
+            const imgData = await toPng(canvasRef.current, { backgroundColor: bg, pixelRatio: 1.5 })
             const result = await apiFetch('/api/hld/judge', {
                 json: { image_base64: imgData.split(',')[1], frNfr, apiEndpoints: endpoints, title: problem?.title || '' },
             })
@@ -558,7 +559,7 @@ function HLDWorkspaceInner() {
         padding: '4px 10px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: '0.65rem',
         fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em',
         background: activeLeftTab === t ? ACCENT : 'transparent',
-        color: activeLeftTab === t ? '#09090b' : '#71717a',
+        color: activeLeftTab === t ? 'var(--surface)' : 'var(--muted)',
         transition: 'background 0.15s',
     })
 
@@ -601,11 +602,11 @@ function HLDWorkspaceInner() {
     // ── LEFT PANEL (Requirements / API / Capacity) ───────────────────────
     const leftPanel = (
         <div style={{
-            borderRight: isMobile ? 'none' : '1px solid #27272a', display: 'flex', flexDirection: 'column',
-            overflow: 'hidden', background: '#111113', ...(isMobile ? { flex: 1, minHeight: 0 } : null),
+            borderRight: isMobile ? 'none' : '1px solid var(--subtle)', display: 'flex', flexDirection: 'column',
+            overflow: 'hidden', background: 'var(--surface-2)', ...(isMobile ? { flex: 1, minHeight: 0 } : null),
         }}>
             {/* Tab bar: Requirements | API | Capacity */}
-                        <div style={{ display: 'flex', gap: 4, padding: '8px 12px', borderBottom: '1px solid #27272a', flexShrink: 0, background: '#0d0d0f' }}>
+                        <div style={{ display: 'flex', gap: 4, padding: '8px 12px', borderBottom: '1px solid var(--subtle)', flexShrink: 0, background: 'var(--surface-2)' }}>
                             <button style={tabStyle('req')} onClick={() => setActiveLeftTab('req')}>Requirements</button>
                             <button style={tabStyle('api')} onClick={() => setActiveLeftTab('api')}>API</button>
                             <button style={tabStyle('capacity')} onClick={() => setActiveLeftTab('capacity')}>Capacity</button>
@@ -617,48 +618,48 @@ function HLDWorkspaceInner() {
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                                     {/* Problem description */}
                                     <div>
-                                        <label style={{ fontSize: '0.62rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>Description</label>
-                                        <div className="markdown-body" style={{ fontSize: '0.78rem', lineHeight: 1.7, color: '#a1a1aa' }}>
+                                        <label style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>Description</label>
+                                        <div className="markdown-body" style={{ fontSize: '0.78rem', lineHeight: 1.7, color: 'var(--accent)' }}>
                                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{problem.description || problem.question || problem.title}</ReactMarkdown>
                                         </div>
                                     </div>
 
                                     {/* Notes */}
-                                    <div style={{ borderTop: '1px solid #27272a', paddingTop: 12 }}>
-                                        <label style={{ fontSize: '0.62rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>My Notes</label>
+                                    <div style={{ borderTop: '1px solid var(--subtle)', paddingTop: 12 }}>
+                                        <label style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>My Notes</label>
                                         <textarea value={notesText} onChange={e => setNotesText(e.target.value)}
                                             placeholder="Jot your approach, trade-offs…"
                                             rows={4}
-                                            style={{ width: '100%', background: '#18181b', border: '1px solid #27272a', borderRadius: 6, color: '#fafafa', font: 'inherit', fontSize: '0.75rem', padding: '8px 10px', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
+                                            style={{ width: '100%', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6, color: 'var(--bright)', font: 'inherit', fontSize: '0.75rem', padding: '8px 10px', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
                                     </div>
 
                                     {usageLimitNote && (
-                                        <div style={{ borderTop: '1px solid #27272a', paddingTop: 12 }}>{usageLimitNote}</div>
+                                        <div style={{ borderTop: '1px solid var(--subtle)', paddingTop: 12 }}>{usageLimitNote}</div>
                                     )}
 
                                     {/* FR */}
-                                    <div style={{ borderTop: '1px solid #27272a', paddingTop: 12 }}>
+                                    <div style={{ borderTop: '1px solid var(--subtle)', paddingTop: 12 }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                            <label style={{ fontSize: '0.62rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>
+                                            <label style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>
                                                 Functional Requirements
                                                 {frNfrLoading && <span style={{ color: ACCENT, marginLeft: 8, fontWeight: 400 }}>generating…</span>}
                                             </label>
                                             <button onClick={regenerateFrNfr} disabled={frNfrLoading}
-                                                style={{ padding: '2px 8px', background: 'none', border: '1px solid #27272a', borderRadius: 4, color: ACCENT, cursor: 'pointer', fontSize: '0.62rem', fontWeight: 700 }}>
+                                                style={{ padding: '2px 8px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 4, color: ACCENT, cursor: 'pointer', fontSize: '0.62rem', fontWeight: 700 }}>
                                                 ↺
                                             </button>
                                         </div>
                                         <textarea value={frNfr.fr} onChange={e => setFrNfr(p => ({ ...p, fr: e.target.value }))}
                                             placeholder="FR will auto-generate…" rows={6}
-                                            style={{ width: '100%', background: '#18181b', border: '1px solid #27272a', borderRadius: 6, color: '#fafafa', font: 'inherit', fontSize: '0.75rem', padding: '8px 10px', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
+                                            style={{ width: '100%', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6, color: 'var(--bright)', font: 'inherit', fontSize: '0.75rem', padding: '8px 10px', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
                                     </div>
 
                                     {/* NFR */}
                                     <div>
-                                        <label style={{ fontSize: '0.62rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>Non-Functional Requirements</label>
+                                        <label style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>Non-Functional Requirements</label>
                                         <textarea value={frNfr.nfr} onChange={e => setFrNfr(p => ({ ...p, nfr: e.target.value }))}
                                             placeholder="NFR will auto-generate…" rows={6}
-                                            style={{ width: '100%', background: '#18181b', border: '1px solid #27272a', borderRadius: 6, color: '#fafafa', font: 'inherit', fontSize: '0.75rem', padding: '8px 10px', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
+                                            style={{ width: '100%', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6, color: 'var(--bright)', font: 'inherit', fontSize: '0.75rem', padding: '8px 10px', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
                                     </div>
                                 </div>
                             )}
@@ -666,7 +667,7 @@ function HLDWorkspaceInner() {
                             {/* ── API tab ── */}
                             {activeLeftTab === 'api' && (
                                 <div>
-                                    <label style={{ fontSize: '0.62rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 10 }}>API Endpoints</label>
+                                    <label style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 10 }}>API Endpoints</label>
                                     <ApiEndpointDesigner endpoints={endpoints} onChange={setEndpoints} />
                                 </div>
                             )}
@@ -674,7 +675,7 @@ function HLDWorkspaceInner() {
                             {/* ── Capacity tab ── */}
                             {activeLeftTab === 'capacity' && (
                                 <div>
-                                    <label style={{ fontSize: '0.62rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 4 }}>Capacity Estimation</label>
+                                    <label style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 4 }}>Capacity Estimation</label>
                                     <CapacityEstimator value={capacity} onChange={setCapacity} />
                                 </div>
                             )}
@@ -685,14 +686,14 @@ function HLDWorkspaceInner() {
     // ── CENTER — React Flow Canvas ──────────────────────────────────────
     const centerPanel = (
         <div ref={canvasRef} style={{
-            position: 'relative', overflow: 'hidden', background: '#09090b',
+            position: 'relative', overflow: 'hidden', background: 'var(--surface)',
             ...(isMobile ? { flex: 1, minHeight: 0 } : null),
         }}>
                         {/* Node palette */}
                         {isMobile ? (
                             <div style={{ position: 'absolute', top: 8, left: 8, right: 8, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
                                 <button onClick={() => setPaletteOpen(o => !o)} style={{
-                                    padding: '5px 12px', borderRadius: 6, border: '1px solid #27272a',
+                                    padding: '5px 12px', borderRadius: 6, border: '1px solid var(--subtle)',
                                     background: 'rgba(13,13,15,0.92)', backdropFilter: 'blur(8px)',
                                     color: ACCENT, fontSize: '0.7rem', fontWeight: 900, cursor: 'pointer',
                                     textTransform: 'uppercase', letterSpacing: '0.05em',
@@ -702,7 +703,7 @@ function HLDWorkspaceInner() {
                                 {paletteOpen && (
                                     <div style={{
                                         display: 'flex', gap: 4, padding: '6px 8px', maxWidth: '100%', overflowX: 'auto',
-                                        background: 'rgba(13,13,15,0.96)', border: '1px solid #27272a', borderRadius: 8,
+                                        background: 'rgba(13,13,15,0.96)', border: '1px solid var(--subtle)', borderRadius: 8,
                                         backdropFilter: 'blur(8px)', WebkitOverflowScrolling: 'touch',
                                     }}>
                                         {NODE_TYPES_CONFIG.map(paletteChip)}
@@ -713,7 +714,7 @@ function HLDWorkspaceInner() {
                             <div style={{
                                 position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 10,
                                 display: 'flex', gap: 4, padding: '6px 10px', background: 'rgba(13,13,15,0.92)',
-                                border: '1px solid #27272a', borderRadius: 8, backdropFilter: 'blur(8px)',
+                                border: '1px solid var(--subtle)', borderRadius: 8, backdropFilter: 'blur(8px)',
                                 flexWrap: 'wrap', maxWidth: 'calc(100% - 20px)', justifyContent: 'center',
                             }}>
                                 {NODE_TYPES_CONFIG.map(paletteChip)}
@@ -728,13 +729,13 @@ function HLDWorkspaceInner() {
                             onEdgeClick={onEdgeClick} onPaneClick={onPaneClick}
                             nodeTypes={nodeTypes} edgeTypes={edgeTypes}
                             fitView
-                            style={{ background: '#09090b' }}
+                            style={{ background: 'var(--surface)' }}
                             connectionLineStyle={{ stroke: '#a78bfa', strokeWidth: 2 }}
                             deleteKeyCode={null}  /* We handle Delete ourselves to also clean edges */
                         >
                             <Background color="#27272a" gap={20} size={1} />
-                            <Controls style={{ background: '#18181b', border: '1px solid #27272a' }} />
-                            {!isMobile && <MiniMap style={{ background: '#0d0d0f', border: '1px solid #27272a' }} nodeColor={n => n.data?.color || '#52525b'} />}
+                            <Controls style={{ background: 'var(--panel)', border: '1px solid var(--subtle)' }} />
+                            {!isMobile && <MiniMap style={{ background: 'var(--surface-2)', border: '1px solid var(--subtle)' }} nodeColor={n => n.data?.color || 'var(--faint)'} />}
                         </ReactFlow>
 
                         {/* Edge selection toolbar */}
@@ -743,16 +744,16 @@ function HLDWorkspaceInner() {
                         {nodes.length === 0 && !(user && !hydrated) && (
                             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', gap: 8 }}>
                                 <span style={{ fontSize: '2.5rem' }}>🏗️</span>
-                                <p style={{ color: '#3f3f46', fontSize: '0.82rem' }}>{isMobile ? 'Tap “+ Add node” to place components' : 'Drag nodes from the palette above'}</p>
-                                <p style={{ color: '#27272a', fontSize: '0.72rem' }}>Connect nodes by dragging from the right handle (→) to the left handle (←) of another node</p>
+                                <p style={{ color: 'var(--subtle-strong)', fontSize: '0.82rem' }}>{isMobile ? 'Tap “+ Add node” to place components' : 'Drag nodes from the palette above'}</p>
+                                <p style={{ color: 'var(--subtle)', fontSize: '0.72rem' }}>Connect nodes by dragging from the right handle (→) to the left handle (←) of another node</p>
                             </div>
                         )}
 
                         {/* Restoring hint — a signed-in user whose saved state hasn't hydrated yet */}
                         {user && !hydrated && (
                             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', gap: 8 }}>
-                                <div style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid #27272a', borderTopColor: '#a78bfa', animation: 'spin 0.7s linear infinite' }} />
-                                <span style={{ fontSize: 12, color: '#52525b' }}>Restoring workspace…</span>
+                                <div style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid var(--subtle)', borderTopColor: '#a78bfa', animation: 'spin 0.7s linear infinite' }} />
+                                <span style={{ fontSize: 12, color: 'var(--faint)' }}>Restoring workspace…</span>
                             </div>
                         )}
         </div>
@@ -761,11 +762,11 @@ function HLDWorkspaceInner() {
     // ── RIGHT PANEL — Judge ─────────────────────────────────────────────
     const rightPanel = (
         <div style={{
-            borderLeft: isMobile ? 'none' : '1px solid #27272a', display: 'flex', flexDirection: 'column',
-            overflow: 'hidden', background: '#0d0d0f', ...(isMobile ? { flex: 1, minHeight: 0 } : null),
+            borderLeft: isMobile ? 'none' : '1px solid var(--subtle)', display: 'flex', flexDirection: 'column',
+            overflow: 'hidden', background: 'var(--surface-2)', ...(isMobile ? { flex: 1, minHeight: 0 } : null),
         }}>
-                        <div style={{ padding: '12px 14px', borderBottom: '1px solid #27272a', flexShrink: 0 }}>
-                            <p style={{ fontSize: '0.6rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px' }}>Evaluate Design</p>
+                        <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--subtle)', flexShrink: 0 }}>
+                            <p style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px' }}>Evaluate Design</p>
                             <button onClick={handleJudge} disabled={judging} style={{
                                 width: '100%', padding: '9px', borderRadius: 6,
                                 background: judging ? 'rgba(167,139,250,0.08)' : 'rgba(167,139,250,0.15)',
@@ -787,20 +788,20 @@ function HLDWorkspaceInner() {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                                         <ScoreRing score={judgeResult.score ?? 0} />
                                         <div>
-                                            <p style={{ fontSize: '0.6rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Overall Score</p>
-                                            <p style={{ fontSize: '0.75rem', color: '#a1a1aa', margin: 0, lineHeight: 1.5 }}>{judgeResult.summary}</p>
+                                            <p style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Overall Score</p>
+                                            <p style={{ fontSize: '0.75rem', color: 'var(--accent)', margin: 0, lineHeight: 1.5 }}>{judgeResult.summary}</p>
                                         </div>
                                     </div>
                                     {judgeResult.sections && (
                                         <div>
-                                            <p style={{ fontSize: '0.6rem', fontWeight: 900, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Section Ratings</p>
+                                            <p style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Section Ratings</p>
                                             {Object.entries(judgeResult.sections).map(([k, v]) => (
                                                 <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                                                    <span style={{ fontSize: '0.7rem', color: '#71717a', flex: 1, textTransform: 'capitalize' }}>{k}</span>
-                                                    <div style={{ width: 60, height: 4, background: '#27272a', borderRadius: 2 }}>
+                                                    <span style={{ fontSize: '0.7rem', color: 'var(--muted)', flex: 1, textTransform: 'capitalize' }}>{k}</span>
+                                                    <div style={{ width: 60, height: 4, background: 'var(--subtle)', borderRadius: 2 }}>
                                                         <div style={{ width: `${v}%`, height: '100%', background: v >= 70 ? '#4ade80' : v >= 40 ? '#facc15' : '#f87171', borderRadius: 2 }} />
                                                     </div>
-                                                    <span style={{ fontSize: '0.65rem', color: '#a1a1aa', width: 28, textAlign: 'right' }}>{v}</span>
+                                                    <span style={{ fontSize: '0.65rem', color: 'var(--accent)', width: 28, textAlign: 'right' }}>{v}</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -809,7 +810,7 @@ function HLDWorkspaceInner() {
                                         <div>
                                             <p style={{ fontSize: '0.6rem', fontWeight: 900, color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>✓ Strengths</p>
                                             <ul style={{ margin: 0, paddingLeft: 16 }}>
-                                                {judgeResult.pros.map((p, i) => <li key={i} style={{ fontSize: '0.73rem', color: '#a1a1aa', marginBottom: 4, lineHeight: 1.4 }}>{p}</li>)}
+                                                {judgeResult.pros.map((p, i) => <li key={i} style={{ fontSize: '0.73rem', color: 'var(--accent)', marginBottom: 4, lineHeight: 1.4 }}>{p}</li>)}
                                             </ul>
                                         </div>
                                     )}
@@ -817,14 +818,14 @@ function HLDWorkspaceInner() {
                                         <div>
                                             <p style={{ fontSize: '0.6rem', fontWeight: 900, color: '#f87171', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>✗ Improvements</p>
                                             <ul style={{ margin: 0, paddingLeft: 16 }}>
-                                                {judgeResult.cons.map((c, i) => <li key={i} style={{ fontSize: '0.73rem', color: '#a1a1aa', marginBottom: 4, lineHeight: 1.4 }}>{c}</li>)}
+                                                {judgeResult.cons.map((c, i) => <li key={i} style={{ fontSize: '0.73rem', color: 'var(--accent)', marginBottom: 4, lineHeight: 1.4 }}>{c}</li>)}
                                             </ul>
                                         </div>
                                     )}
                                 </div>
                             )}
                             {!judgeResult && !judging && (
-                                <div style={{ padding: '40px 0', textAlign: 'center', color: '#3f3f46' }}>
+                                <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--subtle-strong)' }}>
                                     <div style={{ fontSize: '2rem', marginBottom: 8 }}>⚖️</div>
                                     <p style={{ fontSize: '0.75rem' }}>Build your design, then click<br />Judge My Design</p>
                                 </div>
@@ -838,10 +839,10 @@ function HLDWorkspaceInner() {
             <Navbar />
             <div style={{ height: '100vh', paddingTop: 48, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {/* Header bar */}
-                <div style={{ borderBottom: '1px solid #27272a', background: '#0d0d0f', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
-                    <Link to="/hld" style={{ color: '#71717a', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← HLD</Link>
-                    <span style={{ color: '#27272a', flexShrink: 0 }}>|</span>
-                    <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: '#fafafa', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{problem ? (problem.question || problem.title) : 'HLD question'}</h2>
+                <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
+                    <Link to="/hld" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← HLD</Link>
+                    <span style={{ color: 'var(--subtle)', flexShrink: 0 }}>|</span>
+                    <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--bright)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{problem ? (problem.question || problem.title) : 'HLD question'}</h2>
                     {problem?.difficulty && (
                         <span style={{
                             fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 4, flexShrink: 0,
@@ -857,8 +858,8 @@ function HLDWorkspaceInner() {
                                 <button key={pid} onClick={() => setMobilePane(pid)} style={{
                                     flex: 1, padding: '6px 8px', borderRadius: 4, border: 'none', cursor: 'pointer',
                                     fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em',
-                                    background: mobilePane === pid ? ACCENT : '#27272a',
-                                    color: mobilePane === pid ? '#09090b' : '#71717a',
+                                    background: mobilePane === pid ? ACCENT : 'var(--subtle)',
+                                    color: mobilePane === pid ? 'var(--surface)' : 'var(--muted)',
                                 }}>{label}</button>
                             ))}
                         </div>

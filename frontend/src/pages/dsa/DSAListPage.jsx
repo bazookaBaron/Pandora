@@ -33,20 +33,20 @@ function Pagination({ page, totalPages, onChange }) {
     return (
         <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'center', marginTop: 16 }}>
             <button onClick={() => onChange(page - 1)} disabled={page === 1} style={{
-                padding: '5px 12px', borderRadius: 6, border: '1px solid #27272a',
-                background: 'none', color: page === 1 ? '#3f3f46' : '#a1a1aa', cursor: page === 1 ? 'default' : 'pointer', fontSize: '0.78rem',
+                padding: '5px 12px', borderRadius: 6, border: '1px solid var(--subtle)',
+                background: 'none', color: page === 1 ? 'var(--subtle-strong)' : 'var(--accent)', cursor: page === 1 ? 'default' : 'pointer', fontSize: '0.78rem',
             }}>← Prev</button>
             {pages.map((p, idx) => p === '…'
-                ? <span key={`e${idx}`} style={{ color: '#52525b', fontSize: '0.78rem', padding: '0 4px' }}>…</span>
+                ? <span key={`e${idx}`} style={{ color: 'var(--faint)', fontSize: '0.78rem', padding: '0 4px' }}>…</span>
                 : <button key={p} onClick={() => onChange(p)} style={{
-                    width: 32, height: 32, borderRadius: 6, border: `1px solid ${p === page ? '#22d3ee' : '#27272a'}`,
+                    width: 32, height: 32, borderRadius: 6, border: `1px solid ${p === page ? '#22d3ee' : 'var(--subtle)'}`,
                     background: p === page ? 'rgba(34,211,238,0.12)' : 'none',
-                    color: p === page ? '#22d3ee' : '#71717a', cursor: 'pointer', fontSize: '0.78rem', fontWeight: p === page ? 900 : 400,
+                    color: p === page ? '#22d3ee' : 'var(--muted)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: p === page ? 900 : 400,
                 }}>{p}</button>
             )}
             <button onClick={() => onChange(page + 1)} disabled={page === totalPages} style={{
-                padding: '5px 12px', borderRadius: 6, border: '1px solid #27272a',
-                background: 'none', color: page === totalPages ? '#3f3f46' : '#a1a1aa', cursor: page === totalPages ? 'default' : 'pointer', fontSize: '0.78rem',
+                padding: '5px 12px', borderRadius: 6, border: '1px solid var(--subtle)',
+                background: 'none', color: page === totalPages ? 'var(--subtle-strong)' : 'var(--accent)', cursor: page === totalPages ? 'default' : 'pointer', fontSize: '0.78rem',
             }}>Next →</button>
         </div>
     )
@@ -79,7 +79,7 @@ function CompanyBadges({ companies = [], isMobile = false }) {
                     title={expanded ? 'Show fewer' : `Show ${overflow} more`}
                     style={{
                         flexShrink: 0, padding: '2px 8px', borderRadius: 4,
-                        border: '1px solid #3f3f46', background: '#18181b',
+                        border: '1px solid var(--subtle-strong)', background: 'var(--panel)',
                         color: '#22d3ee', cursor: 'pointer', fontSize: '0.62rem',
                         fontWeight: 900, lineHeight: 1.4, whiteSpace: 'nowrap',
                     }}
@@ -108,7 +108,7 @@ function ProblemRow({ p, prog, isMobile, onToggleStatus, onToggleBookmark }) {
             <a href={p.link} target="_blank" rel="noopener noreferrer"
                 onClick={() => track(EVENTS.QUESTION_STARTED, { type: 'dsa', problem_id: p.id, difficulty: p.difficulty })}
                 style={{
-                    color: isSolved ? '#71717a' : '#fafafa', textDecoration: 'none',
+                    color: isSolved ? 'var(--muted)' : 'var(--bright)', textDecoration: 'none',
                     fontSize: '0.85rem', fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     textDecorationLine: isSolved ? 'line-through' : 'none',
                 }}>
@@ -116,7 +116,7 @@ function ProblemRow({ p, prog, isMobile, onToggleStatus, onToggleBookmark }) {
             </a>
             <button onClick={() => onToggleBookmark(p.id)}
                 title="Bookmark"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: isBookmarked ? '#facc15' : '#3f3f46', padding: 0, flexShrink: 0 }}>
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: isBookmarked ? '#facc15' : 'var(--subtle-strong)', padding: 0, flexShrink: 0 }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill={isBookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
             </button>
         </div>
@@ -148,7 +148,7 @@ function ProblemRow({ p, prog, isMobile, onToggleStatus, onToggleBookmark }) {
             background: isSolved ? 'rgba(34,211,238,0.03)' : 'transparent',
             transition: 'background 0.15s',
         }}
-            onMouseEnter={e => { if (!isSolved) e.currentTarget.style.background = '#18181b' }}
+            onMouseEnter={e => { if (!isSolved) e.currentTarget.style.background = 'var(--panel)' }}
             onMouseLeave={e => { e.currentTarget.style.background = isSolved ? 'rgba(34,211,238,0.03)' : 'transparent' }}
         >
             <FluidCheckbox checked={isSolved} onChange={handleToggleStatus} />
@@ -277,19 +277,19 @@ export default function DSAListPage({ filterCompany }) {
                             flexDirection: isMobile ? 'column' : 'row',
                         }}>
                             <div>
-                                <h1 style={{ fontSize: '1.2rem', fontWeight: 900, color: '#fafafa', letterSpacing: '-0.03em' }}>DSA Problems</h1>
-                                <p style={{ color: '#71717a', fontSize: '0.78rem', marginTop: 2 }}>LeetCode company-wise — {total} problems</p>
+                                <h1 style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>DSA Problems</h1>
+                                <p style={{ color: 'var(--muted)', fontSize: '0.78rem', marginTop: 2 }}>LeetCode company-wise — {total} problems</p>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#18181b', border: '1px solid #27272a', borderRadius: 8, padding: '6px 12px' }}>
-                                    <span style={{ fontSize: '0.72rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Solved</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8, padding: '6px 12px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Solved</span>
                                     <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#22d3ee' }}>{solved}</span>
-                                    <span style={{ color: '#3f3f46', fontSize: '0.8rem' }}>/</span>
-                                    <span style={{ fontSize: '0.82rem', color: '#a1a1aa' }}>{total}</span>
+                                    <span style={{ color: 'var(--subtle-strong)', fontSize: '0.8rem' }}>/</span>
+                                    <span style={{ fontSize: '0.82rem', color: 'var(--accent)' }}>{total}</span>
                                 </div>
                                 <button onClick={pickRandom} style={{
                                     fontSize: '0.72rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em',
-                                    padding: '7px 12px', background: 'none', border: '1px solid #27272a', borderRadius: 6,
+                                    padding: '7px 12px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 6,
                                     color: '#f472b6', cursor: 'pointer', whiteSpace: 'nowrap',
                                 }}>
                                     🎲 Random
@@ -304,7 +304,7 @@ export default function DSAListPage({ filterCompany }) {
                                     const dTotal = items.filter(p => p.difficulty === d).length
                                     const done = items.filter(p => p.difficulty === d && progressMap[p.id]?.status === 'solved').length
                                     return (
-                                        <div key={d} style={{ fontSize: '0.7rem', color: '#71717a', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        <div key={d} style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
                                             <DifficultyBadge difficulty={d} />
                                             <span>{done}/{dTotal}</span>
                                         </div>
@@ -326,11 +326,11 @@ export default function DSAListPage({ filterCompany }) {
                                 onChange={e => updateSearch(e.target.value)}
                                 placeholder="Search title or topics… ( / )"
                                 style={{
-                                    width: '100%', padding: '8px 10px 8px 32px', background: '#18181b', border: '1px solid #27272a',
-                                    borderRadius: 6, color: '#fafafa', font: 'inherit', fontSize: '0.82rem', outline: 'none',
+                                    width: '100%', padding: '8px 10px 8px 32px', background: 'var(--panel)', border: '1px solid var(--subtle)',
+                                    borderRadius: 6, color: 'var(--bright)', font: 'inherit', fontSize: '0.82rem', outline: 'none',
                                 }}
                                 onFocus={e => e.target.style.borderColor = '#22d3ee'}
-                                onBlur={e => e.target.style.borderColor = '#27272a'}
+                                onBlur={e => e.target.style.borderColor = 'var(--subtle)'}
                             />
                         </div>
 
@@ -344,9 +344,9 @@ export default function DSAListPage({ filterCompany }) {
                                         const next = active ? difficulties.filter(x => x !== d) : [...difficulties, d]
                                         updateParam('difficulty', next)
                                     }} style={{
-                                        padding: '5px 10px', borderRadius: 6, border: `1px solid ${active ? colors[d] : '#27272a'}`,
+                                        padding: '5px 10px', borderRadius: 6, border: `1px solid ${active ? colors[d] : 'var(--subtle)'}`,
                                         background: active ? `rgba(${d === 'Easy' ? '74,222,128' : d === 'Medium' ? '250,204,21' : '248,113,113'},0.12)` : 'transparent',
-                                        color: active ? colors[d] : '#71717a', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 900,
+                                        color: active ? colors[d] : 'var(--muted)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 900,
                                         textTransform: 'uppercase', letterSpacing: '0.06em', transition: 'all 0.15s',
                                     }}>{d}</button>
                                 )
@@ -362,16 +362,16 @@ export default function DSAListPage({ filterCompany }) {
                             value={sort}
                             onChange={e => updateParam('sort', e.target.value)}
                             style={{
-                                padding: '6px 10px', background: '#18181b', border: '1px solid #27272a', borderRadius: 6,
-                                color: '#a1a1aa', font: 'inherit', fontSize: '0.78rem', outline: 'none', cursor: 'pointer',
+                                padding: '6px 10px', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6,
+                                color: 'var(--accent)', font: 'inherit', fontSize: '0.78rem', outline: 'none', cursor: 'pointer',
                             }}
                         >
                             {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                         </select>
 
                         <button onClick={() => setShowMoreFilters(v => !v)} style={{
-                            padding: '6px 12px', background: showMoreFilters ? '#22d3ee' : 'none', border: '1px solid #27272a',
-                            borderRadius: 6, color: showMoreFilters ? '#09090b' : '#71717a', cursor: 'pointer', fontSize: '0.72rem',
+                            padding: '6px 12px', background: showMoreFilters ? '#22d3ee' : 'none', border: '1px solid var(--subtle)',
+                            borderRadius: 6, color: showMoreFilters ? 'var(--surface)' : 'var(--muted)', cursor: 'pointer', fontSize: '0.72rem',
                             fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em',
                         }}>
                             {showMoreFilters ? '▲ Less' : '▼ More'}
@@ -380,21 +380,21 @@ export default function DSAListPage({ filterCompany }) {
 
                     {/* More filters */}
                     {showMoreFilters && (
-                        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 12, padding: '12px 16px', background: '#18181b', border: '1px solid #27272a', borderRadius: 8 }}>
+                        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 12, padding: '12px 16px', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8 }}>
                             <div>
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717a', display: 'block', marginBottom: 6 }}>Status</label>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Status</label>
                                 <div style={{ display: 'flex', gap: 4 }}>
                                     {['', 'solved', 'attempted', 'unsolved', 'bookmarked'].map(s => (
                                         <button key={s} onClick={() => updateParam('status', s)} style={{
-                                            padding: '4px 10px', borderRadius: 5, border: `1px solid ${statusFilter === s ? '#22d3ee' : '#27272a'}`,
+                                            padding: '4px 10px', borderRadius: 5, border: `1px solid ${statusFilter === s ? '#22d3ee' : 'var(--subtle)'}`,
                                             background: statusFilter === s ? 'rgba(34,211,238,0.12)' : 'transparent',
-                                            color: statusFilter === s ? '#22d3ee' : '#71717a', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
+                                            color: statusFilter === s ? '#22d3ee' : 'var(--muted)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
                                         }}>
                                             {s || 'All'}
                                         </button>
                                     ))}
                                 </div>
-                                <p style={{ fontSize: '0.62rem', color: '#52525b', marginTop: 6 }}>
+                                <p style={{ fontSize: '0.62rem', color: 'var(--faint)', marginTop: 6 }}>
                                     Status filters apply to the rows on this page only.
                                 </p>
                             </div>
@@ -405,8 +405,8 @@ export default function DSAListPage({ filterCompany }) {
                     {!isMobile && (
                         <div style={{
                             display: 'grid', gridTemplateColumns: '28px 1fr 90px 1fr',
-                            gap: 8, padding: '6px 12px', borderBottom: '1px solid #27272a',
-                            fontSize: '0.62rem', fontWeight: 900, color: '#52525b', textTransform: 'uppercase', letterSpacing: '0.08em',
+                            gap: 8, padding: '6px 12px', borderBottom: '1px solid var(--subtle)',
+                            fontSize: '0.62rem', fontWeight: 900, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.08em',
                         }}>
                             <span></span>
                             <span>Problem</span>
@@ -418,10 +418,10 @@ export default function DSAListPage({ filterCompany }) {
                     {isLoading ? (
                         <div>
                             {Array.from({ length: 12 }).map((_, i) => (
-                                <div key={i} style={{ height: 51, borderBottom: '1px solid #18181b', display: 'flex', alignItems: 'center', gap: 12, padding: '0 12px' }}>
-                                    <div style={{ width: 20, height: 20, borderRadius: 4, background: '#27272a' }} />
-                                    <div style={{ flex: 1, height: 14, borderRadius: 4, background: '#1e1e22', animation: 'pulse 1.5s ease-in-out infinite' }} />
-                                    <div style={{ width: 60, height: 14, borderRadius: 4, background: '#1e1e22' }} />
+                                <div key={i} style={{ height: 51, borderBottom: '1px solid var(--panel)', display: 'flex', alignItems: 'center', gap: 12, padding: '0 12px' }}>
+                                    <div style={{ width: 20, height: 20, borderRadius: 4, background: 'var(--subtle)' }} />
+                                    <div style={{ flex: 1, height: 14, borderRadius: 4, background: 'var(--panel)', animation: 'pulse 1.5s ease-in-out infinite' }} />
+                                    <div style={{ width: 60, height: 14, borderRadius: 4, background: 'var(--panel)' }} />
                                 </div>
                             ))}
                         </div>
@@ -436,7 +436,7 @@ export default function DSAListPage({ filterCompany }) {
                             icon="🔍"
                             title="No problems match your filters."
                             action={(
-                                <button onClick={() => setSearchParams({})} style={{ padding: '6px 16px', background: 'none', border: '1px solid #27272a', borderRadius: 6, color: '#22d3ee', cursor: 'pointer', fontSize: '0.78rem' }}>
+                                <button onClick={() => setSearchParams({})} style={{ padding: '6px 16px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 6, color: '#22d3ee', cursor: 'pointer', fontSize: '0.78rem' }}>
                                     Clear filters
                                 </button>
                             )}
@@ -467,10 +467,10 @@ export default function DSAListPage({ filterCompany }) {
                     )}
 
                     {!isLoading && !isError && (
-                        <div style={{ marginTop: 8, color: '#52525b', fontSize: '0.72rem', textAlign: 'center' }}>
+                        <div style={{ marginTop: 8, color: 'var(--faint)', fontSize: '0.72rem', textAlign: 'center' }}>
                             {unlimited ? (
                                 <>
-                                    Showing {items.length} of {filteredCount} · {total} total · Press <kbd style={{ border: '1px solid #27272a', borderRadius: 3, padding: '0 4px', fontSize: '0.65rem', color: '#71717a' }}>/</kbd> to search
+                                    Showing {items.length} of {filteredCount} · {total} total · Press <kbd style={{ border: '1px solid var(--subtle)', borderRadius: 3, padding: '0 4px', fontSize: '0.65rem', color: 'var(--muted)' }}>/</kbd> to search
                                 </>
                             ) : (
                                 <>
