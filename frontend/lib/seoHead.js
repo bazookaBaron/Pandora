@@ -61,7 +61,9 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,199}$/;
 export function classifyRoute(pathname) {
   const p = typeof pathname === "string" && pathname ? pathname : "/";
 
-  if (p === "/") return { kind: "public", key: "home" };
+  // "/" now renders the Jobs section (auth-gated) — see App.jsx / task 4.
+  if (p === "/") return { kind: "noindex" };
+  if (p === "/optimizer") return { kind: "public", key: "home" };
   if (p === "/pricing") return { kind: "public", key: "pricing" };
   if (p === "/terms") return { kind: "public", key: "terms" };
   if (p === "/privacy") return { kind: "public", key: "privacy" };
@@ -108,7 +110,7 @@ function routeMeta({ key, base, path, post }) {
     return {
       title: "Vloombox — Tailor Your Resume to Any Job with AI",
       description: SITE.defaultDescription,
-      canonical: `${base}/`,
+      canonical: `${base}/optimizer`,
       ogType: "website",
       ogImage: base + SITE.defaultOgImage,
     };

@@ -50,7 +50,10 @@ export default function App() {
                     <RouteErrorBoundary>
                     <Routes>
                         <Route path="/auth" element={<AuthPage />} />
-                        <Route path="/" element={<HomePage />} />
+                        {/* Default landing = Jobs (task 4). Resume Optimizer moved to /optimizer. */}
+                        <Route path="/" element={<ProtectedRoute><JobsPage /></ProtectedRoute>} />
+                        <Route path="/optimizer" element={<HomePage />} />
+                        <Route path="/jobs" element={<Navigate to="/" replace />} />
                         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                         <Route path="/pricing" element={<PricingPage />} />
                         <Route path="/terms" element={<TermsPage />} />
@@ -74,7 +77,6 @@ export default function App() {
                         <Route path="/hld/:id" element={<ProtectedRoute><HLDWorkspacePage /></ProtectedRoute>} />
                         <Route path="/interview" element={<ProtectedRoute><InterviewPage /></ProtectedRoute>} />
                         <Route path="/referrals" element={<ProtectedRoute><ReferralsPage /></ProtectedRoute>} />
-                        <Route path="/jobs" element={<ProtectedRoute><JobsPage /></ProtectedRoute>} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                     </RouteErrorBoundary>

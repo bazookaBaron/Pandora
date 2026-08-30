@@ -50,23 +50,23 @@ function stringToColor(str = '') {
 }
 
 const NAV_LINKS = [
-    { to: '/', label: 'Optimizer' },
+    { to: '/', label: 'Jobs' },
+    { to: '/optimizer', label: 'Optimizer' },
     { to: '/dsa', label: 'DSA' },
     { to: '/lld', label: 'LLD' },
     { to: '/hld', label: 'HLD' },
     { to: '/interview', label: 'Interview' },
     { to: '/referrals', label: 'Referrals' },
-    { to: '/jobs', label: 'Jobs' },
 ]
 
 // Mobile: these move OUT of the hamburger menu into the tile bar below the nav.
 // Optimizer, Referrals (and Profile) stay in the menu.
 const TILE_LINKS = [
+    { to: '/', label: 'Jobs' },
     { to: '/dsa', label: 'DSA' },
     { to: '/lld', label: 'LLD' },
     { to: '/hld', label: 'HLD' },
     { to: '/interview', label: 'Interview Questions' },
-    { to: '/jobs', label: 'Jobs' },
 ]
 const TILE_ROUTES = TILE_LINKS.map(l => l.to)
 

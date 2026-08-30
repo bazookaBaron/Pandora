@@ -155,7 +155,7 @@ export function SubscriptionSuccessPage() {
                     : <>Payment received. Your plan is being activated — this can take a few seconds. Refresh if it hasn’t updated shortly.</>}
             </p>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
-                <Link to="/jobs" style={{ color: 'var(--pop)', textDecoration: 'none', fontWeight: 700 }}>Browse jobs →</Link>
+                <Link to="/" style={{ color: 'var(--pop)', textDecoration: 'none', fontWeight: 700 }}>Browse jobs →</Link>
                 <Link to="/profile" style={{ color: 'var(--muted)', textDecoration: 'none' }}>Manage subscription</Link>
             </div>
         </PageShell>

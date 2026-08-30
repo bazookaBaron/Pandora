@@ -2791,7 +2791,7 @@ app.get("/robots.txt", (req, res) => {
   res.type("text/plain").send(
     [
       "User-agent: *",
-      "Allow: /$",
+      "Allow: /optimizer",
       "Allow: /pricing",
       "Allow: /terms",
       "Allow: /privacy",
@@ -2822,7 +2822,7 @@ app.get("/robots.txt", (req, res) => {
 app.get("/sitemap.xml", async (req, res) => {
   const base = baseUrl(req);
   const urls = [
-    { loc: `${base}/`, priority: "1.0", changefreq: "weekly" },
+    { loc: `${base}/optimizer`, priority: "1.0", changefreq: "weekly" },
     { loc: `${base}/pricing`, priority: "0.8", changefreq: "monthly" },
     { loc: `${base}/blog`, priority: "0.7", changefreq: "weekly" },
     { loc: `${base}/terms`, priority: "0.3", changefreq: "yearly" },
