@@ -14,7 +14,7 @@ export default function DSACompanyPage() {
     return (
         <>
             <Navbar />
-            <div style={{ paddingTop: 56 }}>
+            <div className="has-tilebar" style={{ paddingTop: 56 }}>
                 {/* Company header */}
                 <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)' }}>
                     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 16px' }}>

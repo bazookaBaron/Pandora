@@ -59,6 +59,33 @@ const NAV_LINKS = [
     { to: '/jobs', label: 'Jobs' },
 ]
 
+// Mobile: these move OUT of the hamburger menu into the tile bar below the nav.
+// Optimizer, Referrals (and Profile) stay in the menu.
+const TILE_LINKS = [
+    { to: '/dsa', label: 'DSA' },
+    { to: '/lld', label: 'LLD' },
+    { to: '/hld', label: 'HLD' },
+    { to: '/interview', label: 'Interview Questions' },
+    { to: '/jobs', label: 'Jobs' },
+]
+const TILE_ROUTES = TILE_LINKS.map(l => l.to)
+
+function MobileTileBar({ isActive }) {
+    return (
+        <div className="mobile-tilebar" role="navigation" aria-label="Sections">
+            {TILE_LINKS.map(link => (
+                <Link
+                    key={link.to}
+                    to={link.to}
+                    className={'tile-chip' + (isActive(link.to) ? ' active' : '')}
+                >
+                    {link.label}
+                </Link>
+            ))}
+        </div>
+    )
+}
+
 export default function Navbar() {
     const { user, logout } = useAuth()
     const navigate = useNavigate()
@@ -119,6 +146,7 @@ export default function Navbar() {
     )
 
     return (
+      <>
         <nav className="top-nav" ref={navRef}>
             <Link to="/" className="nav-brand">
                 <img src="/vloombox-logo.svg" alt="" width="34" height="34" style={{ display: 'block' }} />
@@ -166,7 +194,8 @@ export default function Navbar() {
                                 animation: 'slideDown 0.2s ease both',
                             }}
                         >
-                            {NAV_LINKS.map(link => (
+                            {/* Tile-bar routes live in MobileTileBar; keep the rest here. */}
+                            {NAV_LINKS.filter(l => !TILE_ROUTES.includes(l.to)).map(link => (
                                 <Link
                                     key={link.to}
                                     to={link.to}
@@ -216,5 +245,7 @@ export default function Navbar() {
                 </div>
             )}
         </nav>
+        {isMobile && <MobileTileBar isActive={isActive} />}
+      </>
     )
 }

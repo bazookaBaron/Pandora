@@ -1303,3 +1303,56 @@ h3 {
 .rrp-sep[data-active] {
     background: var(--pop) !important;
 }
+
+/* ── Mobile section tile bar (below the fixed navbar) ────────────────── */
+.mobile-tilebar {
+    position: fixed;
+    top: 56px;
+    left: 0;
+    right: 0;
+    z-index: 99;
+    display: flex;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--nav-bg);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--subtle);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;               /* Firefox */
+    -ms-overflow-style: none;            /* old Edge */
+    animation: slideDown 0.3s ease both;
+}
+.mobile-tilebar::-webkit-scrollbar {    /* Chrome / Safari */
+    display: none;
+}
+.tile-chip {
+    flex-shrink: 0;
+    padding: 5px 13px;
+    border-radius: 999px;
+    border: 1px solid var(--subtle);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: color var(--transition), border-color var(--transition), background var(--transition);
+}
+.tile-chip.active {
+    color: var(--surface);
+    background: var(--pop);
+    border-color: var(--pop);
+}
+
+/* Content pages need extra top room for the tile bar on mobile.
+   (56px nav + ~40px tile bar.) */
+@media (max-width: 767px) {
+    .wrap {
+        padding-top: 108px;
+    }
+    .has-tilebar {
+        padding-top: 100px !important;
+    }
+}

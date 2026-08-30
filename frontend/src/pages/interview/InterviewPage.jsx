@@ -113,7 +113,7 @@ export default function InterviewPage() {
     return (
         <>
             <Navbar />
-            <div style={{ height: '100vh', paddingTop: 56, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="has-tilebar" style={{ height: '100vh', paddingTop: 56, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {/* Header bar */}
                 <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
                     <h2 style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.02em' }}>Interview Q&amp;A</h2>
