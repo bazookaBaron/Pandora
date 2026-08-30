@@ -67,6 +67,12 @@ export function classifyRoute(pathname) {
   if (p === "/privacy") return { kind: "public", key: "privacy" };
   if (p === "/refunds") return { kind: "public", key: "refunds" };
   if (p === "/contact") return { kind: "public", key: "contact" };
+  if (p === "/about") return { kind: "public", key: "about" };
+  if (p === "/faq") return { kind: "public", key: "faq" };
+  if (p === "/questions") return { kind: "public", key: "questions" };
+  if (p === "/legal/privacy") return { kind: "public", key: "legalPrivacy" };
+  if (p === "/legal/terms") return { kind: "public", key: "legalTerms" };
+  if (p === "/legal/guidelines") return { kind: "public", key: "guidelines" };
   if (p === "/blog" || p === "/blog/") return { kind: "public", key: "blog" };
 
   if (p.startsWith("/blog/")) {
@@ -149,6 +155,24 @@ function routeMeta({ key, base, path, post }) {
       title: "Contact & About | Vloombox",
       description: "How to reach the Vloombox team and what Vloombox is.",
       canonical: `${base}/contact`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  const staticMeta = {
+    about: ["About Us | Vloombox", "About Vloombox.", "/about"],
+    faq: ["FAQ | Vloombox", "Answers to common questions about Vloombox referrals and your data.", "/faq"],
+    questions: ["Question Bank | Vloombox", "Curated interview questions across topics.", "/questions"],
+    legalPrivacy: ["Privacy Policy | Vloombox", "Vloombox privacy policy.", "/legal/privacy"],
+    legalTerms: ["Terms of Service | Vloombox", "Vloombox terms of service.", "/legal/terms"],
+    guidelines: ["Community Guidelines | Vloombox", "Vloombox community guidelines.", "/legal/guidelines"],
+  };
+  if (staticMeta[key]) {
+    const [title, description, path2] = staticMeta[key];
+    return {
+      title,
+      description,
+      canonical: `${base}${path2}`,
       ogType: "website",
       ogImage: base + SITE.defaultOgImage,
     };

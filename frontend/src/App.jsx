@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import CommandPalette from './components/shared/CommandPalette'
+import Footer from './components/Footer'
 import { RouteErrorBoundary } from './components/shared/ErrorBoundary'
 import SessionExpiredBanner from './components/shared/SessionExpiredBanner'
 
@@ -20,6 +21,15 @@ import InterviewPage from './pages/interview/InterviewPage'
 import ReferralsPage from './pages/referrals/ReferralsPage'
 import JobsPage from './pages/jobs/JobsPage'
 import { TermsPage, PrivacyPage, RefundPage, ContactPage } from './pages/LegalPages'
+import {
+    AboutPage,
+    BlogPage,
+    QuestionsPage,
+    GuidelinesPage,
+    LegalPrivacyScaffold,
+    LegalTermsScaffold,
+    FAQPage,
+} from './pages/StaticPages'
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -46,6 +56,13 @@ export default function App() {
                         <Route path="/privacy" element={<PrivacyPage />} />
                         <Route path="/refunds" element={<RefundPage />} />
                         <Route path="/contact" element={<ContactPage />} />
+                        <Route path="/about" element={<AboutPage />} />
+                        <Route path="/blog" element={<BlogPage />} />
+                        <Route path="/questions" element={<QuestionsPage />} />
+                        <Route path="/faq" element={<FAQPage />} />
+                        <Route path="/legal/privacy" element={<LegalPrivacyScaffold />} />
+                        <Route path="/legal/terms" element={<LegalTermsScaffold />} />
+                        <Route path="/legal/guidelines" element={<GuidelinesPage />} />
                         <Route path="/dashboard" element={<Navigate to="/profile" replace />} />
                         <Route path="/dsa" element={<ProtectedRoute><DSAListPage /></ProtectedRoute>} />
                         <Route path="/dsa/company/:companyName" element={<ProtectedRoute><DSACompanyPage /></ProtectedRoute>} />
@@ -59,6 +76,8 @@ export default function App() {
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                     </RouteErrorBoundary>
+                    {/* Global footer — appears under every route. */}
+                    <Footer />
                 </AuthProvider>
             </BrowserRouter>
         </QueryClientProvider>

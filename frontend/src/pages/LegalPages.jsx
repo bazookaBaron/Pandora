@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
-import Footer from '../components/Footer'
 
 // Business / contact constants — keep these in one place.
 export const BIZ = {
@@ -32,7 +31,6 @@ function LegalLayout({ title, children }) {
                     <Link to="/" style={{ color: 'var(--pop)', fontSize: '0.8rem', textDecoration: 'none' }}>← Back to Vloombox</Link>
                 </p>
             </main>
-            <Footer />
         </>
     )
 }

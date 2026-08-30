@@ -2528,6 +2528,10 @@ app.get("/robots.txt", (req, res) => {
       "Allow: /privacy",
       "Allow: /refunds",
       "Allow: /contact",
+      "Allow: /about",
+      "Allow: /faq",
+      "Allow: /questions",
+      "Allow: /legal/",
       "Allow: /blog",
       "Disallow: /api/",
       "Disallow: /auth",
@@ -2556,6 +2560,11 @@ app.get("/sitemap.xml", async (req, res) => {
     { loc: `${base}/privacy`, priority: "0.3", changefreq: "yearly" },
     { loc: `${base}/refunds`, priority: "0.3", changefreq: "yearly" },
     { loc: `${base}/contact`, priority: "0.4", changefreq: "yearly" },
+    { loc: `${base}/about`, priority: "0.4", changefreq: "monthly" },
+    { loc: `${base}/faq`, priority: "0.4", changefreq: "monthly" },
+    { loc: `${base}/legal/privacy`, priority: "0.2", changefreq: "yearly" },
+    { loc: `${base}/legal/terms`, priority: "0.2", changefreq: "yearly" },
+    { loc: `${base}/legal/guidelines`, priority: "0.2", changefreq: "yearly" },
   ];
   try {
     const { data } = await supabaseAdmin

@@ -27,6 +27,7 @@
         "framer-motion": "^13.1.1",
         "html-to-image": "^1.11.13",
         "jszip": "^3.10.1",
+        "lucide-react": "^1.37.0",
         "mermaid": "^11.17.2",
         "multer": "^2.2.0",
         "node-cron": "^4.6.0",

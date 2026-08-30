@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
-import Footer from '../components/Footer'
 import { TIERS, PLAN_ORDER, priceInrPaise } from '../../config/tiers.js'
 import { useEntitlements } from '../lib/useEntitlements'
 import { useAuth } from '../contexts/AuthContext'
@@ -213,7 +212,6 @@ export default function PricingPage() {
                     <Link to="/" style={{ color: 'var(--pop)', fontSize: '0.8rem', textDecoration: 'none' }}>← Back</Link>
                 </p>
             </main>
-            <Footer />
         </>
     )
 }
