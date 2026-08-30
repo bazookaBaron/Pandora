@@ -1176,6 +1176,8 @@ app.get("/api/catalog/hld", catalogLimiter, requireAuth, async (req, res) => {
     if (error) throw error;
     const rows = data || [];
 
+    // The full list is returned to every tier; HLDListPage filters + paginates
+    // client-side (12/page) to match the LLD panel's pagination UX.
     if (access === "list_only") {
       const items = rows.map((r) => ({
         id: r.id,
@@ -1184,12 +1186,7 @@ app.get("/api/catalog/hld", catalogLimiter, requireAuth, async (req, res) => {
         difficulty: r.difficulty || null,
         locked: true,
       }));
-      return res.json({
-        items,
-        total: rows.length,
-        locked: rows.length,
-        access,
-      });
+      return res.json({ items, total: rows.length, locked: rows.length, access });
     }
 
     const items = rows.map((r) => ({

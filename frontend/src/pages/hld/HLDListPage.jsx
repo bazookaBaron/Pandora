@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import Pagination from '../../components/shared/Pagination'
 import { useQuery } from '@tanstack/react-query'
 import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
@@ -73,6 +74,14 @@ export default function HLDListPage() {
         if (companies.length && !companies.some(c => (p.companies || []).includes(c))) return false
         return true
     })
+
+    // Pagination — same page size + control as the LLD panel (12/page).
+    const HLD_PAGE_SIZE = 12
+    const [page, setPage] = useState(1)
+    const pageCount = Math.max(1, Math.ceil(filtered.length / HLD_PAGE_SIZE))
+    useEffect(() => { setPage(1) }, [search, searchParams.get('company'), searchParams.get('difficulty')])
+    const safePage = Math.min(page, pageCount)
+    const pageItems = filtered.slice((safePage - 1) * HLD_PAGE_SIZE, safePage * HLD_PAGE_SIZE)
 
     const attempted = Object.values(progressMap).filter(r => r.status === 'solved').length
     const gridCols = isMobile ? '1fr' : 'repeat(auto-fill, minmax(280px, 1fr))'
@@ -277,10 +286,15 @@ export default function HLDListPage() {
                 ) : (
                     <>
                         <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 12 }}>
-                            {filtered.map(listOnly ? renderLockedCard : renderCard)}
+                            {pageItems.map(listOnly ? renderLockedCard : renderCard)}
                         </div>
+                        <Pagination
+                            page={safePage}
+                            totalPages={pageCount}
+                            onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                        />
                         <div style={{ textAlign: 'center', marginTop: 12, color: 'var(--faint)', fontSize: '0.72rem' }}>
-                            {filtered.length} of {total} questions
+                            {pageItems.length} of {filtered.length}{pageCount > 1 ? ` · page ${safePage} of ${pageCount}` : ''} · {total} total
                         </div>
                     </>
                 )}
