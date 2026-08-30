@@ -19,7 +19,7 @@ const COLUMNS = [
         title: 'Product',
         links: [
             ['Blog', '/blog'],
-            ['Question Bank', '/questions'],
+            ['Question Bank', '/interview'], // the existing Interview Questions page
             ['Referral Marketplace', '/referrals'],
         ],
     },

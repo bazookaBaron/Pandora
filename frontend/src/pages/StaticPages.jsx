@@ -1,8 +1,18 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { ChevronDown } from 'lucide-react'
 import Navbar from '../components/Navbar'
+import MarkdownRenderer from '../components/interview/MarkdownRenderer'
+import { LoadingState, ErrorState, EmptyState } from '../components/shared/states'
+import { apiFetch } from '../lib/apiClient'
 import { useEntitlements } from '../lib/useEntitlements'
+
+function fmtDate(iso) {
+    if (!iso) return ''
+    const d = new Date(iso)
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+}
 
 // Shared shell — Navbar + centred column. The Footer is mounted globally in
 // App.jsx, so pages don't render it themselves.
@@ -59,12 +69,88 @@ export function AboutPage() {
     )
 }
 
-// ── /blog ─────────────────────────────────────────────────────────
+// ── /blog — list of published posts ───────────────────────────────
 export function BlogPage() {
+    const { data, isLoading, error, refetch } = useQuery({
+        queryKey: ['blog-list'],
+        queryFn: () => apiFetch('/api/blog'),
+        staleTime: 5 * 60_000,
+    })
+    const posts = data?.posts || []
+
     return (
         <PageShell title="Blog" subtitle="Interview prep, system design and resume tips.">
-            {/* TODO: wire this to the `blogs` table + /blog/[slug] detail pages. */}
-            <ComingSoon />
+            {isLoading ? (
+                <LoadingState label="Loading posts…" />
+            ) : error ? (
+                <ErrorState err={error} onRetry={refetch} />
+            ) : posts.length === 0 ? (
+                <EmptyState icon="📝" title="No posts yet" message="Check back soon." />
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {posts.map((p) => (
+                        <Link
+                            key={p.slug}
+                            to={`/blog/${encodeURIComponent(p.slug)}`}
+                            style={{
+                                display: 'block', textDecoration: 'none',
+                                background: 'var(--panel)', border: '1px solid var(--subtle)',
+                                borderRadius: 10, padding: '16px 18px',
+                            }}
+                        >
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 4 }}>
+                                {p.category && (
+                                    <span style={{
+                                        fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em',
+                                        color: 'var(--pop)', border: '1px solid var(--subtle)', borderRadius: 999, padding: '2px 8px',
+                                    }}>{p.category}</span>
+                                )}
+                                <span style={{ fontSize: '0.7rem', color: 'var(--faint)' }}>
+                                    {fmtDate(p.published_at)}
+                                    {p.reading_time_minutes ? ` · ${p.reading_time_minutes} min read` : ''}
+                                </span>
+                            </div>
+                            <div style={{ fontWeight: 900, fontSize: '1rem', color: 'var(--bright)', letterSpacing: '-0.01em' }}>
+                                {p.title}
+                            </div>
+                            {p.excerpt && (
+                                <p style={{ margin: '6px 0 0', fontSize: '0.84rem', color: 'var(--muted)', lineHeight: 1.6 }}>{p.excerpt}</p>
+                            )}
+                        </Link>
+                    ))}
+                </div>
+            )}
+        </PageShell>
+    )
+}
+
+// ── /blog/:slug — single post ─────────────────────────────────────
+export function BlogPostPage() {
+    const { slug } = useParams()
+    const { data, isLoading, error, refetch } = useQuery({
+        queryKey: ['blog-post', slug],
+        queryFn: () => apiFetch('/api/blog/' + encodeURIComponent(slug)),
+        staleTime: 5 * 60_000,
+        retry: (n, e) => (e && e.status === 404 ? false : n < 1),
+    })
+    const post = data?.post
+
+    return (
+        <PageShell title={post?.title || 'Blog'} subtitle={post ? `${fmtDate(post.published_at)}${post.reading_time_minutes ? ` · ${post.reading_time_minutes} min read` : ''}` : ''}>
+            <p style={{ marginBottom: 16 }}>
+                <Link to="/blog" style={{ color: 'var(--pop)', fontSize: '0.8rem', textDecoration: 'none' }}>← All posts</Link>
+            </p>
+            {isLoading ? (
+                <LoadingState label="Loading…" />
+            ) : error ? (
+                error.status === 404
+                    ? <EmptyState icon="🔍" title="Post not found" message="This article doesn’t exist or isn’t published." />
+                    : <ErrorState err={error} onRetry={refetch} />
+            ) : (
+                <div className="markdown-body" style={{ fontSize: '0.9rem', lineHeight: 1.8 }}>
+                    <MarkdownRenderer>{post.content || ''}</MarkdownRenderer>
+                </div>
+            )}
         </PageShell>
     )
 }

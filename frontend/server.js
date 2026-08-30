@@ -2769,6 +2769,46 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
   }
 });
 
+// ── Blog (public) ──────────────────────────────────────────────────
+// The `blogs` table (sql/13) is RLS-readable for published rows; these routes
+// proxy it so the client stays consistent and responses are cacheable.
+app.get("/api/blog", catalogLimiter, async (_req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("blogs")
+      .select("slug, title, excerpt, category, reading_time_minutes, published_at, cover_image_url")
+      .eq("published", true)
+      .order("published_at", { ascending: false });
+    if (error) throw error;
+    res
+      .set("Cache-Control", "public, max-age=0, s-maxage=300")
+      .json({ posts: data || [] });
+  } catch (err) {
+    // Table not created yet → empty list, not a 500.
+    if (/does not exist|schema cache|Could not find the table/i.test(String(err.message || err))) {
+      return res.json({ posts: [], notReady: true });
+    }
+    fail(res, err, "blog/list", "Failed to load blog posts.");
+  }
+});
+
+app.get("/api/blog/:slug", catalogLimiter, async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").slice(0, 200);
+    const { data, error } = await supabaseAdmin
+      .from("blogs")
+      .select("slug, title, excerpt, content, category, reading_time_minutes, published_at, updated_at, cover_image_url, meta_title, meta_description")
+      .eq("slug", slug)
+      .eq("published", true)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: "not_found" });
+    res.set("Cache-Control", "public, max-age=0, s-maxage=300").json({ post: data });
+  } catch (err) {
+    fail(res, err, "blog/post", "Failed to load the blog post.");
+  }
+});
+
 
 // SPA + SEO fallback: for any non-/api route, serve the built index.html with a
 // route-aware <head> — correct <title>, description, canonical, Open Graph +

@@ -24,7 +24,7 @@ import { TermsPage, PrivacyPage, RefundPage, ContactPage } from './pages/LegalPa
 import {
     AboutPage,
     BlogPage,
-    QuestionsPage,
+    BlogPostPage,
     GuidelinesPage,
     LegalPrivacyScaffold,
     LegalTermsScaffold,
@@ -62,7 +62,9 @@ export default function App() {
                         <Route path="/contact" element={<ContactPage />} />
                         <Route path="/about" element={<AboutPage />} />
                         <Route path="/blog" element={<BlogPage />} />
-                        <Route path="/questions" element={<QuestionsPage />} />
+                        <Route path="/blog/:slug" element={<BlogPostPage />} />
+                        {/* "Question Bank" = the existing Interview Questions page. */}
+                        <Route path="/questions" element={<Navigate to="/interview" replace />} />
                         <Route path="/faq" element={<FAQPage />} />
                         <Route path="/legal/privacy" element={<LegalPrivacyScaffold />} />
                         <Route path="/legal/terms" element={<LegalTermsScaffold />} />
