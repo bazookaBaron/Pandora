@@ -1470,6 +1470,7 @@ function normalizeJob(row, companyNameBySlug) {
     company: String(company || ""),
     location: row.location || "",
     locationType,
+    seniority: row.seniority || "",
     employmentType: row.employment_type || "",
     url: row.url || "",
     source: row.source || "",
@@ -1479,13 +1480,15 @@ function normalizeJob(row, companyNameBySlug) {
   };
 }
 
+const SENIORITY_ORDER = ["intern", "junior", "mid", "senior", "staff", "principal", "unknown"];
+
 function jobsNotReady(res) {
   return res.json({
     items: [],
     total: 0,
     page: 1,
     pageCount: 1,
-    facets: { sources: [], locationTypes: ["remote", "hybrid", "onsite"] },
+    facets: { sources: [], locationTypes: ["remote", "hybrid", "onsite"], seniorities: SENIORITY_ORDER },
     notReady: true,
   });
 }
@@ -1494,37 +1497,56 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
   try {
     const search = String(req.query.search || "").trim().slice(0, 120);
     const company = String(req.query.company || "").trim().slice(0, 80);
+    const location = String(req.query.location || "").trim().slice(0, 80);
     const locationType = String(req.query.location_type || "")
       .trim()
       .toLowerCase()
       .slice(0, 20);
     const source = String(req.query.source || "").trim().slice(0, 40);
+    const seniority = String(req.query.seniority || "").trim().toLowerCase().slice(0, 20);
+    const postedWithin = String(req.query.posted_within || "").trim(); // '1' | '3' | '5' | 'older'
+    const sort = String(req.query.sort || "newest").trim();
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const from = (page - 1) * JOBS_PAGE_SIZE;
     const to = from + JOBS_PAGE_SIZE - 1;
 
-    let q = jobsDb()
-      .from(JOBS_TABLE)
-      .select(
-        "id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, status",
-        { count: "exact" },
-      )
-      .eq("status", "open")
-      .order("first_seen_at", { ascending: false })
-      .order("id", { ascending: false })
-      .range(from, to);
+    const likeSafe = (s) => s.replace(/[%_,()]/g, " ");
+    const daysAgoISO = (d) => new Date(Date.now() - d * 86400000).toISOString();
 
-    if (search) {
-      // generated tsvector column `search_tsv` (GIN-indexed) — proper FTS
-      q = q.textSearch("search_tsv", search, { type: "websearch", config: "english" });
-    }
-    if (company) {
-      q = q.ilike("company_slug", `%${company.replace(/[%_,()]/g, " ")}%`);
-    }
-    if (locationType) q = q.eq("location_type", locationType);
-    if (source) q = q.eq("source", source);
+    // `seniority` column is added by a later crawler migration — if it's not
+    // there yet, retry the query once without selecting or filtering on it.
+    const build = (withSeniority) => {
+      const cols =
+        "id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, status" +
+        (withSeniority ? ", seniority" : "");
+      let q = jobsDb()
+        .from(JOBS_TABLE)
+        .select(cols, { count: "exact" })
+        .eq("status", "open")
+        .range(from, to);
 
-    const { data, error, count } = await q;
+      if (sort === "oldest") q = q.order("first_seen_at", { ascending: true }).order("id", { ascending: true });
+      else if (sort === "company") q = q.order("company_slug", { ascending: true }).order("first_seen_at", { ascending: false });
+      else q = q.order("first_seen_at", { ascending: false }).order("id", { ascending: false });
+
+      if (search) q = q.textSearch("search_tsv", search, { type: "websearch", config: "english" });
+      // company_slug is hyphenated lowercase ("jane-street"); let "Jane Street"
+      // match by turning spaces/hyphens into wildcards.
+      if (company) q = q.ilike("company_slug", `%${likeSafe(company).trim().replace(/[\s-]+/g, "%")}%`);
+      if (location) q = q.ilike("location", `%${likeSafe(location)}%`);
+      if (locationType) q = q.eq("location_type", locationType);
+      if (source) q = q.eq("source", source);
+      if (withSeniority && seniority) q = q.eq("seniority", seniority);
+      if (postedWithin === "older") q = q.lt("first_seen_at", daysAgoISO(5));
+      else if (["1", "3", "5"].includes(postedWithin)) q = q.gte("first_seen_at", daysAgoISO(Number(postedWithin)));
+      return q;
+    };
+
+    let resp = await build(true);
+    if (resp.error && /seniority/i.test(String(resp.error.message || resp.error))) {
+      resp = await build(false);
+    }
+    const { data, error, count } = resp;
     if (error) throw error;
 
     const rows = data || [];
@@ -1563,7 +1585,11 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
       total: count ?? items.length,
       page,
       pageCount: Math.max(1, Math.ceil((count ?? items.length) / JOBS_PAGE_SIZE)),
-      facets: { sources, locationTypes: ["remote", "hybrid", "onsite"] },
+      facets: {
+        sources,
+        locationTypes: ["remote", "hybrid", "onsite"],
+        seniorities: SENIORITY_ORDER,
+      },
     });
   } catch (err) {
     // Until the crawler has run its migrations (and `crawler` is added to the
@@ -1578,6 +1604,88 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
       return jobsNotReady(res);
     }
     fail(res, err, "jobs", "Failed to load jobs.");
+  }
+});
+
+// GET /api/jobs/analytics → aggregate metrics for the Jobs → Analytics tab.
+// Prefers the crawler.jobs_analytics() SQL function; falls back to a handful
+// of head-only COUNT queries if that function isn't there yet.
+app.get("/api/jobs/analytics", catalogLimiter, requireAuth, async (_req, res) => {
+  try {
+    const rpc = await jobsDb().rpc("jobs_analytics");
+    if (!rpc.error && rpc.data) {
+      const d = rpc.data;
+      return res.json({
+        total: d.total ?? 0,
+        companiesWithJobs: d.companies_with_jobs ?? 0,
+        bySeniority: d.by_seniority ?? [],
+        byWorkType: d.by_work_type ?? [],
+        bySource: d.by_source ?? [],
+        topCompanies: (d.top_companies ?? []).map((c) => ({
+          company: c.name || c.slug,
+          count: c.count,
+        })),
+        postedByDay: d.posted_by_day ?? [],
+        midSharePct: d.mid_share_pct ?? null,
+      });
+    }
+
+    // Fallback: COUNT-only queries (no row transfer).
+    const countWhere = async (apply) => {
+      let q = jobsDb().from(JOBS_TABLE).select("id", { count: "exact", head: true }).eq("status", "open");
+      if (apply) q = apply(q);
+      const { count } = await q;
+      return count || 0;
+    };
+    const total = await countWhere();
+    const workTypes = ["remote", "hybrid", "onsite"];
+    const byWorkType = [];
+    let typed = 0;
+    for (const t of workTypes) {
+      const c = await countWhere((q) => q.eq("location_type", t));
+      typed += c;
+      byWorkType.push({ type: t, count: c });
+    }
+    byWorkType.push({ type: "unspecified", count: Math.max(0, total - typed) });
+
+    let bySeniority = [];
+    let midCount = 0;
+    try {
+      for (const b of SENIORITY_ORDER) {
+        const c = await countWhere((q) => q.eq("seniority", b));
+        if (b === "mid") midCount = c;
+        bySeniority.push({ bucket: b, count: c });
+      }
+    } catch {
+      bySeniority = [];
+    }
+
+    res.json({
+      total,
+      companiesWithJobs: null,
+      bySeniority,
+      byWorkType,
+      bySource: [],
+      topCompanies: [],
+      postedByDay: [],
+      midSharePct: total ? Math.round((midCount / total) * 1000) / 10 : null,
+    });
+  } catch (err) {
+    const msg = String((err && err.message) || err);
+    if (/does not exist|schema cache|schema must be|not exposed|PGRST1|PGRST2/i.test(msg)) {
+      return res.json({
+        total: 0,
+        companiesWithJobs: 0,
+        bySeniority: [],
+        byWorkType: [],
+        bySource: [],
+        topCompanies: [],
+        postedByDay: [],
+        midSharePct: null,
+        notReady: true,
+      });
+    }
+    fail(res, err, "jobs/analytics", "Failed to load job analytics.");
   }
 });
 
