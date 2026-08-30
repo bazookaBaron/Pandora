@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown } from 'lucide-react'
 import Navbar from '../components/Navbar'
+import { useEntitlements } from '../lib/useEntitlements'
 
 // Shared shell — Navbar + centred column. The Footer is mounted globally in
 // App.jsx, so pages don't render it themselves.
@@ -130,6 +131,33 @@ export function LegalTermsScaffold() {
 
             <SectionHeader>Liability</SectionHeader>
             {/* TODO: warranty disclaimer and limitation of liability. */}
+        </PageShell>
+    )
+}
+
+// ── /subscription/success ────────────────────────────────────────
+export function SubscriptionSuccessPage() {
+    const { plan, refetch } = useEntitlements()
+    // The webhook may lag the redirect — re-poll a couple of times.
+    useEffect(() => {
+        refetch()
+        const t1 = setTimeout(refetch, 3000)
+        const t2 = setTimeout(refetch, 8000)
+        return () => { clearTimeout(t1); clearTimeout(t2) }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+    const active = plan === 'pro' || plan === 'max'
+    return (
+        <PageShell title="You're subscribed 🎉" subtitle="Thanks for upgrading to Vloombox Premium.">
+            <p style={{ margin: '0 0 12px' }}>
+                {active
+                    ? <>Your <strong style={{ color: 'var(--bright)' }}>{plan}</strong> plan is active. All premium features are unlocked.</>
+                    : <>Payment received. Your plan is being activated — this can take a few seconds. Refresh if it hasn’t updated shortly.</>}
+            </p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+                <Link to="/jobs" style={{ color: 'var(--pop)', textDecoration: 'none', fontWeight: 700 }}>Browse jobs →</Link>
+                <Link to="/profile" style={{ color: 'var(--muted)', textDecoration: 'none' }}>Manage subscription</Link>
+            </div>
         </PageShell>
     )
 }

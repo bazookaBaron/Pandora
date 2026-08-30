@@ -2500,6 +2500,250 @@ app.post(
   },
 );
 
+// ── Razorpay Subscriptions (recurring, in-page checkout) ────────────
+// create → open the Checkout modal with the subscription_id → verify the
+// callback signature → the webhook is the source of truth for status.
+
+// Map Razorpay subscription status → our subscriptions.status.
+function subStatusFromRazorpay(rzpStatus) {
+  const s = String(rzpStatus || "").toLowerCase();
+  if (s === "active" || s === "authenticated") return "active";
+  if (s === "halted" || s === "cancelled" || s === "completed" || s === "expired") return s === "expired" ? "expired" : s;
+  if (s === "pending") return "past_due";
+  return "created"; // created / anything unknown
+}
+
+// GET /api/subscriptions/status → { configured, keyId, plans }
+app.get("/api/subscriptions/status", requireAuth, (_req, res) => {
+  res.json({
+    configured: razorpay.subscriptionsConfigured(),
+    keyId: razorpay.isEnabled() ? razorpay.keyId() : null,
+  });
+});
+
+// POST /api/subscriptions/create  body: { plan:'pro'|'max', billingPeriod:'monthly'|'yearly' }
+//   → { subscription_id, short_url, keyId }
+app.post(
+  "/api/subscriptions/create",
+  checkoutLimiter,
+  requireAuth,
+  async (req, res) => {
+    try {
+      if (!razorpay.subscriptionsConfigured()) {
+        return res.status(503).json({ error: "subscriptions_unconfigured" });
+      }
+      const { plan, billingPeriod } = req.body || {};
+      assert(PAID_PLANS.includes(plan), "plan must be 'pro' or 'max'.");
+      assert(PERIODS.includes(billingPeriod), "billingPeriod must be 'monthly' or 'yearly'.");
+
+      const rzpPlanId = razorpay.planId(plan, billingPeriod);
+      if (!rzpPlanId) return res.status(400).json({ error: "plan_not_configured" });
+
+      // Reuse (or create) one Razorpay customer per user.
+      let customerId = null;
+      const { data: prof } = await supabaseAdmin
+        .from("profiles")
+        .select("razorpay_customer_id")
+        .eq("id", req.user.id)
+        .maybeSingle();
+      customerId = prof?.razorpay_customer_id || null;
+      if (!customerId) {
+        const cust = await razorpay.createCustomer({
+          email: req.user.email,
+          notes: { user_id: req.user.id },
+        });
+        customerId = cust && cust.id;
+        if (customerId) {
+          await supabaseAdmin
+            .from("profiles")
+            .update({ razorpay_customer_id: customerId })
+            .eq("id", req.user.id)
+            .then(({ error }) => error && console.warn("[subscriptions] save customer_id:", redact(error.message)));
+        }
+      }
+
+      const totalCount = billingPeriod === "yearly" ? 10 : 120;
+      const sub = await razorpay.createSubscription({
+        planIdValue: rzpPlanId,
+        customerId,
+        totalCount,
+        notes: { user_id: req.user.id, plan, billingPeriod },
+      });
+
+      // Persist the "created" row now so the admin panel shows it immediately.
+      await supabaseAdmin.from("subscriptions").upsert(
+        {
+          user_id: req.user.id,
+          plan,
+          status: subStatusFromRazorpay(sub.status),
+          provider: "razorpay",
+          provider_customer_id: customerId,
+          provider_subscription_id: sub.id,
+          provider_plan_id: rzpPlanId,
+          subscription_short_url: sub.short_url || null,
+          billing_period: billingPeriod,
+        },
+        { onConflict: "user_id" },
+      ).then(({ error }) => error && console.warn("[subscriptions] upsert created row:", redact(error.message)));
+
+      res.json({
+        subscription_id: sub.id,
+        short_url: sub.short_url || null,
+        keyId: razorpay.keyId(),
+      });
+    } catch (err) {
+      const status = Number(err && err.status) || 500;
+      if (status === 400) return res.status(400).json({ error: err.message || "Invalid request." });
+      if (status === 503) return res.status(503).json({ error: "subscriptions_unconfigured" });
+      console.error("[subscriptions/create]", redact((err && err.message) || String(err)));
+      res.status(502).json({ error: "create_failed" });
+    }
+  },
+);
+
+// POST /api/subscriptions/verify
+//   body: { razorpay_payment_id, razorpay_subscription_id, razorpay_signature }
+//   → { ok, plan, status }   (200 only when the signature is valid)
+app.post(
+  "/api/subscriptions/verify",
+  checkoutLimiter,
+  requireAuth,
+  async (req, res) => {
+    try {
+      if (!razorpay.isEnabled()) {
+        return res.status(503).json({ error: "subscriptions_unconfigured" });
+      }
+      const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature } = req.body || {};
+      if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
+        return res.status(400).json({ error: "missing_fields" });
+      }
+
+      const ok = razorpay.verifySubscriptionSignature({
+        paymentId: razorpay_payment_id,
+        subscriptionId: razorpay_subscription_id,
+        signature: razorpay_signature,
+      });
+      if (!ok) return res.status(400).json({ error: "signature_mismatch" });
+
+      // The row must belong to this user (created in /create).
+      const { data: existing } = await supabaseAdmin
+        .from("subscriptions")
+        .select("user_id, plan, billing_period")
+        .eq("provider_subscription_id", razorpay_subscription_id)
+        .maybeSingle();
+      if (!existing || String(existing.user_id) !== String(req.user.id)) {
+        return res.status(400).json({ error: "subscription_mismatch" });
+      }
+
+      // Pull the authoritative state from Razorpay.
+      const sub = await razorpay.fetchSubscription(razorpay_subscription_id);
+      const status = subStatusFromRazorpay(sub && sub.status);
+      const patch = { status, updated_at: new Date().toISOString() };
+      if (sub && (sub.current_end || sub.charge_at)) {
+        patch.current_period_end = new Date((sub.current_end || sub.charge_at) * 1000).toISOString();
+      }
+      if (sub && sub.customer_id) patch.provider_customer_id = sub.customer_id;
+      await supabaseAdmin
+        .from("subscriptions")
+        .update(patch)
+        .eq("provider_subscription_id", razorpay_subscription_id);
+
+      invalidateUser(req.user.id);
+      res.json({ ok: true, plan: existing.plan, status });
+    } catch (err) {
+      console.error("[subscriptions/verify]", redact((err && (err.stack || err.message)) || String(err)));
+      res.status(500).json({ error: "verify_failed" });
+    }
+  },
+);
+
+// POST /api/webhooks/razorpay — subscription lifecycle. No auth; the X-Razorpay-
+// Signature header (HMAC of the raw body with RAZORPAY_WEBHOOK_SECRET) is the
+// authenticity check. Uses the global express.json `verify` hook for req.rawBody.
+const RZP_SUB_EVENTS = new Set([
+  "subscription.activated",
+  "subscription.charged",
+  "subscription.completed",
+  "subscription.cancelled",
+  "subscription.halted",
+  "subscription.pending",
+  "subscription.updated",
+]);
+
+app.post("/api/webhooks/razorpay", async (req, res) => {
+  if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
+    return res.status(503).json({ error: "webhook_unconfigured" });
+  }
+  if (!razorpay.verifyWebhookSignature(req.rawBody, req.get("X-Razorpay-Signature"))) {
+    return res.status(401).json({ error: "bad_signature" });
+  }
+
+  try {
+    const event = String(req.body && req.body.event) || "";
+    if (!RZP_SUB_EVENTS.has(event)) {
+      return res.status(200).json({ ok: true, ignored: event });
+    }
+
+    const entity =
+      req.body?.payload?.subscription?.entity ||
+      req.body?.payload?.payment?.entity?.subscription /* rare */ ||
+      null;
+    const subId = entity && (entity.id || entity.subscription_id);
+    if (!subId) {
+      return res.status(202).json({ ok: true, note: "no subscription id" });
+    }
+
+    // Resolve our user: the notes we set at creation, else the existing row.
+    let userId = entity.notes && entity.notes.user_id;
+    let planFromNotes = entity.notes && entity.notes.plan;
+    if (!userId) {
+      const { data: match } = await supabaseAdmin
+        .from("subscriptions")
+        .select("user_id, plan")
+        .eq("provider_subscription_id", subId)
+        .maybeSingle();
+      if (match) {
+        userId = match.user_id;
+        planFromNotes = planFromNotes || match.plan;
+      }
+    }
+    if (!userId) {
+      console.warn(`[rzp-webhook] ${event}: no user for ${redact(String(subId))}`);
+      return res.status(202).json({ ok: true, note: "no user mapping" });
+    }
+
+    const status = subStatusFromRazorpay(entity.status);
+    const patch = {
+      user_id: userId,
+      plan: planFromNotes || undefined,
+      status,
+      provider: "razorpay",
+      provider_subscription_id: subId,
+      updated_at: new Date().toISOString(),
+    };
+    if (entity.plan_id) patch.provider_plan_id = entity.plan_id;
+    if (entity.customer_id) patch.provider_customer_id = entity.customer_id;
+    if (entity.short_url) patch.subscription_short_url = entity.short_url;
+    if (entity.current_end || entity.charge_at) {
+      patch.current_period_end = new Date((entity.current_end || entity.charge_at) * 1000).toISOString();
+    }
+    // Never null the plan on a downgrade event — the lazy entitlement check
+    // preserves access until current_period_end passes.
+    Object.keys(patch).forEach((k) => patch[k] === undefined && delete patch[k]);
+
+    const { error } = await supabaseAdmin
+      .from("subscriptions")
+      .upsert(patch, { onConflict: "user_id" });
+    if (error) throw error;
+
+    invalidateUser(userId);
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error("[rzp-webhook]", redact((err && (err.stack || err.message)) || String(err)));
+    res.status(500).json({ error: "processing_failed" }); // Razorpay retries
+  }
+});
+
 
 // SPA + SEO fallback: for any non-/api route, serve the built index.html with a
 // route-aware <head> — correct <title>, description, canonical, Open Graph +

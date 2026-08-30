@@ -29,6 +29,7 @@ import {
     LegalPrivacyScaffold,
     LegalTermsScaffold,
     FAQPage,
+    SubscriptionSuccessPage,
 } from './pages/StaticPages'
 
 const queryClient = new QueryClient({
@@ -63,6 +64,7 @@ export default function App() {
                         <Route path="/legal/privacy" element={<LegalPrivacyScaffold />} />
                         <Route path="/legal/terms" element={<LegalTermsScaffold />} />
                         <Route path="/legal/guidelines" element={<GuidelinesPage />} />
+                        <Route path="/subscription/success" element={<ProtectedRoute><SubscriptionSuccessPage /></ProtectedRoute>} />
                         <Route path="/dashboard" element={<Navigate to="/profile" replace />} />
                         <Route path="/dsa" element={<ProtectedRoute><DSAListPage /></ProtectedRoute>} />
                         <Route path="/dsa/company/:companyName" element={<ProtectedRoute><DSACompanyPage /></ProtectedRoute>} />

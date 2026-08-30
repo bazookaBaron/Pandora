@@ -78,15 +78,119 @@ export async function fetchOrder(orderId) {
 }
 
 /**
- * Verify the checkout callback signature.
+ * Verify the one-time checkout callback signature.
  * HMAC-SHA256(order_id + "|" + payment_id, KEY_SECRET) === razorpay_signature
  */
 export function verifyPaymentSignature({ orderId, paymentId, signature }) {
-  if (!orderId || !paymentId || !signature) return false;
-  const expected = crypto
-    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-    .update(`${orderId}|${paymentId}`)
-    .digest("hex");
+  return hmacEquals(`${orderId}|${paymentId}`, signature);
+}
+
+// ── Subscriptions ─────────────────────────────────────────────────
+// Recurring billing against pre-created Razorpay Plans. Env:
+//   RAZORPAY_PLAN_PRO_MONTHLY / _PRO_YEARLY / _MAX_MONTHLY / _MAX_YEARLY
+//   RAZORPAY_WEBHOOK_SECRET
+// TODO: fill the four PLAN ids from the Razorpay dashboard (Subscriptions →
+// Plans). Each must be an INR recurring plan matching config/tiers.js price_inr.
+
+const PLAN_ENV = {
+  "pro:monthly": "RAZORPAY_PLAN_PRO_MONTHLY",
+  "pro:yearly": "RAZORPAY_PLAN_PRO_YEARLY",
+  "max:monthly": "RAZORPAY_PLAN_MAX_MONTHLY",
+  "max:yearly": "RAZORPAY_PLAN_MAX_YEARLY",
+};
+
+export function planId(plan, period) {
+  const env = PLAN_ENV[`${plan}:${period}`];
+  return (env && process.env[env]) || null;
+}
+
+/** True when key pair + all four plan ids + webhook secret are present. */
+export function subscriptionsConfigured() {
+  return (
+    isEnabled() &&
+    !!process.env.RAZORPAY_WEBHOOK_SECRET &&
+    Object.values(PLAN_ENV).every((e) => !!process.env[e])
+  );
+}
+
+/** Create a Razorpay customer. `notes` may carry our user_id. */
+export async function createCustomer({ name, email, notes }) {
+  try {
+    return await client().customers.create({
+      name: name || email || "Vloombox user",
+      email: email || undefined,
+      fail_existing: 0, // return the existing customer instead of erroring
+      notes: notes || {},
+    });
+  } catch (err) {
+    console.error("[razorpay] createCustomer failed:", redact((err && (err.error?.description || err.message)) || String(err)));
+    const e = new Error("Could not create the billing customer.");
+    e.status = 502;
+    throw e;
+  }
+}
+
+/**
+ * Create a subscription against a plan id.
+ * @returns the Razorpay subscription object ({ id, status, short_url, ... }).
+ */
+export async function createSubscription({ planIdValue, customerId, totalCount, notes }) {
+  if (!planIdValue) {
+    const e = new Error("plan is not configured.");
+    e.status = 400;
+    throw e;
+  }
+  try {
+    return await client().subscriptions.create({
+      plan_id: planIdValue,
+      customer_id: customerId || undefined,
+      total_count: totalCount || 120, // ~10 yrs of monthly / plenty of yearly cycles
+      quantity: 1,
+      customer_notify: 1,
+      notes: notes || {},
+    });
+  } catch (err) {
+    console.error("[razorpay] createSubscription failed:", redact((err && (err.error?.description || err.message)) || String(err)));
+    const e = new Error("Could not start the subscription.");
+    e.status = 502;
+    throw e;
+  }
+}
+
+export async function fetchSubscription(subscriptionId) {
+  try {
+    return await client().subscriptions.fetch(String(subscriptionId));
+  } catch (err) {
+    console.error("[razorpay] fetchSubscription failed:", redact((err && err.message) || String(err)));
+    return null;
+  }
+}
+
+/**
+ * Verify the Checkout success callback for a subscription:
+ * HMAC-SHA256(payment_id + "|" + subscription_id, KEY_SECRET) === signature
+ */
+export function verifySubscriptionSignature({ paymentId, subscriptionId, signature }) {
+  return hmacEquals(`${paymentId}|${subscriptionId}`, signature);
+}
+
+/** Verify an inbound webhook body against RAZORPAY_WEBHOOK_SECRET. */
+export function verifyWebhookSignature(rawBody, signature) {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  if (!secret || !signature || !rawBody) return false;
+  const body = Buffer.isBuffer(rawBody) ? rawBody.toString("utf8") : String(rawBody);
+  try {
+    return Razorpay.validateWebhookSignature(body, String(signature), secret);
+  } catch {
+    return hmacEquals(body, signature, secret);
+  }
+}
+
+// ── internal ──────────────────────────────────────────────────────
+function hmacEquals(payload, signature, secret) {
+  const key = secret || process.env.RAZORPAY_KEY_SECRET;
+  if (!payload || !signature || !key) return false;
+  const expected = crypto.createHmac("sha256", key).update(payload).digest("hex");
   const a = Buffer.from(expected, "utf8");
   const b = Buffer.from(String(signature), "utf8");
   return a.length === b.length && crypto.timingSafeEqual(a, b);

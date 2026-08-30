@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { TIERS, PLAN_ORDER, priceInrPaise } from '../../config/tiers.js'
 import { useEntitlements } from '../lib/useEntitlements'
 import { useAuth } from '../contexts/AuthContext'
 import { ErrorState } from '../components/shared/states'
 import { track, EVENTS } from '../lib/analytics'
-import { startRazorpayCheckout } from '../lib/razorpay'
+import { startRazorpaySubscription } from '../lib/razorpay'
 
 // ── Pricing (config-driven) ─────────────────────────────────────────
 // Renders Free / Pro / Max straight from `config/tiers.js`. The Pro/Max CTAs
@@ -67,10 +67,10 @@ function describeLimits(plan) {
 export default function PricingPage() {
     const { plan: currentPlan, refetch } = useEntitlements()
     const { user } = useAuth()
+    const navigate = useNavigate()
     const [billing, setBilling] = useState('monthly') // 'monthly' | 'yearly'
     const [note, setNote] = useState('')
-    const [ok, setOk] = useState('')
-    const [pending, setPending] = useState('') // plan id currently in checkout
+    const [pending, setPending] = useState('') // plan id whose modal is open / verifying
 
     useEffect(() => {
         track(EVENTS.PRICING_VIEWED)
@@ -79,22 +79,20 @@ export default function PricingPage() {
     async function startCheckout(plan) {
         if (!user) { setNote('Please sign in first.'); return }
         setNote('')
-        setOk('')
         setPending(plan)
         track(EVENTS.CHECKOUT_STARTED, { plan, billing })
         try {
-            const res = await startRazorpayCheckout({ plan, billingPeriod: billing, user })
+            await startRazorpaySubscription({ plan, billingPeriod: billing, user })
             track(EVENTS.CHECKOUT_COMPLETED, { plan, billing })
-            setOk(`Payment received — your ${PLAN_META[plan]?.name || plan} plan is active.`)
             refetch()
-            setTimeout(refetch, 3000)
+            navigate('/subscription/success')
         } catch (err) {
             if (err?.code === 'dismissed') {
                 // user closed the modal — no error message needed
             } else if (err?.code === 'unconfigured') {
-                setNote('Payments aren’t connected yet.')
+                setNote('Subscriptions aren’t connected yet.')
             } else {
-                setNote(err?.message || 'Could not complete the payment.')
+                setNote(err?.message || 'Could not complete the subscription.')
             }
         } finally {
             setPending('')
@@ -104,16 +102,21 @@ export default function PricingPage() {
     return (
         <>
             <Navbar />
+            {pending && (
+                <div
+                    aria-live="polite"
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 200, display: 'grid', placeItems: 'center',
+                        background: 'var(--overlay)', backdropFilter: 'blur(2px)',
+                    }}
+                >
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, color: 'var(--bright)' }}>
+                        <span className="spinner-lg" />
+                        <span style={{ fontSize: '0.82rem', fontWeight: 700 }}>Opening secure checkout…</span>
+                    </div>
+                </div>
+            )}
             <main className="wrap" style={{ maxWidth: 980, margin: '0 auto', padding: '72px 16px 32px' }}>
-                {ok && (
-                    <p style={{
-                        textAlign: 'center', marginBottom: 18, fontSize: '0.8rem', color: '#4ade80',
-                        background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.25)',
-                        borderRadius: 8, padding: '10px 14px',
-                    }}>
-                        {ok}
-                    </p>
-                )}
                 <header style={{ textAlign: 'center', marginBottom: 22 }}>
                     <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>Pricing</h1>
                     <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: 6 }}>

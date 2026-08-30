@@ -86,3 +86,71 @@ export async function startRazorpayCheckout({ plan, billingPeriod, user }) {
         rzp.open()
     })
 }
+
+/**
+ * Open Razorpay's in-page Checkout for a RECURRING subscription.
+ *  - creates the subscription server-side (returns subscription_id)
+ *  - opens the modal
+ *  - on success, verifies the callback signature server-side
+ *
+ * Resolves with { ok, plan, status } on a verified payment. Rejects with an
+ * Error whose `.code` is 'dismissed' | 'failed' | 'verify' | 'unconfigured'
+ * | 'network'.
+ */
+export async function startRazorpaySubscription({ plan, billingPeriod, user }) {
+    await loadCheckoutScript()
+
+    let created
+    try {
+        created = await apiFetch('/api/subscriptions/create', { json: { plan, billingPeriod } })
+    } catch (err) {
+        const e = new Error(err?.body?.error === 'plan_not_configured'
+            ? 'This plan isn’t available yet.'
+            : (err?.message || 'Could not start the subscription.'))
+        e.code = /unconfigured/.test(err?.body?.error || '') ? 'unconfigured' : 'network'
+        throw e
+    }
+
+    return new Promise((resolve, reject) => {
+        const rzp = new window.Razorpay({
+            key: created.keyId,
+            subscription_id: created.subscription_id,
+            name: 'Vloombox',
+            description: 'Premium Subscription',
+            image: '/vloombox-logo.svg',
+            prefill: { email: user?.email || '', name: user?.user_metadata?.full_name || '' },
+            theme: { color: '#22d3ee' },
+            modal: {
+                ondismiss: () => {
+                    const e = new Error('Checkout closed.')
+                    e.code = 'dismissed'
+                    reject(e)
+                },
+            },
+            handler: async (resp) => {
+                try {
+                    const verified = await apiFetch('/api/subscriptions/verify', {
+                        json: {
+                            razorpay_payment_id: resp.razorpay_payment_id,
+                            razorpay_subscription_id: resp.razorpay_subscription_id,
+                            razorpay_signature: resp.razorpay_signature,
+                        },
+                    })
+                    resolve(verified)
+                } catch (err) {
+                    const e = new Error(err?.body?.error === 'signature_mismatch'
+                        ? 'We could not verify that payment. If you were charged, contact support.'
+                        : 'Payment verification failed. If you were charged, contact support.')
+                    e.code = 'verify'
+                    reject(e)
+                }
+            },
+        })
+        rzp.on('payment.failed', (r) => {
+            const e = new Error(r?.error?.description || 'The payment failed. Please try another method.')
+            e.code = 'failed'
+            reject(e)
+        })
+        rzp.open()
+    })
+}
