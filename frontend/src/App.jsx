@@ -1,4 +1,5 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { useEffect } from 'react'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -40,11 +41,31 @@ const queryClient = new QueryClient({
     }
 })
 
+// Don't let the browser restore the previous scroll position on reload/back —
+// every page should start at the top.
+if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
+    window.history.scrollRestoration = 'manual'
+}
+
+// On every route change (and initial load), jump the viewport back to the top.
+// In-page anchor links (#hash) are left alone so they can still scroll to target.
+function ScrollToTop() {
+    const { pathname, hash } = useLocation()
+    useEffect(() => {
+        if (hash) return
+        window.scrollTo(0, 0)
+        document.documentElement.scrollTop = 0
+        document.body.scrollTop = 0
+    }, [pathname, hash])
+    return null
+}
+
 export default function App() {
     return (
         <QueryClientProvider client={queryClient}>
             <BrowserRouter>
                 <AuthProvider>
+                    <ScrollToTop />
                     <CommandPalette />
                     <SessionExpiredBanner />
                     <RouteErrorBoundary>
