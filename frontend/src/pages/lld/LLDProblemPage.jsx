@@ -197,6 +197,8 @@ function ConsolePanel({ run, compile, apiError, status, onClose }) {
     )
 }
 
+const MOBILE_TAB_LABEL = { requirements: 'Requirement', diagram: 'Diagram', code: 'Code' }
+
 // ── Main component ─────────────────────────────────────────────────
 export default function LLDProblemPage() {
     const { slug } = useParams()
@@ -771,11 +773,11 @@ export default function LLDProblemPage() {
                         <div style={{ display: 'flex', gap: 4, width: '100%', marginTop: 2 }}>
                             {mobileTabs.map(t => (
                                 <button key={t} onClick={() => setMobileTab(t)} style={{
-                                    flex: 1, padding: '5px 8px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase',
+                                    flex: 1, padding: '5px 6px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: '0.62rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.02em', whiteSpace: 'nowrap',
                                     background: activeMobileTab === t ? '#f472b6' : 'var(--subtle)',
                                     color: activeMobileTab === t ? 'var(--surface)' : 'var(--muted)',
                                 }}>
-                                    {t.slice(0, 3)}
+                                    {MOBILE_TAB_LABEL[t] || t}
                                 </button>
                             ))}
                         </div>
