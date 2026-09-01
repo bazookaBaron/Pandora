@@ -1510,6 +1510,75 @@ function normalizeJob(row, companyNameBySlug) {
 
 const SENIORITY_ORDER = ["intern", "junior", "mid", "senior", "staff", "principal", "unknown"];
 
+// The first crawl stamps nearly-identical first_seen_at on every row, so a plain
+// "newest" sort dumps one company's entire board in a block. Pull a bounded pool
+// of the freshest rows and round-robin them by company before paginating, so the
+// feed reads as a mix. Pages past the pool fall back to raw DB order.
+const JOBS_INTERLEAVE_POOL = 600;
+
+function spreadByCompany(rows) {
+  const groups = new Map();
+  for (const r of rows) {
+    const k = r.company_slug || "";
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  }
+  const queues = [...groups.values()];
+  const out = [];
+  let moved = true;
+  while (moved) {
+    moved = false;
+    for (const q of queues) {
+      const next = q.shift();
+      if (next !== undefined) {
+        out.push(next);
+        moved = true;
+      }
+    }
+  }
+  return out;
+}
+
+// Lightweight fuzzy matcher for facet autocomplete (no pg_trgm dependency).
+// exact > prefix > substring > in-order subsequence; higher is better, <=0 = no match.
+// TODO: if location cardinality grows large, back this with a pg_trgm index + RPC.
+function fuzzyScore(query, target) {
+  const q = String(query || "").toLowerCase().trim();
+  const t = String(target || "").toLowerCase().trim();
+  if (!q) return 1;
+  if (t === q) return 1000;
+  if (t.startsWith(q)) return 900 - t.length;
+  const idx = t.indexOf(q);
+  if (idx >= 0) return 700 - idx - t.length * 0.1;
+  let ti = 0;
+  let hits = 0;
+  let streak = 0;
+  let best = 0;
+  for (const c of q) {
+    let found = -1;
+    for (let k = ti; k < t.length; k++) {
+      if (t[k] === c) { found = k; break; }
+    }
+    if (found === -1) return -1;
+    streak = found === ti ? streak + 1 : 1;
+    if (streak > best) best = streak;
+    hits += 1;
+    ti = found + 1;
+  }
+  return 200 + best * 10 - (t.length - hits);
+}
+
+function rankFacet(candidates, q, limit) {
+  const uniq = [...new Set(candidates.filter(Boolean))];
+  if (!q) return uniq.sort((a, b) => a.localeCompare(b)).slice(0, limit);
+  return uniq
+    .map((c) => [fuzzyScore(q, c), c])
+    .filter(([s]) => s > 0)
+    .sort((a, b) => b[0] - a[0] || a[1].localeCompare(b[1]))
+    .slice(0, limit)
+    .map(([, c]) => c);
+}
+
 function jobsNotReady(res) {
   return res.json({
     items: [],
@@ -1538,6 +1607,14 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
     const from = (page - 1) * JOBS_PAGE_SIZE;
     const to = from + JOBS_PAGE_SIZE - 1;
 
+    // For the recency sorts, fetch a fixed pool from row 0 and interleave by
+    // company in JS, then slice this page out of it. Keeps page boundaries
+    // stable (pool size never depends on `page`). The "company" sort is meant
+    // to group, so it opts out; pages past the pool use raw range order.
+    const canSpread = (sort === "newest" || sort === "oldest") && to < JOBS_INTERLEAVE_POOL;
+    const rangeFrom = canSpread ? 0 : from;
+    const rangeTo = canSpread ? JOBS_INTERLEAVE_POOL - 1 : to;
+
     const likeSafe = (s) => s.replace(/[%_,()]/g, " ");
     const daysAgoISO = (d) => new Date(Date.now() - d * 86400000).toISOString();
 
@@ -1551,7 +1628,7 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
         .from(JOBS_TABLE)
         .select(cols, { count: "exact" })
         .eq("status", "open")
-        .range(from, to);
+        .range(rangeFrom, rangeTo);
 
       if (sort === "oldest") q = q.order("first_seen_at", { ascending: true }).order("id", { ascending: true });
       else if (sort === "company") q = q.order("company_slug", { ascending: true }).order("first_seen_at", { ascending: false });
@@ -1577,7 +1654,8 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
     const { data, error, count } = resp;
     if (error) throw error;
 
-    const rows = data || [];
+    let rows = data || [];
+    if (canSpread) rows = spreadByCompany(rows).slice(from, to + 1);
 
     // Resolve company display names for just this page's slugs.
     let companyNameBySlug = {};
@@ -1632,6 +1710,54 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
       return jobsNotReady(res);
     }
     fail(res, err, "jobs", "Failed to load jobs.");
+  }
+});
+
+// GET /api/jobs/facets?field=company|location&q=… → up to `limit` distinct
+// values that actually occur in the OPEN job set, fuzzy-ranked against `q`.
+// Powers the result-aware autocomplete on the Jobs filters.
+app.get("/api/jobs/facets", catalogLimiter, requireAuth, async (req, res) => {
+  const field = String(req.query.field || "").trim().toLowerCase();
+  try {
+    const q = String(req.query.q || "").trim().slice(0, 60);
+    const limit = Math.min(20, Math.max(1, parseInt(req.query.limit, 10) || 10));
+    if (field !== "company" && field !== "location") {
+      return res.status(400).json({ error: "field must be 'company' or 'location'" });
+    }
+
+    if (field === "company") {
+      const { data: rows, error } = await jobsDb()
+        .from(JOBS_TABLE)
+        .select("company_slug")
+        .eq("status", "open")
+        .not("company_slug", "is", null)
+        .limit(8000);
+      if (error) throw error;
+      const slugs = [...new Set((rows || []).map((r) => r.company_slug).filter(Boolean))];
+      const nameBySlug = {};
+      if (slugs.length) {
+        const { data: cRows } = await jobsDb().from("company").select("slug, name").in("slug", slugs);
+        for (const c of cRows || []) nameBySlug[c.slug] = c.name;
+      }
+      const candidates = slugs.map((s) => nameBySlug[s] || s.replace(/-/g, " "));
+      return res.json({ field, options: rankFacet(candidates, q, limit) });
+    }
+
+    const { data: rows, error } = await jobsDb()
+      .from(JOBS_TABLE)
+      .select("location")
+      .eq("status", "open")
+      .not("location", "is", null)
+      .limit(8000);
+    if (error) throw error;
+    const candidates = (rows || []).map((r) => String(r.location || "").trim());
+    return res.json({ field, options: rankFacet(candidates, q, limit) });
+  } catch (err) {
+    const msg = String((err && err.message) || err);
+    if (/relation .* does not exist|column .* does not exist|schema must be|not exposed|PGRST106|PGRST205/i.test(msg)) {
+      return res.json({ field, options: [] });
+    }
+    fail(res, err, "jobs-facets", "Failed to load suggestions.");
   }
 });
 

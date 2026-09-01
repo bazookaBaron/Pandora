@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Navbar from '../../components/Navbar'
-import { useJobs, useJobsAnalytics } from '../../lib/useJobs'
+import { useJobs, useJobsAnalytics, useJobFacet } from '../../lib/useJobs'
+import { useMediaQuery } from '../../lib/useMediaQuery'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
 
 // ── helpers ────────────────────────────────────────────────────────
@@ -39,47 +40,71 @@ function Chip({ tone = '#a1a1aa', label, children }) {
 }
 
 // ── one job row ────────────────────────────────────────────────────
-function JobCard({ j }) {
+// Fixed three-part layout so every tile reads the same: title row, a short
+// chip row (company · work-type · level), then one faint meta line. The Apply
+// control sits inline on desktop and becomes a full-width button on mobile.
+function JobCard({ j, mobile }) {
     const fresh = j.firstSeen && (Date.now() - new Date(j.firstSeen).getTime()) < 48 * 3600 * 1000
     const locTone = LOC_TONE[j.locationType] || '#a1a1aa'
+    const sen = j.seniority && j.seniority !== 'unknown' ? j.seniority : ''
+    const metaLine = [
+        j.location,
+        j.source && `via ${j.source}`,
+        j.firstSeen && relTime(j.firstSeen),
+    ].filter(Boolean).join('  ·  ')
+
+    const apply = (
+        <a href={j.url} target="_blank" rel="noopener noreferrer" style={{
+            display: 'block', textAlign: 'center', whiteSpace: 'nowrap', textDecoration: 'none',
+            padding: mobile ? '8px 0' : '5px 13px', borderRadius: 6,
+            border: '1px solid rgba(34,211,238,0.4)', color: '#22d3ee',
+            fontSize: mobile ? '0.76rem' : '0.74rem', fontWeight: 800,
+        }}>
+            Apply →
+        </a>
+    )
+
     return (
         <div style={{
             background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10,
-            padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6,
+            padding: mobile ? '12px 13px' : '11px 14px',
+            display: 'flex', flexDirection: 'column', gap: 8,
         }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                 <a href={j.url} target="_blank" rel="noopener noreferrer" style={{
-                    fontWeight: 900, fontSize: '0.88rem', color: 'var(--bright)', letterSpacing: '-0.01em',
-                    textDecoration: 'none',
+                    flex: 1, minWidth: 0, fontWeight: 900, letterSpacing: '-0.01em', textDecoration: 'none',
+                    fontSize: mobile ? '0.9rem' : '0.88rem', color: 'var(--bright)', lineHeight: 1.35,
+                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
                 }}>
                     {j.title || 'Untitled role'}
                 </a>
-                {j.company && <Chip tone="#38bdf8">{j.company}</Chip>}
-                {j.location && <Chip tone="#a1a1aa">{j.location}</Chip>}
-                {j.locationType && <Chip tone={locTone}>{j.locationType}</Chip>}
-                {j.seniority && j.seniority !== 'unknown' && (
-                    <Chip tone={SEN_TONE[j.seniority] || '#a1a1aa'}>{j.seniority}</Chip>
-                )}
-                {j.source && <Chip tone="#a78bfa" label="via">{j.source}</Chip>}
                 {fresh && (
                     <span style={{
-                        color: '#fbbf24', background: 'rgba(251,191,36,0.14)', border: '1px solid rgba(251,191,36,0.4)',
-                        padding: '1px 7px', borderRadius: 999, fontSize: '0.56rem', fontWeight: 900,
-                        textTransform: 'uppercase', letterSpacing: '0.07em',
+                        flexShrink: 0, color: '#fbbf24', background: 'rgba(251,191,36,0.14)',
+                        border: '1px solid rgba(251,191,36,0.4)', padding: '1px 7px', borderRadius: 999,
+                        fontSize: '0.56rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.07em',
+                        lineHeight: 1.7,
                     }}>new</span>
                 )}
-                <span style={{ flex: 1 }} />
-                <a href={j.url} target="_blank" rel="noopener noreferrer" style={{
-                    padding: '5px 13px', borderRadius: 6, border: '1px solid rgba(34,211,238,0.4)',
-                    color: '#22d3ee', fontSize: '0.74rem', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap',
-                }}>
-                    Apply →
-                </a>
+                {!mobile && <div style={{ flexShrink: 0 }}>{apply}</div>}
             </div>
-            <span style={{ fontSize: '0.64rem', color: 'var(--faint)' }}>
-                {j.firstSeen ? `First seen ${relTime(j.firstSeen)}` : ''}
-                {j.lastSeen ? `${j.firstSeen ? ' · ' : ''}still live ${relTime(j.lastSeen)}` : ''}
-            </span>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {j.company && <Chip tone="#38bdf8">{j.company}</Chip>}
+                {j.locationType && <Chip tone={locTone}>{j.locationType}</Chip>}
+                {sen && <Chip tone={SEN_TONE[sen] || '#a1a1aa'}>{sen[0].toUpperCase() + sen.slice(1)}</Chip>}
+            </div>
+
+            {metaLine && (
+                <div style={{
+                    fontSize: '0.66rem', color: 'var(--faint)',
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                    {metaLine}
+                </div>
+            )}
+
+            {mobile && apply}
         </div>
     )
 }
@@ -107,6 +132,80 @@ function Segmented({ value, onChange, options, size = 'md' }) {
 }
 
 const selStyle = { flex: '0 1 150px', minWidth: 0 }
+
+// Result-aware autocomplete: suggestions come from /api/jobs/facets, which only
+// returns company / location values that occur in the current open job set, fuzzy
+// -ranked against what's typed. Free text still works — Enter applies it as-is.
+function FacetCombobox({ field, value, onChange, placeholder, style }) {
+    const [text, setText] = useState(value || '')
+    const [open, setOpen] = useState(false)
+    const [q, setQ] = useState('')
+    const boxRef = useRef(null)
+
+    useEffect(() => { setText(value || '') }, [value])
+    // Debounce both the suggestion query and the applied filter so typing stays live.
+    useEffect(() => {
+        const t = setTimeout(() => { setQ(text.trim()); onChange(text.trim()) }, 250)
+        return () => clearTimeout(t)
+    }, [text]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    const { options } = useJobFacet(field, q, open)
+
+    useEffect(() => {
+        if (!open) return
+        const onDoc = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false) }
+        document.addEventListener('mousedown', onDoc)
+        return () => document.removeEventListener('mousedown', onDoc)
+    }, [open])
+
+    const commit = (v) => { setText(v); onChange(v); setOpen(false) }
+
+    return (
+        <div ref={boxRef} style={{ position: 'relative', ...style }}>
+            <input
+                className="input-field"
+                placeholder={placeholder}
+                value={text}
+                onChange={(e) => { setText(e.target.value); setOpen(true) }}
+                onFocus={() => setOpen(true)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') { onChange(text.trim()); setOpen(false) }
+                    else if (e.key === 'Escape') setOpen(false)
+                }}
+                style={{ width: '100%', minWidth: 0, paddingRight: text ? 24 : undefined }}
+            />
+            {text && (
+                <button type="button" aria-label="Clear" onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => commit('')}
+                    style={{
+                        position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)',
+                        background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer',
+                        fontSize: '0.95rem', lineHeight: 1, padding: 4,
+                    }}>×</button>
+            )}
+            {open && options.length > 0 && (
+                <div style={{
+                    position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 30,
+                    background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8,
+                    maxHeight: 240, overflowY: 'auto', boxShadow: '0 8px 24px var(--overlay)',
+                }}>
+                    {options.map((o, i) => (
+                        <button key={o} type="button" onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => commit(o)}
+                            style={{
+                                display: 'block', width: '100%', textAlign: 'left', padding: '7px 11px',
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                color: 'var(--accent)', fontSize: '0.76rem',
+                                borderBottom: i === options.length - 1 ? 'none' : '1px solid var(--subtle)',
+                            }}>
+                            {o}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
 
 // ── charts (dependency-free) ───────────────────────────────────────
 function BarRow({ label, value, max, tone }) {
@@ -192,6 +291,7 @@ function AnalyticsView() {
 
 // ── Listings tab ───────────────────────────────────────────────────
 function ListingsView() {
+    const isMobile = useMediaQuery('(max-width: 767px)')
     const [searchInput, setSearchInput] = useState('')
     const [search, setSearch] = useState('')
     const [company, setCompany] = useState('')
@@ -223,10 +323,10 @@ function ListingsView() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 8 }}>
                 <input className="input-field" placeholder="Search title, company…" value={searchInput}
                     onChange={(e) => setSearchInput(e.target.value)} style={{ flex: '1 1 200px', minWidth: 0 }} />
-                <input className="input-field" placeholder="Company" value={company}
-                    onChange={(e) => setCompany(e.target.value)} style={{ flex: '0 1 140px', minWidth: 0 }} />
-                <input className="input-field" placeholder="Location" value={location}
-                    onChange={(e) => setLocation(e.target.value)} style={{ flex: '0 1 140px', minWidth: 0 }} />
+                <FacetCombobox field="company" value={company} onChange={setCompany}
+                    placeholder="Company" style={{ flex: '0 1 160px' }} />
+                <FacetCombobox field="location" value={location} onChange={setLocation}
+                    placeholder="Location" style={{ flex: '0 1 160px' }} />
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 16 }}>
                 <Segmented value={locationType} onChange={setLocationType} options={[
@@ -277,7 +377,7 @@ function ListingsView() {
                         {isFetching && <span style={{ color: 'var(--faint)', fontWeight: 400 }}> · updating…</span>}
                     </div>
                     <div style={{ display: 'grid', gap: 9, opacity: isFetching ? 0.6 : 1, transition: 'opacity .15s' }}>
-                        {data.items.map((j) => <JobCard key={j.id} j={j} />)}
+                        {data.items.map((j) => <JobCard key={j.id} j={j} mobile={isMobile} />)}
                     </div>
                     {data.pageCount > 1 && (
                         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 20 }}>

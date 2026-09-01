@@ -36,6 +36,21 @@ export function useJobs(params) {
     return { ...query, data: query.data || EMPTY }
 }
 
+// Result-aware autocomplete: distinct company / location values that exist in
+// the current OPEN job set, fuzzy-ranked server-side against `query`.
+export function useJobFacet(field, query, enabled = true) {
+    const { user } = useAuth()
+    const q = (query || '').trim()
+    const result = useQuery({
+        queryKey: ['jobs-facet', field, q],
+        queryFn: () => apiFetch(`/api/jobs/facets?field=${field}&q=${encodeURIComponent(q)}`),
+        enabled: !!user && !!field && enabled,
+        placeholderData: keepPreviousData,
+        staleTime: 5 * 60_000,
+    })
+    return { ...result, options: result.data?.options || [] }
+}
+
 const EMPTY_ANALYTICS = {
     total: 0, companiesWithJobs: 0, bySeniority: [], byWorkType: [],
     bySource: [], topCompanies: [], postedByDay: [], midSharePct: null,

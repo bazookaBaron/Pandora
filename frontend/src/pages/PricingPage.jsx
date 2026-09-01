@@ -14,10 +14,19 @@ import { startCheckout as startRazorpayCheckoutFlow } from '../lib/razorpay'
 // term). On a verified payment we re-poll entitlements.
 
 const PLAN_META = {
-    free: { name: 'Free', tagline: 'Get a feel for it', accent: '#71717a' },
-    pro: { name: 'Pro', tagline: 'Everything, no limits', accent: '#a78bfa', featured: true },
-    max: { name: 'Max', tagline: 'For serious prep', accent: '#22d3ee' },
+    free: { name: 'Free', tagline: 'Kick the tyres', accent: '#71717a', cta: 'Start free' },
+    pro: { name: 'Pro', tagline: 'Everything, no limits', accent: '#a78bfa', featured: true, badge: 'Most popular', cta: 'Get Pro' },
+    max: { name: 'Max', tagline: 'For serious, daily prep', accent: '#22d3ee', cta: 'Get Max' },
 }
+
+const TRUST = ['7-day refund', 'Cancel anytime', 'Secure checkout by Razorpay']
+
+const FAQ = [
+    ['Can I change plans later?', 'Yes — upgrade or downgrade whenever you like. A new term starts from the day you switch.'],
+    ['What happens when my term ends?', 'Nothing auto-renews. You drop back to Free and can re-subscribe any time.'],
+    ['How do refunds work?', 'Full refund within 7 days of purchase. See the Refund & Cancellation Policy for details.'],
+    ['Which payment methods work?', 'All major Indian cards, UPI and net-banking, handled securely by Razorpay.'],
+]
 
 const isInf = (v) => v === Infinity || v === 'unlimited'
 const rupees = (paise) => `₹${Math.round((paise || 0) / 100).toLocaleString('en-IN')}`
@@ -76,6 +85,13 @@ export default function PricingPage() {
         track(EVENTS.PRICING_VIEWED)
     }, [])
 
+    const savingsPct = (plan) => {
+        const m = priceInrPaise(plan, 'monthly')
+        const y = priceInrPaise(plan, 'yearly')
+        return m && y ? Math.round((1 - y / (m * 12)) * 100) : 0
+    }
+    const bestSavings = Math.max(savingsPct('pro'), savingsPct('max'))
+
     async function startCheckout(plan) {
         if (!user) { setNote('Please sign in first.'); return }
         setNote('')
@@ -116,47 +132,84 @@ export default function PricingPage() {
                     </div>
                 </div>
             )}
-            <main className="wrap" style={{ maxWidth: 980, margin: '0 auto', padding: '72px 16px 32px' }}>
-                <header style={{ textAlign: 'center', marginBottom: 22 }}>
-                    <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>Pricing</h1>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: 6 }}>
-                        Pick the plan that fits your prep. Cancel anytime.
+            <main className="wrap" style={{ maxWidth: 1040, margin: '0 auto', padding: '72px 16px 40px' }}>
+                <header style={{ textAlign: 'center', marginBottom: 26 }}>
+                    <span style={{
+                        display: 'inline-block', fontSize: '0.6rem', fontWeight: 900, letterSpacing: '0.16em',
+                        textTransform: 'uppercase', color: 'var(--pop)', border: '1px solid var(--subtle)',
+                        borderRadius: 999, padding: '4px 12px', marginBottom: 14,
+                    }}>
+                        Pricing
+                    </span>
+                    <h1 style={{ fontSize: '1.9rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em', lineHeight: 1.15 }}>
+                        Prep like it&rsquo;s your job.
+                    </h1>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.9rem', maxWidth: 520, margin: '10px auto 0', lineHeight: 1.55 }}>
+                        One subscription covers DSA, LLD, HLD, interview questions and the AI resume optimizer.
+                        Nothing auto-renews &mdash; you&rsquo;re always in control.
                     </p>
 
-                    {/* Monthly / yearly toggle */}
-                    <div className="profile-segment" role="group" aria-label="Billing period" style={{ margin: '16px auto 0' }}>
-                        {['monthly', 'yearly'].map((b) => (
-                            <button
-                                key={b}
-                                type="button"
-                                className={'profile-segment-btn' + (billing === b ? ' is-active' : '')}
-                                aria-pressed={billing === b}
-                                onClick={() => setBilling(b)}
-                            >
-                                {b === 'monthly' ? 'Monthly' : 'Yearly'}
-                            </button>
-                        ))}
+                    {/* Monthly / yearly toggle + savings pill */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
+                        <div className="profile-segment" role="group" aria-label="Billing period">
+                            {['monthly', 'yearly'].map((b) => (
+                                <button
+                                    key={b}
+                                    type="button"
+                                    className={'profile-segment-btn' + (billing === b ? ' is-active' : '')}
+                                    aria-pressed={billing === b}
+                                    onClick={() => setBilling(b)}
+                                >
+                                    {b === 'monthly' ? 'Monthly' : 'Yearly'}
+                                </button>
+                            ))}
+                        </div>
+                        {bestSavings > 0 && (
+                            <span style={{
+                                fontSize: '0.68rem', fontWeight: 900, color: 'var(--green)',
+                                background: 'rgba(74,222,128,0.14)', border: '1px solid rgba(74,222,128,0.4)',
+                                borderRadius: 999, padding: '4px 10px',
+                            }}>
+                                Save up to {bestSavings}% yearly
+                            </span>
+                        )}
                     </div>
                 </header>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(258px, 1fr))', gap: 18, alignItems: 'start' }}>
                     {PLAN_ORDER.map((id) => {
                         const meta = PLAN_META[id] || { name: id, accent: '#71717a' }
                         const paise = priceInrPaise(id, billing)
-                        const period = billing === 'yearly' ? '/yr' : '/mo'
                         const isCurrent = currentPlan === id
                         const bullets = describeLimits(id)
+                        const featured = !!meta.featured
+                        const yearlyPaise = priceInrPaise(id, 'yearly')
+                        const headline = id === 'free'
+                            ? '₹0'
+                            : billing === 'yearly' ? rupees(yearlyPaise / 12) : rupees(paise)
 
                         return (
                             <div key={id} style={{
-                                background: 'var(--panel)',
-                                border: `1px solid ${meta.featured ? meta.accent + '66' : 'var(--subtle)'}`,
-                                borderRadius: 14, padding: '22px 20px', display: 'flex', flexDirection: 'column', gap: 14,
                                 position: 'relative',
+                                background: 'var(--panel)',
+                                border: `1px solid ${featured ? meta.accent + '66' : 'var(--subtle)'}`,
+                                borderRadius: 14, padding: '24px 20px 20px',
+                                display: 'flex', flexDirection: 'column', gap: 14,
+                                boxShadow: featured ? `0 20px 44px -16px ${meta.accent}55` : 'none',
                             }}>
+                                {featured && meta.badge && !isCurrent && (
+                                    <span style={{
+                                        position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)',
+                                        fontSize: '0.58rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.12em',
+                                        color: 'var(--surface)', background: 'linear-gradient(135deg, #22d3ee, #a78bfa)',
+                                        borderRadius: 999, padding: '4px 12px', whiteSpace: 'nowrap',
+                                    }}>
+                                        {meta.badge}
+                                    </span>
+                                )}
                                 {isCurrent && (
                                     <span style={{
-                                        position: 'absolute', top: 14, right: 14, fontSize: '0.6rem', fontWeight: 900,
+                                        position: 'absolute', top: 14, right: 14, fontSize: '0.58rem', fontWeight: 900,
                                         textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--surface)',
                                         background: meta.accent, borderRadius: 6, padding: '3px 8px',
                                     }}>
@@ -166,17 +219,24 @@ export default function PricingPage() {
 
                                 <div>
                                     <div style={{ fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: meta.accent }}>{meta.name}</div>
-                                    <div style={{ marginTop: 6 }}>
-                                        <span style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--bright)' }}>{id === 'free' ? '₹0' : rupees(paise)}</span>
-                                        {paise > 0 && <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{period}</span>}
+                                    <div style={{ color: 'var(--muted)', fontSize: '0.76rem', marginTop: 3 }}>{meta.tagline}</div>
+                                    <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 5, flexWrap: 'wrap' }}>
+                                        <span style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.02em' }}>{headline}</span>
+                                        <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{id === 'free' ? 'forever' : '/mo'}</span>
                                     </div>
-                                    <div style={{ color: 'var(--muted)', fontSize: '0.76rem', marginTop: 2 }}>{meta.tagline}</div>
+                                    {id !== 'free' && (
+                                        <div style={{ fontSize: '0.68rem', color: 'var(--faint)', marginTop: 4 }}>
+                                            {billing === 'yearly'
+                                                ? `${rupees(yearlyPaise)} billed once a year`
+                                                : `or ${rupees(yearlyPaise)}/yr — save ${savingsPct(id)}%`}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
                                     {bullets.map((f) => (
-                                        <li key={f} style={{ fontSize: '0.78rem', color: 'var(--accent)', display: 'flex', gap: 8 }}>
-                                            <span style={{ color: meta.accent }}>✓</span>{f}
+                                        <li key={f} style={{ fontSize: '0.78rem', color: 'var(--accent)', display: 'flex', gap: 8, lineHeight: 1.4 }}>
+                                            <span style={{ color: meta.accent, flexShrink: 0 }}>✓</span>{f}
                                         </li>
                                     ))}
                                 </ul>
@@ -188,26 +248,54 @@ export default function PricingPage() {
                                     }}
                                     disabled={isCurrent || id === 'free' || pending === id}
                                     style={{
-                                        marginTop: 'auto', padding: '10px 16px', borderRadius: 8, border: 'none',
-                                        cursor: (isCurrent || id === 'free' || pending === id) ? 'default' : 'pointer', fontWeight: 900, fontSize: '0.78rem',
-                                        textTransform: 'uppercase', letterSpacing: '0.06em',
+                                        marginTop: 'auto', padding: '11px 16px', borderRadius: 8,
+                                        border: id === 'free' && !isCurrent ? '1px solid var(--subtle)' : 'none',
+                                        cursor: (isCurrent || id === 'free' || pending === id) ? 'default' : 'pointer',
+                                        fontWeight: 900, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em',
                                         opacity: pending === id ? 0.7 : 1,
-                                        background: isCurrent ? 'var(--subtle)' : id === 'free' ? 'var(--subtle)' : meta.featured ? 'linear-gradient(135deg, #22d3ee, #a78bfa)' : 'var(--subtle)',
-                                        color: isCurrent ? 'var(--muted)' : id === 'free' ? 'var(--muted)' : meta.featured ? 'var(--surface)' : 'var(--bright)',
+                                        background: isCurrent ? 'var(--subtle)'
+                                            : id === 'free' ? 'transparent'
+                                                : featured ? 'linear-gradient(135deg, #22d3ee, #a78bfa)'
+                                                    : meta.accent,
+                                        color: isCurrent ? 'var(--muted)'
+                                            : id === 'free' ? 'var(--accent)'
+                                                : 'var(--surface)',
                                     }}
                                 >
-                                    {pending === id ? 'Starting…' : isCurrent ? 'Current plan' : id === 'free' ? 'Free forever' : `Upgrade to ${meta.name}`}
+                                    {pending === id ? 'Starting…' : isCurrent ? 'Current plan' : meta.cta}
                                 </button>
                             </div>
                         )
                     })}
                 </div>
 
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 18, flexWrap: 'wrap', marginTop: 20 }}>
+                    {TRUST.map((t) => (
+                        <span key={t} style={{ fontSize: '0.72rem', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ color: 'var(--green)' }}>✓</span>{t}
+                        </span>
+                    ))}
+                </div>
+
                 {note && (
                     <ErrorState compact title="Checkout" message={note} style={{ marginTop: 18 }} />
                 )}
 
-                <p style={{ textAlign: 'center', marginTop: 20, fontSize: '0.72rem', color: 'var(--faint)' }}>
+                <section style={{ maxWidth: 680, margin: '44px auto 0' }}>
+                    <h2 style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--bright)', textAlign: 'center', marginBottom: 16, letterSpacing: '-0.02em' }}>
+                        Questions
+                    </h2>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {FAQ.map(([q, a]) => (
+                            <div key={q} style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '14px 16px' }}>
+                                <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--bright)' }}>{q}</div>
+                                <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: 6, lineHeight: 1.55 }}>{a}</div>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+
+                <p style={{ textAlign: 'center', marginTop: 28, fontSize: '0.72rem', color: 'var(--faint)' }}>
                     Prices in INR, billed by Razorpay. Payments are one-time for the selected term — nothing auto-renews.
                     See our <Link to="/refunds" style={{ color: 'var(--pop)' }}>Refund &amp; Cancellation Policy</Link>.
                 </p>
