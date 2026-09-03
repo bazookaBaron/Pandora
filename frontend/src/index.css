@@ -663,6 +663,22 @@ h3 {
     color: var(--pop);
 }
 
+/* Jobs listing — minimal inline rows */
+.job-card {
+    transition: border-color var(--transition), background var(--transition);
+}
+.job-card:hover {
+    border-color: var(--subtle-strong);
+    background: var(--surface-2);
+}
+.job-card .job-apply {
+    transition: color var(--transition), border-color var(--transition), background var(--transition);
+}
+.job-card:hover .job-apply {
+    border-color: var(--pop);
+    background: var(--pop-dim);
+}
+
 .nav-pulse {
     width: 6px;
     height: 6px;

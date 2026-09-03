@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Navbar from '../../components/Navbar'
 import { useJobs, useJobsAnalytics, useJobFacet } from '../../lib/useJobs'
-import { useMediaQuery } from '../../lib/useMediaQuery'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
 
 // ── helpers ────────────────────────────────────────────────────────
@@ -26,85 +25,63 @@ const SEN_LABEL = {
     senior: 'Senior (4–8y)', staff: 'Staff (8y+)', principal: 'Principal', unknown: 'Unspecified',
 }
 
-function Chip({ tone = '#a1a1aa', label, children }) {
-    return (
-        <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
-            color: tone, background: tone + '14', border: `1px solid ${tone}33`,
-            padding: '2px 8px', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700, lineHeight: 1.5,
-        }}>
-            {label && <span style={{ opacity: 0.6, fontWeight: 600 }}>{label}</span>}
-            {children}
-        </span>
-    )
-}
-
 // ── one job row ────────────────────────────────────────────────────
-// Fixed three-part layout so every tile reads the same: title row, a short
-// chip row (company · work-type · level), then one faint meta line. The Apply
-// control sits inline on desktop and becomes a full-width button on mobile.
-function JobCard({ j, mobile }) {
+// Minimal inline row: title + a NEW tick, one faint meta line underneath
+// (company · location · work-type · level · age), and a small Apply button
+// pinned right. No pills — colour is carried by the text itself.
+function JobCard({ j }) {
     const fresh = j.firstSeen && (Date.now() - new Date(j.firstSeen).getTime()) < 48 * 3600 * 1000
-    const locTone = LOC_TONE[j.locationType] || '#a1a1aa'
+    const locTone = LOC_TONE[j.locationType]
     const sen = j.seniority && j.seniority !== 'unknown' ? j.seniority : ''
-    const metaLine = [
-        j.location,
-        j.source && `via ${j.source}`,
-        j.firstSeen && relTime(j.firstSeen),
-    ].filter(Boolean).join('  ·  ')
 
-    const apply = (
-        <a href={j.url} target="_blank" rel="noopener noreferrer" style={{
-            display: 'block', textAlign: 'center', whiteSpace: 'nowrap', textDecoration: 'none',
-            padding: mobile ? '8px 0' : '5px 13px', borderRadius: 6,
-            border: '1px solid rgba(34,211,238,0.4)', color: '#22d3ee',
-            fontSize: mobile ? '0.76rem' : '0.74rem', fontWeight: 800,
-        }}>
-            Apply →
-        </a>
-    )
+    const meta = []
+    if (j.company) meta.push(<span style={{ color: 'var(--accent)', fontWeight: 600 }}>{j.company}</span>)
+    if (j.location) meta.push(j.location)
+    if (j.locationType) meta.push(<span style={{ color: locTone || 'inherit' }}>{j.locationType}</span>)
+    if (sen) meta.push(SEN_LABEL[sen] || sen)
+    if (j.firstSeen) meta.push(relTime(j.firstSeen))
 
     return (
-        <div style={{
-            background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10,
-            padding: mobile ? '12px 13px' : '11px 14px',
-            display: 'flex', flexDirection: 'column', gap: 8,
+        <div className="job-card" style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8,
+            padding: '10px 12px',
         }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                <a href={j.url} target="_blank" rel="noopener noreferrer" style={{
-                    flex: 1, minWidth: 0, fontWeight: 900, letterSpacing: '-0.01em', textDecoration: 'none',
-                    fontSize: mobile ? '0.9rem' : '0.88rem', color: 'var(--bright)', lineHeight: 1.35,
-                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-                }}>
-                    {j.title || 'Untitled role'}
-                </a>
-                {fresh && (
-                    <span style={{
-                        flexShrink: 0, color: '#fbbf24', background: 'rgba(251,191,36,0.14)',
-                        border: '1px solid rgba(251,191,36,0.4)', padding: '1px 7px', borderRadius: 999,
-                        fontSize: '0.56rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.07em',
-                        lineHeight: 1.7,
-                    }}>new</span>
-                )}
-                {!mobile && <div style={{ flexShrink: 0 }}>{apply}</div>}
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                {j.company && <Chip tone="#38bdf8">{j.company}</Chip>}
-                {j.locationType && <Chip tone={locTone}>{j.locationType}</Chip>}
-                {sen && <Chip tone={SEN_TONE[sen] || '#a1a1aa'}>{sen[0].toUpperCase() + sen.slice(1)}</Chip>}
-            </div>
-
-            {metaLine && (
+            <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, minWidth: 0 }}>
+                    <a href={j.url} target="_blank" rel="noopener noreferrer" style={{
+                        fontWeight: 750, fontSize: '0.85rem', color: 'var(--bright)', letterSpacing: '-0.01em',
+                        textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>
+                        {j.title || 'Untitled role'}
+                    </a>
+                    {fresh && (
+                        <span style={{
+                            flexShrink: 0, fontSize: '0.55rem', fontWeight: 900,
+                            letterSpacing: '0.09em', color: '#fbbf24',
+                        }}>NEW</span>
+                    )}
+                </div>
                 <div style={{
-                    fontSize: '0.66rem', color: 'var(--faint)',
+                    marginTop: 3, fontSize: '0.72rem', color: 'var(--muted)',
                     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>
-                    {metaLine}
+                    {meta.map((m, i) => (
+                        <span key={i}>
+                            {i > 0 && <span style={{ opacity: 0.4 }}>{' · '}</span>}
+                            {m}
+                        </span>
+                    ))}
                 </div>
-            )}
+            </div>
 
-            {mobile && apply}
+            <a href={j.url} target="_blank" rel="noopener noreferrer" className="job-apply" style={{
+                flexShrink: 0, padding: '4px 11px', borderRadius: 6,
+                border: '1px solid var(--subtle)', color: 'var(--pop)',
+                fontSize: '0.7rem', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap',
+            }}>
+                Apply ↗
+            </a>
         </div>
     )
 }
@@ -291,7 +268,9 @@ function AnalyticsView() {
 
 // ── Listings tab ───────────────────────────────────────────────────
 function ListingsView() {
-    const isMobile = useMediaQuery('(max-width: 767px)')
+    // One shuffle seed per visit: the server randomises + company-spaces the
+    // feed against it, so order stays stable while paging but changes on reload.
+    const [seed] = useState(() => Math.floor(Math.random() * 1e9) + 1)
     const [searchInput, setSearchInput] = useState('')
     const [search, setSearch] = useState('')
     const [company, setCompany] = useState('')
@@ -310,7 +289,7 @@ function ListingsView() {
     useEffect(() => { setPage(1) }, [company, location, locationType, source, seniority, postedWithin, sort])
 
     const { data, isLoading, isFetching, error, refetch } =
-        useJobs({ search, company, location, locationType, source, seniority, postedWithin, sort, page })
+        useJobs({ search, company, location, locationType, source, seniority, postedWithin, sort, page, seed })
 
     const sourceOptions = useMemo(
         () => [{ value: '', label: 'All sources' }, ...(data.facets?.sources || []).map((s) => ({ value: s, label: s }))],
@@ -376,8 +355,8 @@ function ListingsView() {
                         {data.total.toLocaleString()} job{data.total === 1 ? '' : 's'}
                         {isFetching && <span style={{ color: 'var(--faint)', fontWeight: 400 }}> · updating…</span>}
                     </div>
-                    <div style={{ display: 'grid', gap: 9, opacity: isFetching ? 0.6 : 1, transition: 'opacity .15s' }}>
-                        {data.items.map((j) => <JobCard key={j.id} j={j} mobile={isMobile} />)}
+                    <div style={{ display: 'grid', gap: 6, opacity: isFetching ? 0.6 : 1, transition: 'opacity .15s' }}>
+                        {data.items.map((j) => <JobCard key={j.id} j={j} />)}
                     </div>
                     {data.pageCount > 1 && (
                         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 20 }}>

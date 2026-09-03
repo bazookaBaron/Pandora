@@ -149,7 +149,7 @@ export default function Navbar() {
       <>
         <nav className="top-nav" ref={navRef}>
             <Link to="/" className="nav-brand">
-                <img src="/vloombox-logo.svg" alt="" width="34" height="34" style={{ display: 'block' }} />
+                <img src="/vloombox-logo.svg" alt="" width="42" height="42" style={{ display: 'block' }} />
                 VLOOMBOX
             </Link>
 

@@ -1511,30 +1511,53 @@ function normalizeJob(row, companyNameBySlug) {
 const SENIORITY_ORDER = ["intern", "junior", "mid", "senior", "staff", "principal", "unknown"];
 
 // The first crawl stamps nearly-identical first_seen_at on every row, so a plain
-// "newest" sort dumps one company's entire board in a block. Pull a bounded pool
-// of the freshest rows and round-robin them by company before paginating, so the
-// feed reads as a mix. Pages past the pool fall back to raw DB order.
+// "newest" sort dumps one company's whole board in a block. Pull a bounded pool
+// of the freshest rows, shuffle it (seeded by the client so pagination is stable
+// within a visit but varies on reload), then greedily space it so no two
+// postings from the same company land within JOBS_SPREAD_GAP of each other.
+// Pages past the pool fall back to raw DB order.
 const JOBS_INTERLEAVE_POOL = 600;
+const JOBS_SPREAD_GAP = 4;
 
-function spreadByCompany(rows) {
-  const groups = new Map();
-  for (const r of rows) {
-    const k = r.company_slug || "";
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k).push(r);
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffleSpread(rows, seed, gap = JOBS_SPREAD_GAP) {
+  const rnd = mulberry32(seed || 1);
+  const a = rows.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
   }
-  const queues = [...groups.values()];
   const out = [];
-  let moved = true;
-  while (moved) {
-    moved = false;
-    for (const q of queues) {
-      const next = q.shift();
-      if (next !== undefined) {
-        out.push(next);
-        moved = true;
+  const recent = []; // company_slug of the last `gap` picks
+  const deferred = []; // rows skipped because their company was too recent
+  let idx = 0;
+  while (out.length < a.length) {
+    let pick = null;
+    for (let k = 0; k < deferred.length; k++) {
+      if (!recent.includes(deferred[k].company_slug || "")) {
+        pick = deferred.splice(k, 1)[0];
+        break;
       }
     }
+    while (pick === null && idx < a.length) {
+      const cand = a[idx++];
+      if (!recent.includes(cand.company_slug || "")) pick = cand;
+      else deferred.push(cand);
+    }
+    if (pick === null) pick = deferred.shift() || a[idx++]; // everything left collides
+    out.push(pick);
+    recent.push(pick.company_slug || "");
+    if (recent.length > gap) recent.shift();
   }
   return out;
 }
@@ -1604,13 +1627,14 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
     const postedWithin = String(req.query.posted_within || "").trim(); // '1' | '3' | '5' | 'older'
     const sort = String(req.query.sort || "newest").trim();
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const seed = (parseInt(req.query.seed, 10) || 1) >>> 0; // client-stable shuffle seed
     const from = (page - 1) * JOBS_PAGE_SIZE;
     const to = from + JOBS_PAGE_SIZE - 1;
 
-    // For the recency sorts, fetch a fixed pool from row 0 and interleave by
-    // company in JS, then slice this page out of it. Keeps page boundaries
-    // stable (pool size never depends on `page`). The "company" sort is meant
-    // to group, so it opts out; pages past the pool use raw range order.
+    // For the recency sorts, fetch a fixed pool from row 0, shuffle + company-
+    // space it in JS, then slice this page out. The pool size never depends on
+    // `page`, so boundaries stay stable for a given seed. The "company" sort is
+    // meant to group, so it opts out; pages past the pool use raw range order.
     const canSpread = (sort === "newest" || sort === "oldest") && to < JOBS_INTERLEAVE_POOL;
     const rangeFrom = canSpread ? 0 : from;
     const rangeTo = canSpread ? JOBS_INTERLEAVE_POOL - 1 : to;
@@ -1655,7 +1679,7 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
     if (error) throw error;
 
     let rows = data || [];
-    if (canSpread) rows = spreadByCompany(rows).slice(from, to + 1);
+    if (canSpread) rows = shuffleSpread(rows, seed).slice(from, to + 1);
 
     // Resolve company display names for just this page's slugs.
     let companyNameBySlug = {};

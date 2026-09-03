@@ -85,7 +85,7 @@ export default function Footer() {
                         to="/"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 900, color: 'var(--bright)', textDecoration: 'none', letterSpacing: '-0.01em' }}
                     >
-                        <img src="/vloombox-logo.svg" alt="" width="20" height="20" style={{ display: 'block' }} />
+                        <img src="/vloombox-logo.svg" alt="" width="28" height="28" style={{ display: 'block' }} />
                         Vloombox
                     </Link>
                 </div>

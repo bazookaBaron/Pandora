@@ -24,6 +24,7 @@ export function useJobs(params) {
     if (params.postedWithin) qs.set('posted_within', params.postedWithin)
     if (params.sort && params.sort !== 'newest') qs.set('sort', params.sort)
     if (params.page && params.page > 1) qs.set('page', String(params.page))
+    if (params.seed) qs.set('seed', String(params.seed))
 
     const query = useQuery({
         queryKey: ['jobs', params],

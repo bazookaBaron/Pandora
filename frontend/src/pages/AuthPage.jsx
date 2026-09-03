@@ -208,7 +208,7 @@ export default function AuthPage() {
             <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 400, margin: '0 auto' }}>
                 {/* Logo */}
                 <div className="auth-logo">
-                    <img src="/vloombox-logo.svg" alt="" width="40" height="40" className="logo-mark" style={{ padding: 0, background: 'none' }} />
+                    <img src="/vloombox-logo.svg" alt="" width="56" height="56" className="logo-mark" style={{ width: 56, height: 56, padding: 0, background: 'none' }} />
                     <div>
                         <h1 className="auth-brand">Vloombox</h1>
                         <p className="auth-tagline">AI-Powered ATS Tailoring</p>
