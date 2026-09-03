@@ -45,11 +45,12 @@ function JobCard({ j }) {
         <div className="job-card" style={{
             display: 'flex', alignItems: 'center', gap: 12,
             background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8,
-            padding: '10px 12px',
+            padding: '10px 12px', minWidth: 0, maxWidth: '100%', overflow: 'hidden',
         }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, minWidth: 0 }}>
+            <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, minWidth: 0, overflow: 'hidden' }}>
                     <a href={j.url} target="_blank" rel="noopener noreferrer" style={{
+                        flex: '1 1 auto', minWidth: 0, display: 'block',
                         fontWeight: 750, fontSize: '0.85rem', color: 'var(--bright)', letterSpacing: '-0.01em',
                         textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                     }}>
@@ -355,7 +356,7 @@ function ListingsView() {
                         {data.total.toLocaleString()} job{data.total === 1 ? '' : 's'}
                         {isFetching && <span style={{ color: 'var(--faint)', fontWeight: 400 }}> · updating…</span>}
                     </div>
-                    <div style={{ display: 'grid', gap: 6, opacity: isFetching ? 0.6 : 1, transition: 'opacity .15s' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 6, opacity: isFetching ? 0.6 : 1, transition: 'opacity .15s' }}>
                         {data.items.map((j) => <JobCard key={j.id} j={j} />)}
                     </div>
                     {data.pageCount > 1 && (
