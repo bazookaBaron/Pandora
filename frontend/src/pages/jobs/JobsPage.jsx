@@ -114,20 +114,28 @@ const selStyle = { flex: '0 1 150px', minWidth: 0 }
 // Result-aware autocomplete: suggestions come from /api/jobs/facets, which only
 // returns company / location values that occur in the current open job set, fuzzy
 // -ranked against what's typed. Free text still works — Enter applies it as-is.
-function FacetCombobox({ field, value, onChange, placeholder, style }) {
-    const [text, setText] = useState(value || '')
+// `multiple`: `value` is a string[] of picked values, rendered as removable chips.
+function FacetCombobox({ field, value, onChange, placeholder, style, multiple = false }) {
+    const selected = multiple ? (Array.isArray(value) ? value : []) : []
+    const [text, setText] = useState(multiple ? '' : (value || ''))
     const [open, setOpen] = useState(false)
     const [q, setQ] = useState('')
     const boxRef = useRef(null)
 
-    useEffect(() => { setText(value || '') }, [value])
-    // Debounce both the suggestion query and the applied filter so typing stays live.
+    useEffect(() => { if (!multiple) setText(value || '') }, [value, multiple])
+    // Debounce the suggestion query; for single-select, also apply free text live.
     useEffect(() => {
-        const t = setTimeout(() => { setQ(text.trim()); onChange(text.trim()) }, 250)
+        const t = setTimeout(() => {
+            setQ(text.trim())
+            if (!multiple) onChange(text.trim())
+        }, 250)
         return () => clearTimeout(t)
     }, [text]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const { options } = useJobFacet(field, q, open)
+    const shown = multiple
+        ? options.filter((o) => !selected.some((s) => s.toLowerCase() === o.toLowerCase()))
+        : options
 
     useEffect(() => {
         if (!open) return
@@ -136,45 +144,73 @@ function FacetCombobox({ field, value, onChange, placeholder, style }) {
         return () => document.removeEventListener('mousedown', onDoc)
     }, [open])
 
-    const commit = (v) => { setText(v); onChange(v); setOpen(false) }
+    const commit = (v) => {
+        if (multiple) {
+            const val = (v || '').trim()
+            if (val && !selected.some((s) => s.toLowerCase() === val.toLowerCase())) onChange([...selected, val])
+            setText(''); setOpen(false)
+            return
+        }
+        setText(v); onChange(v); setOpen(false)
+    }
+    const removeChip = (chip) => onChange(selected.filter((s) => s !== chip))
 
     return (
         <div ref={boxRef} style={{ position: 'relative', ...style }}>
+            {multiple && selected.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+                    {selected.map((chip) => (
+                        <span key={chip} style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            background: 'var(--subtle)', color: 'var(--accent)', borderRadius: 999,
+                            padding: '2px 4px 2px 9px', fontSize: '0.7rem', fontWeight: 600, maxWidth: '100%',
+                        }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{chip}</span>
+                            <button type="button" aria-label={`Remove ${chip}`} onClick={() => removeChip(chip)}
+                                style={{
+                                    flexShrink: 0, background: 'none', border: 'none', color: 'var(--faint)',
+                                    cursor: 'pointer', fontSize: '0.85rem', lineHeight: 1, padding: '0 3px',
+                                }}>×</button>
+                        </span>
+                    ))}
+                </div>
+            )}
             <input
                 className="input-field"
-                placeholder={placeholder}
+                placeholder={multiple && selected.length ? 'Add another…' : placeholder}
                 value={text}
                 onChange={(e) => { setText(e.target.value); setOpen(true) }}
                 onFocus={() => setOpen(true)}
                 onKeyDown={(e) => {
-                    if (e.key === 'Enter') { onChange(text.trim()); setOpen(false) }
+                    if (e.key === 'Enter') commit(multiple ? text : text.trim())
                     else if (e.key === 'Escape') setOpen(false)
+                    else if (e.key === 'Backspace' && multiple && !text && selected.length) removeChip(selected[selected.length - 1])
                 }}
                 style={{ width: '100%', minWidth: 0, paddingRight: text ? 24 : undefined }}
             />
             {text && (
                 <button type="button" aria-label="Clear" onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => commit('')}
+                    onClick={() => (multiple ? (setText(''), setOpen(false)) : commit(''))}
                     style={{
-                        position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)',
+                        position: 'absolute', right: 4, bottom: 9,
                         background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer',
                         fontSize: '0.95rem', lineHeight: 1, padding: 4,
                     }}>×</button>
             )}
-            {open && options.length > 0 && (
+            {open && shown.length > 0 && (
                 <div style={{
                     position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 30,
                     background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8,
                     maxHeight: 240, overflowY: 'auto', boxShadow: '0 8px 24px var(--overlay)',
                 }}>
-                    {options.map((o, i) => (
+                    {shown.map((o, i) => (
                         <button key={o} type="button" onMouseDown={(e) => e.preventDefault()}
                             onClick={() => commit(o)}
                             style={{
                                 display: 'block', width: '100%', textAlign: 'left', padding: '7px 11px',
                                 background: 'none', border: 'none', cursor: 'pointer',
                                 color: 'var(--accent)', fontSize: '0.76rem',
-                                borderBottom: i === options.length - 1 ? 'none' : '1px solid var(--subtle)',
+                                borderBottom: i === shown.length - 1 ? 'none' : '1px solid var(--subtle)',
                             }}>
                             {o}
                         </button>
@@ -269,13 +305,10 @@ function AnalyticsView() {
 
 // ── Listings tab ───────────────────────────────────────────────────
 function ListingsView() {
-    // One shuffle seed per visit: the server randomises + company-spaces the
-    // feed against it, so order stays stable while paging but changes on reload.
-    const [seed] = useState(() => Math.floor(Math.random() * 1e9) + 1)
     const [searchInput, setSearchInput] = useState('')
     const [search, setSearch] = useState('')
     const [company, setCompany] = useState('')
-    const [location, setLocation] = useState('')
+    const [locations, setLocations] = useState([]) // multi-select
     const [locationType, setLocationType] = useState('')
     const [source, setSource] = useState('')
     const [seniority, setSeniority] = useState('')
@@ -283,20 +316,22 @@ function ListingsView() {
     const [sort, setSort] = useState('newest')
     const [page, setPage] = useState(1)
 
+    const locationParam = locations.join(',')
+
     useEffect(() => {
         const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(1) }, 300)
         return () => clearTimeout(t)
     }, [searchInput])
-    useEffect(() => { setPage(1) }, [company, location, locationType, source, seniority, postedWithin, sort])
+    useEffect(() => { setPage(1) }, [company, locationParam, locationType, source, seniority, postedWithin, sort])
 
     const { data, isLoading, isFetching, error, refetch } =
-        useJobs({ search, company, location, locationType, source, seniority, postedWithin, sort, page, seed })
+        useJobs({ search, company, location: locationParam, locationType, source, seniority, postedWithin, sort, page })
 
     const sourceOptions = useMemo(
         () => [{ value: '', label: 'All sources' }, ...(data.facets?.sources || []).map((s) => ({ value: s, label: s }))],
         [data.facets],
     )
-    const anyFilter = search || company || location || locationType || source || seniority || postedWithin
+    const anyFilter = search || company || locations.length || locationType || source || seniority || postedWithin
 
     return (
         <>
@@ -305,8 +340,8 @@ function ListingsView() {
                     onChange={(e) => setSearchInput(e.target.value)} style={{ flex: '1 1 200px', minWidth: 0 }} />
                 <FacetCombobox field="company" value={company} onChange={setCompany}
                     placeholder="Company" style={{ flex: '0 1 160px' }} />
-                <FacetCombobox field="location" value={location} onChange={setLocation}
-                    placeholder="Location" style={{ flex: '0 1 160px' }} />
+                <FacetCombobox field="location" multiple value={locations} onChange={setLocations}
+                    placeholder="Locations" style={{ flex: '1 1 200px' }} />
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 16 }}>
                 <Segmented value={locationType} onChange={setLocationType} options={[
@@ -320,11 +355,9 @@ function ListingsView() {
                     ))}
                 </select>
                 <select className="input-field" value={postedWithin} onChange={(e) => setPostedWithin(e.target.value)} style={selStyle}>
-                    <option value="">Any time</option>
+                    <option value="">Any time (≤ 2 days)</option>
                     <option value="1">Past 24 hours</option>
-                    <option value="3">Past 3 days</option>
-                    <option value="5">Past 5 days</option>
-                    <option value="older">Older than 5 days</option>
+                    <option value="2">Past 2 days</option>
                 </select>
                 {sourceOptions.length > 1 && (
                     <select className="input-field" value={source} onChange={(e) => setSource(e.target.value)} style={selStyle}>
@@ -332,7 +365,7 @@ function ListingsView() {
                     </select>
                 )}
                 <select className="input-field" value={sort} onChange={(e) => setSort(e.target.value)} style={selStyle}>
-                    <option value="newest">Newest first</option>
+                    <option value="newest">Latest first</option>
                     <option value="oldest">Oldest first</option>
                     <option value="company">By company</option>
                 </select>
@@ -392,7 +425,7 @@ export default function JobsPage() {
                 <header style={{ marginBottom: 16 }}>
                     <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>Jobs</h1>
                     <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: 6 }}>
-                        Tech openings crawled from ~500 companies, refreshed through the day. Stale posts drop off after 5 days.
+                        Tech openings crawled from ~500 companies, refreshed through the day. Only jobs from the last 2 days — anything older is dropped.
                     </p>
                 </header>
 

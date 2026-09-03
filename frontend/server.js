@@ -1510,38 +1510,26 @@ function normalizeJob(row, companyNameBySlug) {
 
 const SENIORITY_ORDER = ["intern", "junior", "mid", "senior", "staff", "principal", "unknown"];
 
-// The first crawl stamps nearly-identical first_seen_at on every row, so a plain
-// "newest" sort dumps one company's whole board in a block. Pull a bounded pool
-// of the freshest rows, shuffle it (seeded by the client so pagination is stable
-// within a visit but varies on reload), then greedily space it so no two
-// postings from the same company land within JOBS_SPREAD_GAP of each other.
-// Pages past the pool fall back to raw DB order.
+// The first crawl stamps nearly-identical first_seen_at on many rows, so a
+// plain "newest" sort dumps one company's whole board in a block. Pull a
+// bounded pool of the freshest rows and greedily re-space it — keeping the
+// recency order otherwise — so no two postings from the same company land
+// within JOBS_SPREAD_GAP of each other. Pages past the pool fall back to raw
+// DB order.
 const JOBS_INTERLEAVE_POOL = 600;
 const JOBS_SPREAD_GAP = 4;
+// Hard age cap: the board only serves jobs first seen in the last N days. The
+// crawler hard-deletes older rows, this is the webapp-side guarantee in case a
+// crawl pass lags. Keep in sync with PGPIPE_MAX_AGE_DAYS in the crawler.
+const JOBS_MAX_AGE_DAYS = Number(process.env.JOBS_MAX_AGE_DAYS) || 2;
+const jobsMaxAgeISO = () => new Date(Date.now() - JOBS_MAX_AGE_DAYS * 86400000).toISOString();
 
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function shuffleSpread(rows, seed, gap = JOBS_SPREAD_GAP) {
-  const rnd = mulberry32(seed || 1);
-  const a = rows.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
+function spaceByCompany(rows, gap = JOBS_SPREAD_GAP) {
   const out = [];
   const recent = []; // company_slug of the last `gap` picks
   const deferred = []; // rows skipped because their company was too recent
   let idx = 0;
-  while (out.length < a.length) {
+  while (out.length < rows.length) {
     let pick = null;
     for (let k = 0; k < deferred.length; k++) {
       if (!recent.includes(deferred[k].company_slug || "")) {
@@ -1549,12 +1537,12 @@ function shuffleSpread(rows, seed, gap = JOBS_SPREAD_GAP) {
         break;
       }
     }
-    while (pick === null && idx < a.length) {
-      const cand = a[idx++];
+    while (pick === null && idx < rows.length) {
+      const cand = rows[idx++];
       if (!recent.includes(cand.company_slug || "")) pick = cand;
       else deferred.push(cand);
     }
-    if (pick === null) pick = deferred.shift() || a[idx++]; // everything left collides
+    if (pick === null) pick = deferred.shift() || rows[idx++]; // everything left collides
     out.push(pick);
     recent.push(pick.company_slug || "");
     if (recent.length > gap) recent.shift();
@@ -1617,29 +1605,40 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
   try {
     const search = String(req.query.search || "").trim().slice(0, 120);
     const company = String(req.query.company || "").trim().slice(0, 80);
-    const location = String(req.query.location || "").trim().slice(0, 80);
+    // `location` may be a comma-separated list — any match keeps the row.
+    const locations = String(req.query.location || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 12)
+      .map((s) => s.slice(0, 80));
     const locationType = String(req.query.location_type || "")
       .trim()
       .toLowerCase()
       .slice(0, 20);
     const source = String(req.query.source || "").trim().slice(0, 40);
     const seniority = String(req.query.seniority || "").trim().toLowerCase().slice(0, 20);
-    const postedWithin = String(req.query.posted_within || "").trim(); // '1' | '3' | '5' | 'older'
+    const postedWithinDays = Math.max(0, Math.min(31, parseInt(req.query.posted_within, 10) || 0));
     const sort = String(req.query.sort || "newest").trim();
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const seed = (parseInt(req.query.seed, 10) || 1) >>> 0; // client-stable shuffle seed
     const from = (page - 1) * JOBS_PAGE_SIZE;
     const to = from + JOBS_PAGE_SIZE - 1;
 
-    // For the recency sorts, fetch a fixed pool from row 0, shuffle + company-
-    // space it in JS, then slice this page out. The pool size never depends on
-    // `page`, so boundaries stay stable for a given seed. The "company" sort is
-    // meant to group, so it opts out; pages past the pool use raw range order.
+    // For the recency sorts, fetch a fixed pool from row 0, company-space it in
+    // JS (recency order otherwise preserved), then slice this page out. The
+    // pool size never depends on `page`, so boundaries stay stable. The
+    // "company" sort is meant to group, so it opts out; pages past the pool
+    // use raw range order.
     const canSpread = (sort === "newest" || sort === "oldest") && to < JOBS_INTERLEAVE_POOL;
     const rangeFrom = canSpread ? 0 : from;
     const rangeTo = canSpread ? JOBS_INTERLEAVE_POOL - 1 : to;
 
-    const likeSafe = (s) => s.replace(/[%_,()]/g, " ");
+    const likeSafe = (s) => s.replace(/[%_,()*]/g, " ");
+    // Location values often carry commas ("Bengaluru, Karnataka, India"). Strip
+    // the significant chars and wildcard the gaps so a picked value still
+    // matches and commas can't break the `.or()` filter list. `.ilike()` (method)
+    // uses `%`; the `.or()` string form uses `*` (PostgREST URL wildcard).
+    const locCore = (s) => likeSafe(s).trim().replace(/\s+/g, " ");
     const daysAgoISO = (d) => new Date(Date.now() - d * 86400000).toISOString();
 
     // `seniority` column is added by a later crawler migration — if it's not
@@ -1652,6 +1651,7 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
         .from(JOBS_TABLE)
         .select(cols, { count: "exact" })
         .eq("status", "open")
+        .gte("first_seen_at", jobsMaxAgeISO()) // board only serves jobs ≤ N days old
         .range(rangeFrom, rangeTo);
 
       if (sort === "oldest") q = q.order("first_seen_at", { ascending: true }).order("id", { ascending: true });
@@ -1662,12 +1662,15 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
       // company_slug is hyphenated lowercase ("jane-street"); let "Jane Street"
       // match by turning spaces/hyphens into wildcards.
       if (company) q = q.ilike("company_slug", `%${likeSafe(company).trim().replace(/[\s-]+/g, "%")}%`);
-      if (location) q = q.ilike("location", `%${likeSafe(location)}%`);
+      if (locations.length === 1) {
+        q = q.ilike("location", `%${locCore(locations[0]).replace(/ /g, "%")}%`);
+      } else if (locations.length > 1) {
+        q = q.or(locations.map((loc) => `location.ilike.*${locCore(loc).replace(/ /g, "*")}*`).join(","));
+      }
       if (locationType) q = q.eq("location_type", locationType);
       if (source) q = q.eq("source", source);
       if (withSeniority && seniority) q = q.eq("seniority", seniority);
-      if (postedWithin === "older") q = q.lt("first_seen_at", daysAgoISO(5));
-      else if (["1", "3", "5"].includes(postedWithin)) q = q.gte("first_seen_at", daysAgoISO(Number(postedWithin)));
+      if (postedWithinDays > 0) q = q.gte("first_seen_at", daysAgoISO(postedWithinDays));
       return q;
     };
 
@@ -1679,7 +1682,7 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
     if (error) throw error;
 
     let rows = data || [];
-    if (canSpread) rows = shuffleSpread(rows, seed).slice(from, to + 1);
+    if (canSpread) rows = spaceByCompany(rows).slice(from, to + 1);
 
     // Resolve company display names for just this page's slugs.
     let companyNameBySlug = {};
@@ -1754,6 +1757,7 @@ app.get("/api/jobs/facets", catalogLimiter, requireAuth, async (req, res) => {
         .from(JOBS_TABLE)
         .select("company_slug")
         .eq("status", "open")
+        .gte("first_seen_at", jobsMaxAgeISO())
         .not("company_slug", "is", null)
         .limit(8000);
       if (error) throw error;
@@ -1771,6 +1775,7 @@ app.get("/api/jobs/facets", catalogLimiter, requireAuth, async (req, res) => {
       .from(JOBS_TABLE)
       .select("location")
       .eq("status", "open")
+      .gte("first_seen_at", jobsMaxAgeISO())
       .not("location", "is", null)
       .limit(8000);
     if (error) throw error;
