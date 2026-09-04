@@ -510,6 +510,18 @@ function HLDWorkspaceInner() {
     const handleJudge = async () => {
         if (!canvasRef.current || judging) return
         setJudging(true); setJudgeResult(null)
+        // On mobile the canvas pane is `display:none` unless it's the active tab,
+        // which gives it zero layout size — toPng() then captures nothing and the
+        // server rejects the empty image_base64. Force the canvas pane visible
+        // for the snapshot, then hop to the Judge pane to show the result.
+        const cameFromOtherPane = isMobile && mobilePane !== 'canvas'
+        if (cameFromOtherPane) {
+            setMobilePane('canvas')
+            // Two RAFs for the display:none -> flex layout/paint, plus a beat for
+            // React Flow's own resize-observer to re-measure the now-visible pane.
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+            await new Promise((resolve) => setTimeout(resolve, 60))
+        }
         try {
             const bg = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#09090b'
             const imgData = await toPng(canvasRef.current, { backgroundColor: bg, pixelRatio: 1.5 })
@@ -524,7 +536,10 @@ function HLDWorkspaceInner() {
             if (isUsageLimit(e)) setUsageLimitInfo({ used: e.used, limit: e.limit, resetsAt: e.resetsAt })
             else setJudgeResult({ error: e })
         }
-        finally { setJudging(false) }
+        finally {
+            setJudging(false)
+            if (cameFromOtherPane) setMobilePane('judge')
+        }
     }
 
     const regenerateFrNfr = () => {
