@@ -1590,6 +1590,66 @@ function rankFacet(candidates, q, limit) {
     .map(([, c]) => c);
 }
 
+// Light "means-the-same" expansion for the free-text job search — no embeddings.
+// A query that is / contains a key also matches its synonyms. Keys with a space
+// match as a substring; single-word keys match a whole token.
+const SEARCH_SYNONYMS = {
+  ml: ["machine learning"],
+  "machine learning": ["ml"],
+  ai: ["artificial intelligence"],
+  llm: ["large language model", "genai"],
+  genai: ["generative ai", "llm"],
+  nlp: ["natural language processing"],
+  researcher: ["research", "scientist"],
+  research: ["researcher", "scientist"],
+  scientist: ["research", "researcher"],
+  analyst: ["analytics"],
+  analytics: ["analyst"],
+  quant: ["quantitative"],
+  quantitative: ["quant"],
+  sde: ["software engineer", "software developer"],
+  swe: ["software engineer"],
+  sre: ["site reliability", "reliability engineer"],
+  devops: ["platform engineer", "infrastructure engineer"],
+  security: ["cybersecurity", "infosec"],
+  cybersecurity: ["security", "infosec"],
+  infosec: ["information security", "security"],
+  pentest: ["penetration testing", "offensive security"],
+  frontend: ["front end", "front-end"],
+  backend: ["back end", "back-end"],
+  fullstack: ["full stack", "full-stack"],
+  qa: ["quality assurance", "sdet"],
+};
+
+// Strip everything that is significant to the PostgREST `.or()` grammar or to
+// to_tsquery so a raw query string is safe to splice into an or-filter.
+function sanitizeOrValue(s) {
+  return String(s).replace(/[[\]%_,()*:.&|!'"<>]/g, " ").trim().replace(/\s+/g, " ");
+}
+
+// PostgREST `.or()` string: websearch full-text on search_tsv OR substring on
+// title, for the query plus any synonym expansions. Gives prefix / partial /
+// "close enough" matching that plain FTS on its own misses.
+function buildSearchOr(raw) {
+  const base = sanitizeOrValue(raw).toLowerCase().slice(0, 80);
+  if (!base) return "";
+  const tokens = base.split(" ");
+  const terms = new Set([base]);
+  for (const [key, syns] of Object.entries(SEARCH_SYNONYMS)) {
+    const hit = key.includes(" ") ? base.includes(key) : tokens.includes(key);
+    if (hit) syns.forEach((s) => terms.add(s));
+    if (terms.size > 6) break;
+  }
+  const parts = [];
+  for (const t of terms) {
+    const clean = sanitizeOrValue(t);
+    if (!clean) continue;
+    parts.push(`search_tsv.wfts(english).${clean.replace(/ /g, "+")}`);
+    parts.push(`title.ilike.*${clean.replace(/ /g, "*")}*`);
+  }
+  return parts.join(",");
+}
+
 function jobsNotReady(res) {
   return res.json({
     items: [],
@@ -1658,7 +1718,10 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
       else if (sort === "company") q = q.order("company_slug", { ascending: true }).order("first_seen_at", { ascending: false });
       else q = q.order("first_seen_at", { ascending: false }).order("id", { ascending: false });
 
-      if (search) q = q.textSearch("search_tsv", search, { type: "websearch", config: "english" });
+      if (search) {
+        const orStr = buildSearchOr(search);
+        if (orStr) q = q.or(orStr);
+      }
       // company_slug is hyphenated lowercase ("jane-street"); let "Jane Street"
       // match by turning spaces/hyphens into wildcards.
       if (company) q = q.ilike("company_slug", `%${likeSafe(company).trim().replace(/[\s-]+/g, "%")}%`);
@@ -1740,16 +1803,32 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/jobs/facets?field=company|location&q=… → up to `limit` distinct
+// GET /api/jobs/facets?field=company|location|title&q=… → up to `limit` distinct
 // values that actually occur in the OPEN job set, fuzzy-ranked against `q`.
-// Powers the result-aware autocomplete on the Jobs filters.
+// Powers the result-aware autocomplete on the Jobs filters + search box.
 app.get("/api/jobs/facets", catalogLimiter, requireAuth, async (req, res) => {
   const field = String(req.query.field || "").trim().toLowerCase();
   try {
     const q = String(req.query.q || "").trim().slice(0, 60);
     const limit = Math.min(20, Math.max(1, parseInt(req.query.limit, 10) || 10));
-    if (field !== "company" && field !== "location") {
-      return res.status(400).json({ error: "field must be 'company' or 'location'" });
+    if (!["company", "location", "title"].includes(field)) {
+      return res.status(400).json({ error: "field must be 'company', 'location' or 'title'" });
+    }
+
+    if (field === "title") {
+      // No blank-query list for titles — there are thousands; only suggest once
+      // the user has typed something.
+      if (!q) return res.json({ field, options: [] });
+      const { data: rows, error } = await jobsDb()
+        .from(JOBS_TABLE)
+        .select("title")
+        .eq("status", "open")
+        .gte("first_seen_at", jobsMaxAgeISO())
+        .not("title", "is", null)
+        .limit(8000);
+      if (error) throw error;
+      const candidates = (rows || []).map((r) => String(r.title || "").trim());
+      return res.json({ field, options: rankFacet(candidates, q, limit) });
     }
 
     if (field === "company") {

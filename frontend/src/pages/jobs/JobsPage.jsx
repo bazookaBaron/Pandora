@@ -305,8 +305,7 @@ function AnalyticsView() {
 
 // ── Listings tab ───────────────────────────────────────────────────
 function ListingsView() {
-    const [searchInput, setSearchInput] = useState('')
-    const [search, setSearch] = useState('')
+    const [search, setSearch] = useState('') // free text — FacetCombobox debounces it
     const [company, setCompany] = useState('')
     const [locations, setLocations] = useState([]) // multi-select
     const [locationType, setLocationType] = useState('')
@@ -318,11 +317,7 @@ function ListingsView() {
 
     const locationParam = locations.join(',')
 
-    useEffect(() => {
-        const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(1) }, 300)
-        return () => clearTimeout(t)
-    }, [searchInput])
-    useEffect(() => { setPage(1) }, [company, locationParam, locationType, source, seniority, postedWithin, sort])
+    useEffect(() => { setPage(1) }, [search, company, locationParam, locationType, source, seniority, postedWithin, sort])
 
     const { data, isLoading, isFetching, error, refetch } =
         useJobs({ search, company, location: locationParam, locationType, source, seniority, postedWithin, sort, page })
@@ -336,8 +331,8 @@ function ListingsView() {
     return (
         <>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 8 }}>
-                <input className="input-field" placeholder="Search title, company…" value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)} style={{ flex: '1 1 200px', minWidth: 0 }} />
+                <FacetCombobox field="title" value={search} onChange={setSearch}
+                    placeholder="Search job title or company…" style={{ flex: '1 1 220px' }} />
                 <FacetCombobox field="company" value={company} onChange={setCompany}
                     placeholder="Company" style={{ flex: '0 1 160px' }} />
                 <FacetCombobox field="location" multiple value={locations} onChange={setLocations}
