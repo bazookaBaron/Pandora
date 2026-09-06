@@ -19,12 +19,12 @@ const PLAN_META = {
     max: { name: 'Max', tagline: 'For serious, daily prep', accent: '#22d3ee', cta: 'Get Max' },
 }
 
-const TRUST = ['7-day refund', 'Cancel anytime', 'Secure checkout by Razorpay']
+const TRUST = ['Cancel anytime', 'No auto-renewal', 'Secure checkout by Razorpay']
 
 const FAQ = [
+    ['Is there a free plan?', 'Yes — Free gives you a limited amount of every feature, forever. Upgrade only when you hit the limits.'],
     ['Can I change plans later?', 'Yes — upgrade or downgrade whenever you like. A new term starts from the day you switch.'],
-    ['What happens when my term ends?', 'Nothing auto-renews. You drop back to Free and can re-subscribe any time.'],
-    ['How do refunds work?', 'Full refund within 7 days of purchase. See the Refund & Cancellation Policy for details.'],
+    ['What happens when my term ends?', 'Nothing auto-renews. You drop back to Free and can subscribe again whenever you want.'],
     ['Which payment methods work?', 'All major Indian cards, UPI and net-banking, handled securely by Razorpay.'],
 ]
 
@@ -296,8 +296,8 @@ export default function PricingPage() {
                 </section>
 
                 <p style={{ textAlign: 'center', marginTop: 28, fontSize: '0.72rem', color: 'var(--faint)' }}>
-                    Prices in INR, billed by Razorpay. Payments are one-time for the selected term — nothing auto-renews.
-                    See our <Link to="/refunds" style={{ color: 'var(--pop)' }}>Refund &amp; Cancellation Policy</Link>.
+                    Prices in INR, processed securely by Razorpay. Every plan is a one-time payment for the
+                    selected term — nothing auto-renews, so there is never a surprise charge.
                 </p>
                 <p style={{ textAlign: 'center', marginTop: 12 }}>
                     <Link to="/" style={{ color: 'var(--pop)', fontSize: '0.8rem', textDecoration: 'none' }}>← Back</Link>

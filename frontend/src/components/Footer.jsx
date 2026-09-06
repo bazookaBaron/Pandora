@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useMediaQuery } from '../lib/useMediaQuery'
+import { VLOOMBOX_BLURB } from '../lib/brand'
 
 // TODO: replace with the real company social profile URLs.
 const SOCIAL = {
@@ -80,7 +81,7 @@ export default function Footer() {
                 }}
             >
                 {/* Brand */}
-                <div style={{ gridColumn: '1 / -1', marginBottom: 4 }}>
+                <div style={{ gridColumn: '1 / -1', marginBottom: 4, maxWidth: 520 }}>
                     <Link
                         to="/"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 900, color: 'var(--bright)', textDecoration: 'none', letterSpacing: '-0.01em' }}
@@ -88,6 +89,9 @@ export default function Footer() {
                         <img src="/vloombox-logo.svg" alt="" width="28" height="28" style={{ display: 'block' }} />
                         Vloombox
                     </Link>
+                    <p style={{ margin: '8px 0 0', fontSize: '0.75rem', lineHeight: 1.6, color: 'var(--muted)' }}>
+                        {VLOOMBOX_BLURB}
+                    </p>
                 </div>
 
                 {COLUMNS.map((col) => (

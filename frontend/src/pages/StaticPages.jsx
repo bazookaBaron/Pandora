@@ -7,6 +7,8 @@ import MarkdownRenderer from '../components/interview/MarkdownRenderer'
 import { LoadingState, ErrorState, EmptyState } from '../components/shared/states'
 import { apiFetch } from '../lib/apiClient'
 import { useEntitlements } from '../lib/useEntitlements'
+import { BIZ } from './LegalPages'
+import { VLOOMBOX_BLURB, VLOOMBOX_ABOUT, VLOOMBOX_FEATURES } from '../lib/brand'
 
 function fmtDate(iso) {
     if (!iso) return ''
@@ -62,9 +64,27 @@ function SectionHeader({ children }) {
 // ── /about ────────────────────────────────────────────────────────
 export function AboutPage() {
     return (
-        <PageShell title="About Us" subtitle="Who we are and what Vloombox is for.">
-            {/* TODO: real company / mission / team copy. Do not invent details. */}
-            <ComingSoon />
+        <PageShell title="About Vloombox" subtitle={VLOOMBOX_BLURB}>
+            {VLOOMBOX_ABOUT.map((para, i) => (
+                <p key={i} style={{ margin: '0 0 14px' }}>{para}</p>
+            ))}
+
+            <SectionHeader>What&rsquo;s inside</SectionHeader>
+            <ul style={{ margin: '0 0 14px', paddingLeft: 20 }}>
+                {VLOOMBOX_FEATURES.map(([name, desc]) => (
+                    <li key={name} style={{ marginBottom: 4 }}>
+                        <strong style={{ color: 'var(--bright)' }}>{name}</strong> — {desc}
+                    </li>
+                ))}
+            </ul>
+
+            <SectionHeader>Who runs it</SectionHeader>
+            <p style={{ margin: '0 0 14px' }}>
+                Vloombox is a small, independent project, built and actively maintained by
+                {' '}{BIZ.founder}. Bugs, questions and feature requests are welcome at{' '}
+                <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a>, or from the
+                Feedback section of your profile once you&rsquo;re signed in.
+            </p>
         </PageShell>
     )
 }
@@ -169,54 +189,143 @@ export function QuestionsPage() {
 // ── /legal/guidelines ────────────────────────────────────────────
 export function GuidelinesPage() {
     return (
-        <PageShell title="Community Guidelines" subtitle="Rules for the referral marketplace and shared content.">
-            {/* TODO: real community guidelines copy. */}
-            <ComingSoon />
+        <PageShell title="Community Guidelines" subtitle="How to use the referral board and anything you share on Vloombox.">
+            <p style={{ margin: '0 0 14px' }}>
+                The referral board only works if people trust it. These guidelines apply to referral
+                requests, the company and role details on your profile, feedback you send, and anything
+                else you post. They sit alongside our{' '}
+                <Link to="/terms" style={{ color: 'var(--pop)' }}>Terms &amp; Conditions</Link>.
+            </p>
+
+            <SectionHeader>Be honest</SectionHeader>
+            <ul style={{ margin: '0 0 14px', paddingLeft: 20 }}>
+                <li style={{ marginBottom: 4 }}>Only list a company as your current employer if you actually work there.</li>
+                <li style={{ marginBottom: 4 }}>Only request a referral for a role you genuinely want and are reasonably qualified for.</li>
+                <li style={{ marginBottom: 4 }}>Don&rsquo;t misrepresent your experience, seniority or the job you&rsquo;re targeting.</li>
+            </ul>
+
+            <SectionHeader>Keep it respectful</SectionHeader>
+            <ul style={{ margin: '0 0 14px', paddingLeft: 20 }}>
+                <li style={{ marginBottom: 4 }}>No spam, mass-posting, or re-posting the same request over and over.</li>
+                <li style={{ marginBottom: 4 }}>No harassment, discrimination or abusive language toward other members.</li>
+                <li style={{ marginBottom: 4 }}>A referral is always the other person&rsquo;s choice — don&rsquo;t pressure anyone for one.</li>
+            </ul>
+
+            <SectionHeader>No paying for referrals</SectionHeader>
+            <p style={{ margin: '0 0 14px' }}>
+                Referrals on Vloombox are a favour between peers. Do not offer, request or accept money,
+                gifts or any other consideration in exchange for a referral. Accounts that do will be removed.
+            </p>
+
+            <SectionHeader>Respect privacy</SectionHeader>
+            <ul style={{ margin: '0 0 14px', paddingLeft: 20 }}>
+                <li style={{ marginBottom: 4 }}>A résumé shared with you through a referral request is for evaluating that request only — don&rsquo;t forward, publish or reuse it.</li>
+                <li style={{ marginBottom: 4 }}>Don&rsquo;t post other people&rsquo;s personal information.</li>
+            </ul>
+
+            <SectionHeader>Enforcement</SectionHeader>
+            <p style={{ margin: '0 0 14px' }}>
+                We may hide content, close requests, or suspend or terminate accounts that break these
+                guidelines. To report something, email{' '}
+                <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a>.
+            </p>
         </PageShell>
     )
 }
 
-// ── /legal/privacy (scaffold — section headers only) ─────────────
+// ── /legal/privacy — short summary; full policy lives at /privacy ─
 export function LegalPrivacyScaffold() {
     return (
-        <PageShell title="Privacy Policy">
-            {/* NOTE: a separate, Razorpay-facing Privacy Policy with full copy
-                lives at /privacy. This scaffold is the structure to be filled in. */}
-            <SectionHeader>Data We Collect</SectionHeader>
-            {/* TODO: describe account data, profile data, uploaded content, payment metadata, analytics. */}
+        <PageShell title="Privacy Policy" subtitle="The short version. The full policy is linked at the bottom.">
+            <SectionHeader>What we collect</SectionHeader>
+            <p style={{ margin: '0 0 14px' }}>
+                Your email and name; any profile details you add (current company, role, years of
+                experience, notification preference, photo); the content you submit (résumés and résumé
+                text, job descriptions, referral requests, feedback, practice progress); a payment
+                reference and status from Razorpay — never your card, UPI or bank details; and basic
+                usage analytics.
+            </p>
 
-            <SectionHeader>How We Use It</SectionHeader>
-            {/* TODO: purposes of processing. */}
+            <SectionHeader>How we use it</SectionHeader>
+            <p style={{ margin: '0 0 14px' }}>
+                To run your account and the service, process payments, and generate résumé suggestions —
+                your résumé text and the job description are sent to Google Gemini for that purpose only.
+                We also send transactional email (Resend), understand usage to improve the product
+                (PostHog), and prevent abuse. We don&rsquo;t sell your data or run advertising trackers.
+            </p>
 
-            <SectionHeader>Resume &amp; PII Handling</SectionHeader>
-            {/* TODO: how resume files / extracted text are stored, processed by AI, retained, and deleted. */}
+            <SectionHeader>Résumé &amp; PII handling</SectionHeader>
+            <p style={{ margin: '0 0 14px' }}>
+                Résumé files are stored in a private bucket and served only through short-lived signed
+                links. A résumé attached to a referral request is visible only to the member who accepts
+                that request.
+            </p>
 
-            <SectionHeader>Third-Party Sharing</SectionHeader>
-            {/* TODO: sub-processors (Supabase, Razorpay, Gemini, Resend, PostHog) and what each receives. */}
+            <SectionHeader>Sub-processors</SectionHeader>
+            <p style={{ margin: '0 0 14px' }}>
+                Supabase (database, auth, file storage), Razorpay (payments), Google Gemini (AI résumé
+                processing), Resend (email), PostHog (analytics), and our hosting provider. Each
+                processes data only to perform its function.
+            </p>
 
-            <SectionHeader>Your Rights / Data Deletion</SectionHeader>
-            {/* TODO: access, correction, export, deletion; how to request. */}
+            <SectionHeader>Your rights</SectionHeader>
+            <p style={{ margin: '0 0 14px' }}>
+                Access, correct, export or delete your data by emailing{' '}
+                <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a>. Most
+                profile fields are editable in-app, and referral notification emails can be turned off in
+                your profile.
+            </p>
+
+            <p style={{ marginTop: 18 }}>
+                <Link to="/privacy" style={{ color: 'var(--pop)' }}>Read the full Privacy Policy →</Link>
+            </p>
         </PageShell>
     )
 }
 
-// ── /legal/terms (scaffold — section headers only) ──────────────
+// ── /legal/terms — short summary; full terms live at /terms ──────
 export function LegalTermsScaffold() {
     return (
-        <PageShell title="Terms of Service">
-            {/* NOTE: a separate, Razorpay-facing Terms & Conditions with full copy
-                lives at /terms. This scaffold is the structure to be filled in. */}
-            <SectionHeader>Acceptable Use</SectionHeader>
-            {/* TODO: permitted / prohibited use, usage limits, scraping, resale. */}
+        <PageShell title="Terms of Service" subtitle="The short version. The full terms are linked at the bottom.">
+            <SectionHeader>Acceptable use</SectionHeader>
+            <p style={{ margin: '0 0 14px' }}>
+                One account per person. Don&rsquo;t resell or share paid access, scrape or bulk-download
+                content, or try to bypass usage limits, authentication or payment. Don&rsquo;t upload
+                unlawful, infringing or malicious content, and don&rsquo;t probe or disrupt our
+                infrastructure.
+            </p>
 
-            <SectionHeader>Referral Disclaimer</SectionHeader>
-            {/* TODO: Vloombox does not guarantee referrals, interviews or outcomes; referrers act independently. */}
+            <SectionHeader>Plans</SectionHeader>
+            <p style={{ margin: '0 0 14px' }}>
+                Pro and Max are a one-time payment for a fixed term (monthly or yearly) and do not
+                auto-renew. When a term ends, the account returns to Free. Prices are in INR and
+                processed by Razorpay.
+            </p>
 
-            <SectionHeader>Account Termination</SectionHeader>
-            {/* TODO: grounds for suspension/termination, effect on paid plans. */}
+            <SectionHeader>Referrals &amp; jobs disclaimer</SectionHeader>
+            <p style={{ margin: '0 0 14px' }}>
+                Referrers act independently — Vloombox does not guarantee that a referral will be given,
+                or that it leads to an interview or offer. Job listings are aggregated from public
+                sources and may be outdated; always confirm details on the employer&rsquo;s official page.
+            </p>
 
-            <SectionHeader>Liability</SectionHeader>
-            {/* TODO: warranty disclaimer and limitation of liability. */}
+            <SectionHeader>AI output</SectionHeader>
+            <p style={{ margin: '0 0 14px' }}>
+                Résumé suggestions, scores and explanations are generated by automated models and may
+                contain errors. They are for your review — you are responsible for the final content you
+                send to employers.
+            </p>
+
+            <SectionHeader>Termination &amp; liability</SectionHeader>
+            <p style={{ margin: '0 0 14px' }}>
+                We may suspend or terminate accounts that break these terms. The service is provided
+                &ldquo;as is&rdquo; without warranties, and our liability is limited to the amount you
+                paid us in the 3 months before a claim.
+            </p>
+
+            <p style={{ marginTop: 18 }}>
+                <Link to="/terms" style={{ color: 'var(--pop)' }}>Read the full Terms &amp; Conditions →</Link>
+            </p>
         </PageShell>
     )
 }
@@ -248,12 +357,32 @@ export function SubscriptionSuccessPage() {
     )
 }
 
-// ── /faq (accordion — starter questions, answers to be filled in) ─
+// ── /faq (accordion) ─────────────────────────────────────────────
 const FAQ_ITEMS = [
-    { q: 'How does referral verification work?', a: '' },       // TODO: answer
-    { q: 'Is my resume shared with anyone besides the referrer?', a: '' }, // TODO: answer
-    { q: 'Can I delete my referral post after posting?', a: '' }, // TODO: answer
-    { q: 'How long does a referral request stay open?', a: '' },  // TODO: answer
+    {
+        q: 'What is Vloombox?',
+        a: VLOOMBOX_BLURB,
+    },
+    {
+        q: 'How do referrals work?',
+        a: 'Post a request with the target company and, optionally, attach your résumé. Members who have set that company as their current employer in their profile can see the request and choose to refer you. Vloombox doesn’t independently verify employment, so treat referrals as peer-to-peer help.',
+    },
+    {
+        q: 'Who can see my résumé?',
+        a: 'Only the member who accepts your referral request can open the résumé you attached to it, and only through a private, expiring link — it is never listed publicly. A résumé you upload to the optimiser is used to generate your suggestions and is not shared with other users.',
+    },
+    {
+        q: 'Can I withdraw a referral request?',
+        a: 'Yes. You can cancel an open request from the referral board at any time, and every request also expires automatically on the date shown on its card.',
+    },
+    {
+        q: 'Does my subscription auto-renew?',
+        a: 'No. Pro and Max are a one-time payment for a fixed term (monthly or yearly). Nothing renews automatically — when the term ends your account simply returns to the Free plan. You can cancel anytime by not renewing.',
+    },
+    {
+        q: 'How do I get help?',
+        a: `Email ${BIZ.email}, or use the Feedback section in your profile once you’re signed in. We usually reply within 2 business days.`,
+    },
 ]
 
 function FaqRow({ item, open, onToggle }) {
@@ -294,7 +423,7 @@ function FaqRow({ item, open, onToggle }) {
 export function FAQPage() {
     const [openIdx, setOpenIdx] = useState(0)
     return (
-        <PageShell title="Frequently Asked Questions" subtitle="Common questions about referrals and your data.">
+        <PageShell title="Frequently Asked Questions" subtitle="Common questions about Vloombox, referrals, your data and billing.">
             <div>
                 {FAQ_ITEMS.map((item, i) => (
                     <FaqRow

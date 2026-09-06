@@ -1,14 +1,16 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
+import { VLOOMBOX_BLURB } from '../lib/brand'
 
 // Business / contact constants — keep these in one place.
 export const BIZ = {
     name: 'Vloombox',
     // Razorpay activation needs the registered legal name + address ON this page.
     legalName: 'Vloombox (operated by Debopriyo Debnath)',
+    founder: 'Debopriyo Debnath',
     address: 'India',            // ← replace with the full registered business address before Razorpay submission
-    email: 'debopriyo.debnath1999@gmail.com',
+    email: 'support.vloombox@gmail.com',
     site: 'https://www.vloombox.in',
     jurisdiction: 'India',       // ← replace with your city, e.g. "Bengaluru, Karnataka, India"
     effective: 'February 2026',
@@ -150,24 +152,20 @@ export function RefundPage() {
             <P>Paid plans are a <strong>one-time payment for a fixed term</strong> (monthly = 30 days, yearly = 365 days). There is no automatic renewal and no recurring charge. When the term ends, your account simply reverts to the Free plan unless you choose to buy again.</P>
 
             <H>2. Cancellation</H>
-            <P>Because nothing auto-renews, there is nothing to cancel to stop future charges — simply do not purchase again. You keep access to your paid features until the end of the term you already paid for.</P>
+            <P>You can cancel anytime — because nothing auto-renews, cancelling just means not buying the next term. There is no recurring charge to stop. You keep access to your paid features until the end of the term you already paid for, then the account returns to the Free plan.</P>
 
             <H>3. Refunds</H>
-            <P>Plan access is delivered digitally and immediately, so fees are generally <strong>non-refundable</strong>. We will, however, issue a refund in these cases:</P>
+            <P>Plan access is a digital service delivered immediately on payment, so <strong>all sales are final and fees are non-refundable</strong>, except where required by law or in the following cases:</P>
             <UL>
-                <li><strong>Duplicate or accidental charge</strong> — you were billed more than once for the same plan/term, or charged in error.</li>
-                <li><strong>Payment succeeded but the plan was not activated</strong> due to a technical fault on our side and we cannot resolve it promptly.</li>
-                <li><strong>Service materially not as described</strong> — if, within <strong>7 days</strong> of purchase, the paid features are substantially unavailable or do not work as described on the Pricing page, and you have made only minimal use of them, we will refund in full or on a pro-rata basis at our discretion.</li>
+                <li><strong>Duplicate or incorrect charge</strong> — you were billed more than once for the same plan and term, or charged an amount other than the price shown at checkout.</li>
+                <li><strong>Payment taken but plan not activated</strong> — the payment succeeded but your plan was not granted due to a fault on our side that we are unable to fix.</li>
             </UL>
-            <P>Refunds are not provided for change of mind after use, for failure to use the service, or for dissatisfaction with AI-generated output (which is inherently variable and provided for your review).</P>
+            <P>In those cases we correct the charge. We do not otherwise refund for change of mind, non-use of the service, or dissatisfaction with AI-generated output, which is variable by nature and provided for your review.</P>
 
-            <H>4. How to request a refund</H>
-            <P>Email <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a> from your account email within <strong>7 days</strong> of the charge, with your registered email and the Razorpay payment ID. We aim to respond within 3 business days.</P>
+            <H>4. Reporting a billing problem</H>
+            <P>Email <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a> from your account email with your registered email and the Razorpay payment ID. We aim to respond within 3 business days. Approved corrections are issued to the original payment method via Razorpay and typically settle within 5–7 business days, depending on your bank or card issuer.</P>
 
-            <H>5. Processing time</H>
-            <P>Approved refunds are issued to the original payment method via Razorpay and typically settle within <strong>5–7 business days</strong>, depending on your bank or card issuer.</P>
-
-            <H>6. Contact</H>
+            <H>5. Contact</H>
             <P>{BIZ.legalName} · <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></P>
         </LegalLayout>
     )
@@ -178,14 +176,15 @@ export function ContactPage() {
     return (
         <LegalLayout title="Contact & About">
             <H>About Vloombox</H>
-            <P>{BIZ.name} is a technical-interview preparation platform. It brings together DSA, low-level design and high-level design practice, curated interview questions, an AI résumé optimiser that tailors your résumé to a specific job description, a peer referral-request board, and an aggregated jobs listing — in one place.</P>
-            <P>{BIZ.name} is operated by {BIZ.legalName}.</P>
+            <P>{VLOOMBOX_BLURB}</P>
+            <P>{BIZ.name} is an independent project operated by {BIZ.founder}. Learn more on the <Link to="/about" style={{ color: 'var(--pop)' }}>About</Link> page.</P>
 
             <H>Contact us</H>
+            <P>The fastest way to reach us is email — we usually reply within 2 business days.</P>
             <UL>
                 <li><strong>Support &amp; general enquiries:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></li>
-                <li><strong>Billing &amp; refunds:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a> (see the <Link to="/refunds" style={{ color: 'var(--pop)' }}>Refund &amp; Cancellation Policy</Link>)</li>
-                <li><strong>Privacy requests:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></li>
+                <li><strong>Billing questions:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a> — include your registered email and the Razorpay payment ID.</li>
+                <li><strong>Privacy &amp; data requests:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></li>
                 <li><strong>Website:</strong> <a href={BIZ.site} style={{ color: 'var(--pop)' }}>{BIZ.site}</a></li>
             </UL>
             <P>Registered address: {BIZ.address}</P>
