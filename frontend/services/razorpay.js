@@ -105,12 +105,18 @@ export function planId(plan, period) {
 }
 
 /**
- * True when the key pair + all four plan ids are present. The webhook secret
- * is strongly recommended (renewal / cancel / halt sync) but not required to
- * open checkout — /api/webhooks/razorpay 503s on its own until it is set.
+ * True only when recurring subscriptions are explicitly opted in
+ * (RAZORPAY_SUBSCRIPTIONS_ENABLED=true) AND the key pair + all four plan ids
+ * are present. Default is OFF: checkout uses one-time term payments, which is
+ * what every pricing / terms / refund page describes ("one-time payment for a
+ * fixed term — nothing auto-renews"). This also stops stale or test-mode plan
+ * ids from silently routing live traffic into the recurring flow.
  */
 export function subscriptionsConfigured() {
-  return isEnabled() && Object.values(PLAN_ENV).every((e) => !!process.env[e]);
+  const optIn = /^(1|true|yes|on)$/i.test(
+    (process.env.RAZORPAY_SUBSCRIPTIONS_ENABLED || "").trim(),
+  );
+  return optIn && isEnabled() && Object.values(PLAN_ENV).every((e) => !!process.env[e]);
 }
 
 /** Create a Razorpay customer. `notes` may carry our user_id. */

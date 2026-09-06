@@ -2936,6 +2936,39 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
 
   try {
     const event = String(req.body && req.body.event) || "";
+
+    // One-time term payments: safety net for a lost browser callback (tab
+    // closed right after paying). Grant the plan straight from order.notes —
+    // idempotent with /api/payments/razorpay/verify (same provider_subscription_id).
+    if (event === "order.paid") {
+      const order = req.body?.payload?.order?.entity;
+      const n = (order && order.notes) || {};
+      if (!order || !PAID_PLANS.includes(n.plan) || !PERIODS.includes(n.billingPeriod) || !n.user_id) {
+        return res.status(202).json({ ok: true, note: "order.paid: not a plan order" });
+      }
+      const paid = Number(order.amount_paid ?? order.amount);
+      if (paid !== priceInrPaise(n.plan, n.billingPeriod)) {
+        console.warn("[rzp-webhook] order.paid amount mismatch", redact(JSON.stringify({ id: order.id, paid })));
+        return res.status(202).json({ ok: true, note: "amount mismatch" });
+      }
+      const end = new Date(Date.now() + TERM_DAYS[n.billingPeriod] * 86400000).toISOString();
+      const { error: upErr } = await supabaseAdmin.from("subscriptions").upsert(
+        {
+          user_id: n.user_id,
+          plan: n.plan,
+          status: "active",
+          provider: "razorpay",
+          provider_subscription_id: order.id, // UNIQUE per order — idempotent
+          billing_period: n.billingPeriod,
+          current_period_end: end,
+        },
+        { onConflict: "user_id" },
+      );
+      if (upErr) throw upErr;
+      invalidateUser(n.user_id);
+      return res.status(200).json({ ok: true, granted: n.plan });
+    }
+
     if (!RZP_SUB_EVENTS.has(event)) {
       return res.status(200).json({ ok: true, ignored: event });
     }
