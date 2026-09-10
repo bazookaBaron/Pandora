@@ -9,7 +9,6 @@ import { existsSync, readFileSync } from "node:fs";
 import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PDFParse } from "pdf-parse";
 import cron from "node-cron";
 
 import {
@@ -53,6 +52,8 @@ import {
 import { supabaseAdmin } from "./lib/supabaseAdmin.js";
 import { classifyRoute, renderIndex, baseUrl, escapeHtml } from "./lib/seoHead.js";
 import { cached, invalidate, hasFresh } from "./lib/microCache.js";
+import * as pdfPool from "./lib/pdfPool.js";
+import { makeSemaphore } from "./lib/semaphore.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE_DIR = path.join(__dirname, "resume-source");
@@ -188,113 +189,29 @@ function fail(res, err, label, genericMsg) {
   if (!res.headersSent) res.status(500).json({ error: genericMsg || "Something went wrong." });
 }
 
-// pdfjs-dist (legacy build) — used for link-annotation extraction and page-fill
-// measurement. pdf-parse@2.4.5's own hyperlink/info APIs throw
-// "Cannot transfer object of unsupported type" in Node, so we go direct.
-let _pdfjs;
-async function loadPdfjs() {
-  if (!_pdfjs) {
-    const { pathToFileURL } = await import("node:url");
-    const { createRequire } = await import("node:module");
-    const require = createRequire(import.meta.url);
-    _pdfjs = await import(
-      pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.mjs")).href
-    );
-    _pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(
-      require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs"),
-    ).href;
-  }
-  return _pdfjs;
-}
+// PDF parsing (pdf-parse text extraction + pdfjs link-annotation / layout
+// probes) is CPU-bound and blocks the event loop for the whole request. It now
+// runs on a small worker_threads pool (see ./lib/pdfWorkerEntry.js). These thin
+// wrappers keep the original names + signatures so the /api/generate call sites
+// are untouched.
 
-// Real http(s) profile URLs only — drop mailto:, tel:, wa.me phone links, and
-// empty placeholder hrefs like a bare "https://" (common in résumé templates
-// where the LinkedIn/GitHub icon was never given a real address).
-function isUsefulProfileUrl(u) {
-  const s = String(u || "").trim();
-  if (!/^https?:\/\/[^\s/]+\.[^\s/]+/i.test(s)) return false;
-  if (/^https?:\/\/wa\.me\//i.test(s)) return false;
-  return true;
-}
-
-// Extract text from an uploaded PDF, enriched with hyperlink targets. Résumés
-// render "LinkedIn"/"GitHub" as anchor text (often an icon glyph that yields NO
-// extractable text at all) while the real URL lives only in the link
-// annotation. We append an explicit "DETECTED HYPERLINKS" block so the extractor
-// can resolve bare anchors — but only for links that actually carry a URL.
+// Extract text from an uploaded PDF, enriched with a "DETECTED HYPERLINKS" block
+// pulled from link annotations (résumés often render "LinkedIn"/"GitHub" as an
+// icon glyph with no extractable text, the real URL living only in the
+// annotation). Runs on the pool; a hard failure rejects and the route's
+// try/catch handles it.
 async function extractPdfText(buffer) {
-  let text = "";
-  const parser = new PDFParse({ data: buffer });
-  try {
-    const r = await parser.getText();
-    text = r?.text?.trim() || "";
-  } finally {
-    await parser.destroy().catch(() => {});
-  }
-
-  const urls = [];
-  try {
-    const pdfjs = await loadPdfjs();
-    const doc = await pdfjs.getDocument({
-      data: new Uint8Array(buffer),
-      isEvalSupported: false,
-      useSystemFonts: false,
-      verbosity: 0,
-    }).promise;
-    try {
-      for (let i = 1; i <= doc.numPages; i++) {
-        const page = await doc.getPage(i);
-        const annots = await page.getAnnotations();
-        for (const a of annots) {
-          if (a.subtype !== "Link") continue;
-          const u = String(a.url || a.unsafeUrl || "").trim().replace(/[).,;]+$/, "");
-          if (isUsefulProfileUrl(u)) urls.push(u);
-        }
-      }
-    } finally {
-      await doc.destroy().catch(() => {});
-    }
-  } catch (e) {
-    console.warn("[generate] pdfjs link extraction failed:", redact(e?.message || String(e)));
-  }
-
-  const unique = [...new Set(urls)];
-  if (unique.length) {
-    text +=
-      `\n\nDETECTED HYPERLINKS (exact URLs pulled from the PDF's link annotations — ` +
-      `use these to fill contact.links / linkedin / github when the visible text only shows anchor words like "LinkedIn"/"GitHub"):\n` +
-      unique.join("\n");
-  }
-  return text;
+  return pdfPool.extractText(buffer);
 }
 
 // Layout of a COMPILED résumé PDF: page count + how much of page 1 is blank at
 // the bottom (0 = content reaches the bottom margin, 0.2 = bottom fifth empty).
-// Used to enforce "exactly one, fully-filled page".
+// Used to enforce "exactly one, fully-filled page". A layout-probe failure must
+// NOT fail the whole generate, so a pool-level reject is caught here and mapped
+// to the same {pages:0, bottomGapRatio:0} fallback the old inline code used.
 async function pdfLayoutInfo(buffer) {
   try {
-    const pdfjs = await loadPdfjs();
-    const doc = await pdfjs.getDocument({
-      data: new Uint8Array(buffer),
-      isEvalSupported: false,
-      verbosity: 0,
-    }).promise;
-    try {
-      const pages = doc.numPages;
-      const page = await doc.getPage(1);
-      const vp = page.getViewport({ scale: 1 });
-      const tc = await page.getTextContent();
-      let minY = vp.height;
-      for (const it of tc.items) {
-        const y = it.transform && it.transform[5];
-        if (typeof y === "number" && y < minY) minY = y;
-      }
-      // minY = distance of lowest text from the page bottom (PDF origin = bottom-left).
-      const bottomGapRatio = Math.max(0, Math.min(1, minY / vp.height));
-      return { pages, bottomGapRatio };
-    } finally {
-      await doc.destroy().catch(() => {});
-    }
+    return await pdfPool.layoutInfo(buffer);
   } catch (e) {
     console.warn("[generate] pdfLayoutInfo failed:", redact(e?.message || String(e)));
     return { pages: 0, bottomGapRatio: 0 };
@@ -409,6 +326,11 @@ app.get("/api/entitlements/me", requireAuth, async (req, res) => {
 });
 
 // ── Resume optimizer ──────────────────────────────────────────
+// Bounds how many /api/generate bodies run the heavy pipeline (2 LLM stages +
+// LaTeX compile + worker-pool PDF parse, each holding a multi-MB PDF buffer) at
+// once. Requests beyond the cap queue on the semaphore; a deep backlog 503s.
+const genGate = makeSemaphore(4);
+
 app.post(
   "/api/generate",
   aiLimiter,
@@ -452,6 +374,15 @@ app.post(
           ...paywallFields(gate),
         });
       }
+
+      // ── Concurrency cap ──
+      // Shed load early: if the semaphore queue is already deep, fast-fail
+      // rather than pile on another queued request holding a PDF buffer.
+      if (genGate.pending > 24) {
+        return res.status(503).json({ error: "busy" });
+      }
+      await genGate.acquire();
+      try {
 
       let apiKey;
       try {
@@ -652,6 +583,11 @@ Output ONLY this JSON (no markdown, use \\n for newlines inside string values):
         tex,
         cls,
       });
+      } finally {
+        // Runs on every exit path from the gated block — success, early
+        // return (402/422/…), and thrown errors alike.
+        genGate.release();
+      }
     } catch (err) {
       fail(res, err, "generate", "Something went wrong generating your resume.");
     }
