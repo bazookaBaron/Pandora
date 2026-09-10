@@ -143,6 +143,17 @@ app.use(
   }),
 );
 
+// The static handler above has `fallthrough: false`, so a request for a
+// content-hashed chunk that no longer exists (returning user on a stale
+// index.html) is passed on as an error with status 404. Answer it with a clean
+// 404 here rather than letting the final error handler map it to a 500. Must be
+// a 4-arg (error-handling) middleware — serve-static forwards the miss via
+// next(err), which skips ordinary middleware.
+app.use("/assets", (err, _req, res, next) => {
+  if (err && Number(err.status) === 404) return res.status(404).end();
+  next(err);
+});
+
 app.use(express.static(path.join(__dirname, "dist"), { index: false }));
 
 // Multer: accept resume PDF in memory

@@ -13,4 +13,17 @@ export default defineConfig({
             },
         },
     },
+    build: {
+        rollupOptions: {
+            output: {
+                manualChunks(id) {
+                    if (!id.includes('node_modules')) return
+                    if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'vendor-react'
+                    if (/[\\/]node_modules[\\/]react-router(-dom)?[\\/]/.test(id)) return 'vendor-react'
+                    if (/[\\/]node_modules[\\/](@tanstack[\\/]react-query|@supabase[\\/]supabase-js|posthog-js)[\\/]/.test(id)) return 'vendor-data'
+                },
+            },
+        },
+        chunkSizeWarningLimit: 900,
+    },
 })

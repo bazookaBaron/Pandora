@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './contexts/AuthContext'
@@ -8,30 +8,36 @@ import Footer from './components/Footer'
 import { RouteErrorBoundary } from './components/shared/ErrorBoundary'
 import SessionExpiredBanner from './components/shared/SessionExpiredBanner'
 
-import AuthPage from './pages/AuthPage'
-import HomePage from './pages/HomePage'
-import ProfilePage from './pages/ProfilePage'
-import PricingPage from './pages/PricingPage'
-import DSAListPage from './pages/dsa/DSAListPage'
-import DSACompanyPage from './pages/dsa/DSACompanyPage'
-import LLDListPage from './pages/lld/LLDListPage'
-import LLDProblemPage from './pages/lld/LLDProblemPage'
-import HLDListPage from './pages/hld/HLDListPage'
-import HLDWorkspacePage from './pages/hld/HLDWorkspacePage'
-import InterviewPage from './pages/interview/InterviewPage'
-import ReferralsPage from './pages/referrals/ReferralsPage'
-import JobsPage from './pages/jobs/JobsPage'
-import { TermsPage, PrivacyPage, RefundPage, ContactPage } from './pages/LegalPages'
-import {
-    AboutPage,
-    BlogPage,
-    BlogPostPage,
-    GuidelinesPage,
-    LegalPrivacyScaffold,
-    LegalTermsScaffold,
-    FAQPage,
-    SubscriptionSuccessPage,
-} from './pages/StaticPages'
+// Phase 1.5: every page component is code-split behind React.lazy so the
+// production entry chunk no longer ships reactflow / monaco / jszip /
+// html-to-image / react-markdown / framer-motion to routes that don't use them.
+const AuthPage = lazy(() => import('./pages/AuthPage'))
+const HomePage = lazy(() => import('./pages/HomePage'))
+const ProfilePage = lazy(() => import('./pages/ProfilePage'))
+const PricingPage = lazy(() => import('./pages/PricingPage'))
+const DSAListPage = lazy(() => import('./pages/dsa/DSAListPage'))
+const DSACompanyPage = lazy(() => import('./pages/dsa/DSACompanyPage'))
+const LLDListPage = lazy(() => import('./pages/lld/LLDListPage'))
+const LLDProblemPage = lazy(() => import('./pages/lld/LLDProblemPage'))
+const HLDListPage = lazy(() => import('./pages/hld/HLDListPage'))
+const HLDWorkspacePage = lazy(() => import('./pages/hld/HLDWorkspacePage'))
+const InterviewPage = lazy(() => import('./pages/interview/InterviewPage'))
+const ReferralsPage = lazy(() => import('./pages/referrals/ReferralsPage'))
+const JobsPage = lazy(() => import('./pages/jobs/JobsPage'))
+
+const TermsPage = lazy(() => import('./pages/LegalPages').then(m => ({ default: m.TermsPage })))
+const PrivacyPage = lazy(() => import('./pages/LegalPages').then(m => ({ default: m.PrivacyPage })))
+const RefundPage = lazy(() => import('./pages/LegalPages').then(m => ({ default: m.RefundPage })))
+const ContactPage = lazy(() => import('./pages/LegalPages').then(m => ({ default: m.ContactPage })))
+
+const AboutPage = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.AboutPage })))
+const BlogPage = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.BlogPage })))
+const BlogPostPage = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.BlogPostPage })))
+const GuidelinesPage = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.GuidelinesPage })))
+const LegalPrivacyScaffold = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.LegalPrivacyScaffold })))
+const LegalTermsScaffold = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.LegalTermsScaffold })))
+const FAQPage = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.FAQPage })))
+const SubscriptionSuccessPage = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.SubscriptionSuccessPage })))
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -65,6 +71,15 @@ function ScrollToTop() {
     return null
 }
 
+// Shown while a lazy route chunk is in flight. Matches ProtectedRoute's markup.
+function RouteFallback() {
+    return (
+        <div className="loading-screen">
+            <div className="spinner-lg"></div>
+        </div>
+    )
+}
+
 export default function App() {
     return (
         <QueryClientProvider client={queryClient}>
@@ -74,6 +89,7 @@ export default function App() {
                     <CommandPalette />
                     <SessionExpiredBanner />
                     <RouteErrorBoundary>
+                    <Suspense fallback={<RouteFallback />}>
                     <Routes>
                         <Route path="/auth" element={<AuthPage />} />
                         {/* Content is browsable logged-out (free-tier view); the
@@ -109,6 +125,7 @@ export default function App() {
                         <Route path="/referrals" element={<ReferralsPage />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
+                    </Suspense>
                     </RouteErrorBoundary>
                     {/* Global footer — appears under every route. */}
                     <Footer />
