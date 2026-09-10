@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Disallow: /auth
+Disallow: /profile
+Disallow: /dashboard
+Disallow: /dsa
+Disallow: /lld
+Disallow: /hld
+Disallow: /interview
+Disallow: /referrals
+
+Sitemap: https://vloombox.in/sitemap.xml
