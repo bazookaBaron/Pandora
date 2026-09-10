@@ -49,6 +49,22 @@ function subCacheSet(userId, row) {
   subCache.set(userId, { row, exp: Date.now() + SUB_TTL_MS });
 }
 
+// ── per-user entitlements-summary cache (GET /api/entitlements/me) ───────────
+// The summary fans out to ~6 Supabase reads; this collapses repeated calls
+// within a short window to a single computed result.
+const SUMMARY_TTL_MS = 20_000;
+const SUMMARY_MAX = 500;
+/** @type {Map<string, { value: any, exp: number }>} */
+const summaryCache = new Map();
+
+function summaryCacheSet(userId, value) {
+  if (summaryCache.size >= SUMMARY_MAX) {
+    const k = summaryCache.keys().next().value;
+    if (k !== undefined) summaryCache.delete(k);
+  }
+  summaryCache.set(userId, { value, exp: Date.now() + SUMMARY_TTL_MS });
+}
+
 /** Read the user's single subscriptions row (cached ~15s). null if none. */
 async function getSubscription(userId) {
   const hit = subCache.get(userId);
@@ -75,6 +91,7 @@ async function getSubscription(userId) {
 /** Invalidate the cached subscription row for a user (e.g. after a webhook). */
 export function invalidateUser(userId) {
   subCache.delete(userId);
+  summaryCache.delete(userId);
 }
 
 // ── plan resolution (lazy check-on-access) ──────────────────────────────────
@@ -277,7 +294,10 @@ export async function incrementUsage(userId, feature) {
     p_period_start: startISO,
     p_period_end: endISO,
   });
-  if (!rpc.error) return;
+  if (!rpc.error) {
+    summaryCache.delete(userId); // next /api/entitlements/me must reflect the bump
+    return;
+  }
 
   const msg = String(rpc.error.message || rpc.error.code || "");
   const rpcMissing =
@@ -318,6 +338,7 @@ export async function incrementUsage(userId, feature) {
       .eq("user_id", userId)
       .eq("feature", feature)
       .eq("period_start", startISO);
+    summaryCache.delete(userId); // next /api/entitlements/me must reflect the bump
   } catch (e) {
     console.error("[entitlements] incrementUsage fallback failed:", e?.message || e);
   }
@@ -325,16 +346,26 @@ export async function incrementUsage(userId, feature) {
 
 // ── summary for GET /api/entitlements/me ───────────────────────────────────
 export async function getEntitlementsSummary(userId) {
+  const hit = summaryCache.get(userId);
+  if (hit && Date.now() < hit.exp) return hit.value;
+
   const plan = await getUserPlan(userId);
   const rawLimits = (TIERS[plan] || TIERS.free).limits;
   const limits = {};
   for (const [k, v] of Object.entries(rawLimits)) limits[k] = serializeLimit(v);
 
+  // Fan the per-feature usage reads out in parallel instead of awaiting a
+  // serial loop (~6 sequential Supabase round-trips → 1 batched wait).
+  const results = await Promise.all(
+    METERED_FEATURES.map((f) => getRemainingUsage(userId, f)),
+  );
   const usage = {};
-  for (const feature of METERED_FEATURES) {
-    const { used, limit, resetsAt } = await getRemainingUsage(userId, feature);
+  METERED_FEATURES.forEach((feature, i) => {
+    const { used, limit, resetsAt } = results[i];
     usage[feature] = { used, limit: serializeLimit(limit), resetsAt };
-  }
+  });
 
-  return { plan, limits, usage };
+  const summary = { plan, limits, usage };
+  summaryCacheSet(userId, summary);
+  return summary;
 }

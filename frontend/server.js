@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import compression from "compression";
 import cors from "cors";
 import multer from "multer";
 import { rateLimit } from "express-rate-limit";
@@ -51,6 +52,7 @@ import {
 } from "./lib/validate.js";
 import { supabaseAdmin } from "./lib/supabaseAdmin.js";
 import { classifyRoute, renderIndex, baseUrl, escapeHtml } from "./lib/seoHead.js";
+import { cached, invalidate, hasFresh } from "./lib/microCache.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE_DIR = path.join(__dirname, "resume-source");
@@ -60,6 +62,10 @@ const app = express();
 // Behind Railway's proxy: trust the first hop so express-rate-limit sees the
 // real client IP from X-Forwarded-For.
 app.set("trust proxy", 1);
+
+// gzip every compressible response (JSON API payloads + the SPA HTML). Placed
+// before any route or static handler so it wraps them all.
+app.use(compression());
 
 // ── CORS lockdown ────────────────────────────────────────────────
 // In prod the SPA is same-origin (served from dist/), so this mainly blocks
@@ -124,6 +130,19 @@ app.use("/api", generalLimiter);
 // `index: false` — never auto-serve dist/index.html for "/"; the SEO-aware
 // fallback handler below owns "/" (and every other non-asset route) so it can
 // inject a route-correct <head>.
+// Content-hashed build assets (dist/assets/*) — safe to cache hard + immutable.
+// `fallthrough: false` → a missing /assets/* file 404s instead of falling
+// through to the SPA HTML handler.
+app.use(
+  "/assets",
+  express.static(path.join(__dirname, "dist", "assets"), {
+    immutable: true,
+    maxAge: "1y",
+    index: false,
+    fallthrough: false,
+  }),
+);
+
 app.use(express.static(path.join(__dirname, "dist"), { index: false }));
 
 // Multer: accept resume PDF in memory
@@ -882,6 +901,21 @@ ${input}
 });
 
 // ── Catalog endpoints (server-enforced entitlements) ─────────────
+// Stable cache-key fragment from req.query: keys sorted, `key=value` joined by
+// `&`. Array values (repeated params) are comma-joined. Identical query strings
+// always produce the same fragment; values are left as-is so case-significant
+// filters (e.g. company names) never collide.
+function qsKey(req) {
+  const q = req.query || {};
+  return Object.keys(q)
+    .sort()
+    .map((k) => {
+      const v = q[k];
+      return `${k}=${Array.isArray(v) ? v.join(",") : v ?? ""}`;
+    })
+    .join("&");
+}
+
 function csvParam(v) {
   return String(v || "")
     .split(",")
@@ -958,90 +992,99 @@ async function fetchAllRows(table, columns, orderCol, ascending) {
 // row N+1. pro/max (Infinity) get the full filtered + paged set.
 app.get("/api/catalog/dsa", catalogLimiter, optionalAuth, async (req, res) => {
   try {
+    // Plan resolves outside the cache; it varies the cache key.
     const plan = req.user ? await getUserPlan(req.user.id) : "free";
-    const limit = getLimit(plan, "dsa_catalog_visible");
-    const unlimited = isUnlimited(limit);
+    const key = `dsa:${plan}:${qsKey(req)}`;
+    const wasHit = hasFresh(key);
+    const payload = await cached(key, 120000, async () => {
+      const limit = getLimit(plan, "dsa_catalog_visible");
+      const unlimited = isUnlimited(limit);
 
-    const search = String(req.query.search || "").slice(0, 200);
-    const companies = csvParam(req.query.company);
-    const difficulties = csvParam(req.query.difficulty);
-    const sort = ["alpha", "difficulty", "id"].includes(String(req.query.sort))
-      ? String(req.query.sort)
-      : "id";
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const pageSize = 50;
+      const search = String(req.query.search || "").slice(0, 200);
+      const companies = csvParam(req.query.company);
+      const difficulties = csvParam(req.query.difficulty);
+      const sort = ["alpha", "difficulty", "id"].includes(String(req.query.sort))
+        ? String(req.query.sort)
+        : "id";
+      const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+      const pageSize = 50;
 
-    const rowsAll = normalizeDsa(
-      await fetchAllRows(
-        "leetcode_company_problems",
-        "id, title, difficulty, link, company, topics",
-        "id",
-        true,
-      ),
-    );
-    const total = rowsAll.length;
+      const rowsAll = normalizeDsa(
+        await fetchAllRows(
+          "leetcode_company_problems",
+          "id, title, difficulty, link, company, topics",
+          "id",
+          true,
+        ),
+      );
+      const total = rowsAll.length;
 
-    // ── Company-filter freemium (task 2) ──────────────────────────────
-    // When a free user filters by company: filter the FULL set first, then
-    // return 5 full rows + a COUNT of the rest (no premium row data leaves the
-    // server). Paid users fall through to the normal unlimited path.
-    const COMPANY_FREE_VISIBLE = 5;
-    if (!unlimited && companies.length > 0) {
-      const matched = filterSortDsa(rowsAll, { search, companies, difficulties, sort });
-      const items = matched.slice(0, COMPANY_FREE_VISIBLE);
-      const lockedCount = Math.max(0, matched.length - COMPANY_FREE_VISIBLE);
-      return res.json({
+      // ── Company-filter freemium (task 2) ──────────────────────────────
+      // When a free user filters by company: filter the FULL set first, then
+      // return 5 full rows + a COUNT of the rest (no premium row data leaves the
+      // server). Paid users fall through to the normal unlimited path.
+      const COMPANY_FREE_VISIBLE = 5;
+      if (!unlimited && companies.length > 0) {
+        const matched = filterSortDsa(rowsAll, { search, companies, difficulties, sort });
+        const items = matched.slice(0, COMPANY_FREE_VISIBLE);
+        const lockedCount = Math.max(0, matched.length - COMPANY_FREE_VISIBLE);
+        return {
+          items,
+          total,
+          locked: lockedCount,
+          lockedCount, // explicit: render this many placeholder cards
+          companyLock: true, // client: per-question lock cards, not a LockedSlice row
+          limit: serializeLimit(limit),
+          page: 1,
+          pageSize,
+          pageCount: 1,
+          filteredCount: matched.length,
+        };
+      }
+
+      let base = rowsAll;
+      let locked = 0;
+      if (!unlimited) {
+        const cap = Math.min(limit, total);
+        base = rowsAll.slice(0, cap);
+        locked = Math.max(0, total - cap);
+      }
+
+      const filtered = filterSortDsa(base, {
+        search,
+        companies,
+        difficulties,
+        sort,
+      });
+
+      let items;
+      let pageOut = 1;
+      let pageCount = 1;
+      if (unlimited) {
+        pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+        pageOut = Math.min(page, pageCount);
+        items = filtered.slice((pageOut - 1) * pageSize, pageOut * pageSize);
+      } else {
+        items = filtered; // free: capped preview, no pagination
+      }
+
+      return {
         items,
         total,
-        locked: lockedCount,
-        lockedCount, // explicit: render this many placeholder cards
-        companyLock: true, // client: per-question lock cards, not a LockedSlice row
+        locked,
+        lockedCount: locked,
+        companyLock: false,
         limit: serializeLimit(limit),
-        page: 1,
+        page: pageOut,
         pageSize,
-        pageCount: 1,
-        filteredCount: matched.length,
-      });
-    }
-
-    let base = rowsAll;
-    let locked = 0;
-    if (!unlimited) {
-      const cap = Math.min(limit, total);
-      base = rowsAll.slice(0, cap);
-      locked = Math.max(0, total - cap);
-    }
-
-    const filtered = filterSortDsa(base, {
-      search,
-      companies,
-      difficulties,
-      sort,
+        pageCount,
+        filteredCount: filtered.length,
+      };
     });
 
-    let items;
-    let pageOut = 1;
-    let pageCount = 1;
-    if (unlimited) {
-      pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-      pageOut = Math.min(page, pageCount);
-      items = filtered.slice((pageOut - 1) * pageSize, pageOut * pageSize);
-    } else {
-      items = filtered; // free: capped preview, no pagination
-    }
-
-    res.json({
-      items,
-      total,
-      locked,
-      lockedCount: locked,
-      companyLock: false,
-      limit: serializeLimit(limit),
-      page: pageOut,
-      pageSize,
-      pageCount,
-      filteredCount: filtered.length,
-    });
+    res.set("Cache-Control", "private, max-age=120");
+    res.set("X-Cache", wasHit ? "HIT" : "MISS");
+    res.json(payload);
   } catch (err) {
     fail(res, err, "catalog/dsa", "Failed to load catalog.");
   }
@@ -1051,67 +1094,75 @@ app.get("/api/catalog/dsa", catalogLimiter, optionalAuth, async (req, res) => {
 app.get("/api/catalog/lld", catalogLimiter, optionalAuth, async (req, res) => {
   try {
     const plan = req.user ? await getUserPlan(req.user.id) : "free";
-    const limit = getLimit(plan, "lld_catalog_visible");
-    const unlimited = isUnlimited(limit);
+    const key = `lld:${plan}:${qsKey(req)}`;
+    const wasHit = hasFresh(key);
+    const payload = await cached(key, 120000, async () => {
+      const limit = getLimit(plan, "lld_catalog_visible");
+      const unlimited = isUnlimited(limit);
 
-    const search = String(req.query.search || "").slice(0, 200);
-    const companies = csvParam(req.query.company);
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const pageSize = 12;
+      const search = String(req.query.search || "").slice(0, 200);
+      const companies = csvParam(req.query.company);
+      const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+      const pageSize = 12;
 
-    const { data, error } = await supabaseAdmin
-      .from("lld_problems")
-      .select("id, slug, title, requirements, companies, created_at")
-      .order("created_at", { ascending: false });
-    if (error) throw error;
-    const rowsAll = data || [];
-    const total = rowsAll.length;
+      const { data, error } = await supabaseAdmin
+        .from("lld_problems")
+        .select("id, slug, title, requirements, companies, created_at")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const rowsAll = data || [];
+      const total = rowsAll.length;
 
-    let base = rowsAll;
-    let locked = 0;
-    if (!unlimited) {
-      const cap = Math.min(limit, total);
-      base = rowsAll.slice(0, cap);
-      locked = Math.max(0, total - cap);
-    }
+      let base = rowsAll;
+      let locked = 0;
+      if (!unlimited) {
+        const cap = Math.min(limit, total);
+        base = rowsAll.slice(0, cap);
+        locked = Math.max(0, total - cap);
+      }
 
-    const s = search.toLowerCase();
-    let filtered = base.filter((p) => {
-      if (
-        search &&
-        !(p.title || "").toLowerCase().includes(s) &&
-        !(p.requirements || "").toLowerCase().includes(s)
-      )
-        return false;
-      if (
-        companies.length &&
-        !companies.some((c) => (p.companies || []).includes(c))
-      )
-        return false;
-      return true;
+      const s = search.toLowerCase();
+      let filtered = base.filter((p) => {
+        if (
+          search &&
+          !(p.title || "").toLowerCase().includes(s) &&
+          !(p.requirements || "").toLowerCase().includes(s)
+        )
+          return false;
+        if (
+          companies.length &&
+          !companies.some((c) => (p.companies || []).includes(c))
+        )
+          return false;
+        return true;
+      });
+
+      let items;
+      let pageOut = 1;
+      let pageCount = 1;
+      if (unlimited) {
+        pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+        pageOut = Math.min(page, pageCount);
+        items = filtered.slice((pageOut - 1) * pageSize, pageOut * pageSize);
+      } else {
+        items = filtered;
+      }
+
+      return {
+        items,
+        total,
+        locked,
+        limit: serializeLimit(limit),
+        page: pageOut,
+        pageSize,
+        pageCount,
+        filteredCount: filtered.length,
+      };
     });
 
-    let items;
-    let pageOut = 1;
-    let pageCount = 1;
-    if (unlimited) {
-      pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-      pageOut = Math.min(page, pageCount);
-      items = filtered.slice((pageOut - 1) * pageSize, pageOut * pageSize);
-    } else {
-      items = filtered;
-    }
-
-    res.json({
-      items,
-      total,
-      locked,
-      limit: serializeLimit(limit),
-      page: pageOut,
-      pageSize,
-      pageCount,
-      filteredCount: filtered.length,
-    });
+    res.set("Cache-Control", "private, max-age=120");
+    res.set("X-Cache", wasHit ? "HIT" : "MISS");
+    res.json(payload);
   } catch (err) {
     fail(res, err, "catalog/lld", "Failed to load catalog.");
   }
@@ -1128,6 +1179,7 @@ app.get("/api/catalog/lld/:slug", catalogLimiter, optionalAuth, async (req, res)
     const unlimited = isUnlimited(limit);
     const slug = String(req.params.slug);
 
+    // Gate first, outside the cache — the 404 + 403 paths are never cached.
     const { data: row, error } = await supabaseAdmin
       .from("lld_problems")
       .select("*")
@@ -1136,26 +1188,33 @@ app.get("/api/catalog/lld/:slug", catalogLimiter, optionalAuth, async (req, res)
     if (error) throw error;
     if (!row) return res.status(404).json({ error: "not_found" });
 
-    if (unlimited) return res.json({ item: row });
+    if (!unlimited) {
+      // Free: allowed set = first N rows by created_at desc (same ordering the
+      // /api/catalog/lld list uses).
+      const { data: allowed, error: aerr } = await supabaseAdmin
+        .from("lld_problems")
+        .select("slug")
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (aerr) throw aerr;
 
-    // Free: allowed set = first N rows by created_at desc (same ordering the
-    // /api/catalog/lld list uses).
-    const { data: allowed, error: aerr } = await supabaseAdmin
-      .from("lld_problems")
-      .select("slug")
-      .order("created_at", { ascending: false })
-      .limit(limit);
-    if (aerr) throw aerr;
-
-    const inAllowed = (allowed || []).some((r) => r.slug === slug);
-    if (!inAllowed) {
-      return res.status(403).json({
-        error: "upgrade_required",
-        feature: "lld_catalog",
-        limit,
-      });
+      const inAllowed = (allowed || []).some((r) => r.slug === slug);
+      if (!inAllowed) {
+        return res.status(403).json({
+          error: "upgrade_required",
+          feature: "lld_catalog",
+          limit,
+        });
+      }
     }
-    res.json({ item: row });
+
+    // 200 path only: cache the resolved item per plan + slug.
+    const key = `lld-detail:${plan}:${slug}`;
+    const wasHit = hasFresh(key);
+    const payload = await cached(key, 300000, () => ({ item: row }));
+    res.set("Cache-Control", "private, max-age=300");
+    res.set("X-Cache", wasHit ? "HIT" : "MISS");
+    res.json(payload);
   } catch (err) {
     fail(res, err, "catalog/lld/:slug", "Failed to load problem.");
   }
@@ -1167,38 +1226,46 @@ app.get("/api/catalog/lld/:slug", catalogLimiter, optionalAuth, async (req, res)
 app.get("/api/catalog/hld", catalogLimiter, optionalAuth, async (req, res) => {
   try {
     const plan = req.user ? await getUserPlan(req.user.id) : "free";
-    const access = getLimit(plan, "hld_catalog_access"); // 'list_only' | 'full'
+    const key = `hld:${plan}:${qsKey(req)}`;
+    const wasHit = hasFresh(key);
+    const payload = await cached(key, 120000, async () => {
+      const access = getLimit(plan, "hld_catalog_access"); // 'list_only' | 'full'
 
-    const { data, error } = await supabaseAdmin
-      .from("hld_questions")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) throw error;
-    const rows = data || [];
+      const { data, error } = await supabaseAdmin
+        .from("hld_questions")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const rows = data || [];
 
-    // The full list is returned to every tier; HLDListPage filters + paginates
-    // client-side (12/page) to match the LLD panel's pagination UX.
-    if (access === "list_only") {
+      // The full list is returned to every tier; HLDListPage filters + paginates
+      // client-side (12/page) to match the LLD panel's pagination UX.
+      if (access === "list_only") {
+        const items = rows.map((r) => ({
+          id: r.id,
+          title: r.title || r.question || "(Untitled)",
+          companies: r.companies || r.company || [],
+          difficulty: r.difficulty || null,
+          locked: true,
+        }));
+        return { items, total: rows.length, locked: rows.length, access };
+      }
+
       const items = rows.map((r) => ({
-        id: r.id,
+        ...r,
         title: r.title || r.question || "(Untitled)",
+        description: r.description || "",
         companies: r.companies || r.company || [],
+        slug: r.slug || r.questionid || String(r.id),
         difficulty: r.difficulty || null,
-        locked: true,
+        locked: false,
       }));
-      return res.json({ items, total: rows.length, locked: rows.length, access });
-    }
+      return { items, total: rows.length, locked: 0, access };
+    });
 
-    const items = rows.map((r) => ({
-      ...r,
-      title: r.title || r.question || "(Untitled)",
-      description: r.description || "",
-      companies: r.companies || r.company || [],
-      slug: r.slug || r.questionid || String(r.id),
-      difficulty: r.difficulty || null,
-      locked: false,
-    }));
-    res.json({ items, total: rows.length, locked: 0, access });
+    res.set("Cache-Control", "private, max-age=120");
+    res.set("X-Cache", wasHit ? "HIT" : "MISS");
+    res.json(payload);
   } catch (err) {
     fail(res, err, "catalog/hld", "Failed to load catalog.");
   }
@@ -1218,24 +1285,46 @@ app.get("/api/catalog/hld/:id", catalogLimiter, optionalAuth, async (req, res) =
       });
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("hld_questions")
-      .select("*")
-      .eq("id", req.params.id)
-      .maybeSingle();
-    if (error) throw error;
-    if (!data) return res.status(404).json({ error: "not_found" });
-
-    res.json({
-      item: {
-        ...data,
-        title: data.title || data.question || "(Untitled)",
-        description: data.description || "",
-        companies: data.companies || data.company || [],
-        slug: data.slug || data.questionid || String(data.id),
-        difficulty: data.difficulty || null,
-      },
+    // Gate passed (outside the cache); cache only the successful item fetch,
+    // keyed on the plan from the gate result.
+    const key = `hld-detail:${gate.plan}:${req.params.id}`;
+    const wasHit = hasFresh(key);
+    let notFound = false;
+    const payload = await cached(key, 300000, async () => {
+      const { data, error } = await supabaseAdmin
+        .from("hld_questions")
+        .select("*")
+        .eq("id", req.params.id)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        const e = new Error("not_found");
+        e.notFound = true;
+        throw e; // 404: not cached (rejection), surfaced below
+      }
+      return {
+        item: {
+          ...data,
+          title: data.title || data.question || "(Untitled)",
+          description: data.description || "",
+          companies: data.companies || data.company || [],
+          slug: data.slug || data.questionid || String(data.id),
+          difficulty: data.difficulty || null,
+        },
+      };
+    }).catch((e) => {
+      if (e && e.notFound) {
+        notFound = true;
+        return null;
+      }
+      throw e;
     });
+
+    if (notFound) return res.status(404).json({ error: "not_found" });
+
+    res.set("Cache-Control", "private, max-age=300");
+    res.set("X-Cache", wasHit ? "HIT" : "MISS");
+    res.json(payload);
   } catch (err) {
     fail(res, err, "catalog/hld/:id", "Failed to load question.");
   }
@@ -1252,47 +1341,55 @@ app.get(
   async (req, res) => {
     try {
       const plan = req.user ? await getUserPlan(req.user.id) : "free";
-      const limit = getLimit(plan, "interview_q_per_subcategory");
-      const unlimited = isUnlimited(limit);
-      const subcategory = String(req.query.subcategory || "").trim();
+      const key = `interview:${plan}:${qsKey(req)}`;
+      const wasHit = hasFresh(key);
+      const payload = await cached(key, 300000, async () => {
+        const limit = getLimit(plan, "interview_q_per_subcategory");
+        const unlimited = isUnlimited(limit);
+        const subcategory = String(req.query.subcategory || "").trim();
 
-      if (!subcategory) {
+        if (!subcategory) {
+          const { data, error } = await supabaseAdmin
+            .from("interview_questions")
+            .select("category, subcategory")
+            .order("category")
+            .order("subcategory");
+          if (error) throw error;
+          const seen = new Set();
+          const subs = [];
+          for (const r of data || []) {
+            const k = `${r.category}||${r.subcategory}`;
+            if (!seen.has(k)) {
+              seen.add(k);
+              subs.push(r);
+            }
+          }
+          return { subcategories: subs };
+        }
+
         const { data, error } = await supabaseAdmin
           .from("interview_questions")
-          .select("category, subcategory")
-          .order("category")
-          .order("subcategory");
+          .select("id, question, order_number, answer_status, category, subcategory")
+          .eq("subcategory", subcategory)
+          .order("order_number")
+          .order("id", { ascending: true });
         if (error) throw error;
-        const seen = new Set();
-        const subs = [];
-        for (const r of data || []) {
-          const k = `${r.category}||${r.subcategory}`;
-          if (!seen.has(k)) {
-            seen.add(k);
-            subs.push(r);
-          }
+        const rowsAll = data || [];
+        const total = rowsAll.length;
+
+        let items = rowsAll;
+        let locked = 0;
+        if (!unlimited) {
+          items = rowsAll.slice(0, limit);
+          locked = Math.max(0, total - items.length);
         }
-        return res.json({ subcategories: subs });
-      }
 
-      const { data, error } = await supabaseAdmin
-        .from("interview_questions")
-        .select("id, question, order_number, answer_status, category, subcategory")
-        .eq("subcategory", subcategory)
-        .order("order_number")
-        .order("id", { ascending: true });
-      if (error) throw error;
-      const rowsAll = data || [];
-      const total = rowsAll.length;
+        return { items, total, locked, limit: serializeLimit(limit) };
+      });
 
-      let items = rowsAll;
-      let locked = 0;
-      if (!unlimited) {
-        items = rowsAll.slice(0, limit);
-        locked = Math.max(0, total - items.length);
-      }
-
-      res.json({ items, total, locked, limit: serializeLimit(limit) });
+      res.set("Cache-Control", "private, max-age=300");
+      res.set("X-Cache", wasHit ? "HIT" : "MISS");
+      res.json(payload);
     } catch (err) {
       fail(res, err, "catalog/interview", "Failed to load questions.");
     }
@@ -1311,46 +1408,54 @@ app.get("/api/catalog/search", catalogLimiter, optionalAuth, async (req, res) =>
     if (!q) return res.json({ dsa: [], lld: [] });
 
     const plan = req.user ? await getUserPlan(req.user.id) : "free";
-    const dsaLimit = getLimit(plan, "dsa_catalog_visible");
-    const lldLimit = getLimit(plan, "lld_catalog_visible");
+    const key = `search:${plan}:${qsKey(req)}`;
+    const wasHit = hasFresh(key);
+    const payload = await cached(key, 120000, async () => {
+      const dsaLimit = getLimit(plan, "dsa_catalog_visible");
+      const lldLimit = getLimit(plan, "lld_catalog_visible");
 
-    // DSA — first N by id asc.
-    const dsaAll = normalizeDsa(
-      await fetchAllRows(
-        "leetcode_company_problems",
-        "id, title, difficulty, link",
-        "id",
-        true,
-      ),
-    );
-    const dsaVisible = isUnlimited(dsaLimit)
-      ? dsaAll
-      : dsaAll.slice(0, Math.min(dsaLimit, dsaAll.length));
-    const dsa = dsaVisible
-      .filter((p) => (p.title || "").toLowerCase().includes(q))
-      .slice(0, limit)
-      .map((p) => ({
-        id: p.id,
-        title: p.title,
-        difficulty: p.difficulty,
-        link: p.link,
-      }));
+      // DSA — first N by id asc.
+      const dsaAll = normalizeDsa(
+        await fetchAllRows(
+          "leetcode_company_problems",
+          "id, title, difficulty, link",
+          "id",
+          true,
+        ),
+      );
+      const dsaVisible = isUnlimited(dsaLimit)
+        ? dsaAll
+        : dsaAll.slice(0, Math.min(dsaLimit, dsaAll.length));
+      const dsa = dsaVisible
+        .filter((p) => (p.title || "").toLowerCase().includes(q))
+        .slice(0, limit)
+        .map((p) => ({
+          id: p.id,
+          title: p.title,
+          difficulty: p.difficulty,
+          link: p.link,
+        }));
 
-    // LLD — first N by created_at desc.
-    const { data: lldRows, error } = await supabaseAdmin
-      .from("lld_problems")
-      .select("id, slug, title, created_at")
-      .order("created_at", { ascending: false });
-    if (error) throw error;
-    const lldVisible = isUnlimited(lldLimit)
-      ? lldRows || []
-      : (lldRows || []).slice(0, Math.min(lldLimit, (lldRows || []).length));
-    const lld = lldVisible
-      .filter((p) => (p.title || "").toLowerCase().includes(q))
-      .slice(0, limit)
-      .map((p) => ({ id: p.id, title: p.title, slug: p.slug }));
+      // LLD — first N by created_at desc.
+      const { data: lldRows, error } = await supabaseAdmin
+        .from("lld_problems")
+        .select("id, slug, title, created_at")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const lldVisible = isUnlimited(lldLimit)
+        ? lldRows || []
+        : (lldRows || []).slice(0, Math.min(lldLimit, (lldRows || []).length));
+      const lld = lldVisible
+        .filter((p) => (p.title || "").toLowerCase().includes(q))
+        .slice(0, limit)
+        .map((p) => ({ id: p.id, title: p.title, slug: p.slug }));
 
-    res.json({ dsa, lld });
+      return { dsa, lld };
+    });
+
+    res.set("Cache-Control", "private, max-age=120");
+    res.set("X-Cache", wasHit ? "HIT" : "MISS");
+    res.json(payload);
   } catch (err) {
     fail(res, err, "catalog/search", "Search failed.");
   }
@@ -1366,20 +1471,30 @@ app.get(
   optionalAuth,
   async (_req, res) => {
     try {
-      const [lldRes, dsaRows] = await Promise.all([
-        supabaseAdmin.from("lld_problems").select("companies"),
-        fetchAllRows("leetcode_company_problems", "id, company", "id", true),
-      ]);
-      if (lldRes.error) throw lldRes.error;
+      const wasHit = hasFresh("catalog-companies");
+      const payload = await cached("catalog-companies", 600000, async () => {
+        const [lldRes, dsaRows] = await Promise.all([
+          supabaseAdmin.from("lld_problems").select("companies"),
+          fetchAllRows("leetcode_company_problems", "id, company", "id", true),
+        ]);
+        if (lldRes.error) throw lldRes.error;
 
-      const set = new Set();
-      for (const r of lldRes.data || []) {
-        for (const c of r.companies || []) if (c) set.add(String(c).trim());
-      }
-      for (const r of normalizeDsa(dsaRows)) {
-        for (const c of r.company || []) if (c) set.add(String(c).trim());
-      }
-      res.json({ companies: [...set].filter(Boolean).sort() });
+        const set = new Set();
+        for (const r of lldRes.data || []) {
+          for (const c of r.companies || []) if (c) set.add(String(c).trim());
+        }
+        for (const r of normalizeDsa(dsaRows)) {
+          for (const c of r.company || []) if (c) set.add(String(c).trim());
+        }
+        return { companies: [...set].filter(Boolean).sort() };
+      });
+
+      res.set(
+        "Cache-Control",
+        "public, max-age=300, s-maxage=600, stale-while-revalidate=1200",
+      );
+      res.set("X-Cache", wasHit ? "HIT" : "MISS");
+      res.json(payload);
     } catch (err) {
       fail(res, err, "catalog/companies", "Failed to load companies.");
     }
@@ -1665,130 +1780,148 @@ function jobsNotReady(res) {
 
 app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
   try {
-    const search = String(req.query.search || "").trim().slice(0, 120);
-    const company = String(req.query.company || "").trim().slice(0, 80);
-    // `location` may be a comma-separated list — any match keeps the row.
-    const locations = String(req.query.location || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .slice(0, 12)
-      .map((s) => s.slice(0, 80));
-    const locationType = String(req.query.location_type || "")
-      .trim()
-      .toLowerCase()
-      .slice(0, 20);
-    const source = String(req.query.source || "").trim().slice(0, 40);
-    const seniority = String(req.query.seniority || "").trim().toLowerCase().slice(0, 20);
-    const postedWithinDays = Math.max(0, Math.min(31, parseInt(req.query.posted_within, 10) || 0));
-    const sort = String(req.query.sort || "newest").trim();
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const from = (page - 1) * JOBS_PAGE_SIZE;
-    const to = from + JOBS_PAGE_SIZE - 1;
+    const key = `jobs:${qsKey(req)}`;
+    const wasHit = hasFresh(key);
+    // TTL covers the whole response — the 600-row interleave pool + company
+    // spacing + company-name resolve are all re-used from cache within 90s.
+    const payload = await cached(key, 90000, async () => {
+      const search = String(req.query.search || "").trim().slice(0, 120);
+      const company = String(req.query.company || "").trim().slice(0, 80);
+      // `location` may be a comma-separated list — any match keeps the row.
+      const locations = String(req.query.location || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 12)
+        .map((s) => s.slice(0, 80));
+      const locationType = String(req.query.location_type || "")
+        .trim()
+        .toLowerCase()
+        .slice(0, 20);
+      const source = String(req.query.source || "").trim().slice(0, 40);
+      const seniority = String(req.query.seniority || "").trim().toLowerCase().slice(0, 20);
+      const postedWithinDays = Math.max(0, Math.min(31, parseInt(req.query.posted_within, 10) || 0));
+      const sort = String(req.query.sort || "newest").trim();
+      const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+      const from = (page - 1) * JOBS_PAGE_SIZE;
+      const to = from + JOBS_PAGE_SIZE - 1;
 
-    // For the recency sorts, fetch a fixed pool from row 0, company-space it in
-    // JS (recency order otherwise preserved), then slice this page out. The
-    // pool size never depends on `page`, so boundaries stay stable. The
-    // "company" sort is meant to group, so it opts out; pages past the pool
-    // use raw range order.
-    const canSpread = (sort === "newest" || sort === "oldest") && to < JOBS_INTERLEAVE_POOL;
-    const rangeFrom = canSpread ? 0 : from;
-    const rangeTo = canSpread ? JOBS_INTERLEAVE_POOL - 1 : to;
+      // For the recency sorts, fetch a fixed pool from row 0, company-space it in
+      // JS (recency order otherwise preserved), then slice this page out. The
+      // pool size never depends on `page`, so boundaries stay stable. The
+      // "company" sort is meant to group, so it opts out; pages past the pool
+      // use raw range order.
+      const canSpread = (sort === "newest" || sort === "oldest") && to < JOBS_INTERLEAVE_POOL;
+      const rangeFrom = canSpread ? 0 : from;
+      const rangeTo = canSpread ? JOBS_INTERLEAVE_POOL - 1 : to;
 
-    const likeSafe = (s) => s.replace(/[%_,()*]/g, " ");
-    // Location values often carry commas ("Bengaluru, Karnataka, India"). Strip
-    // the significant chars and wildcard the gaps so a picked value still
-    // matches and commas can't break the `.or()` filter list. `.ilike()` (method)
-    // uses `%`; the `.or()` string form uses `*` (PostgREST URL wildcard).
-    const locCore = (s) => likeSafe(s).trim().replace(/\s+/g, " ");
-    const daysAgoISO = (d) => new Date(Date.now() - d * 86400000).toISOString();
+      const likeSafe = (s) => s.replace(/[%_,()*]/g, " ");
+      // Location values often carry commas ("Bengaluru, Karnataka, India"). Strip
+      // the significant chars and wildcard the gaps so a picked value still
+      // matches and commas can't break the `.or()` filter list. `.ilike()` (method)
+      // uses `%`; the `.or()` string form uses `*` (PostgREST URL wildcard).
+      const locCore = (s) => likeSafe(s).trim().replace(/\s+/g, " ");
+      const daysAgoISO = (d) => new Date(Date.now() - d * 86400000).toISOString();
 
-    // `seniority` column is added by a later crawler migration — if it's not
-    // there yet, retry the query once without selecting or filtering on it.
-    const build = (withSeniority) => {
-      const cols =
-        "id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, status" +
-        (withSeniority ? ", seniority" : "");
-      let q = jobsDb()
-        .from(JOBS_TABLE)
-        .select(cols, { count: "exact" })
-        .eq("status", "open")
-        .gte("first_seen_at", jobsMaxAgeISO()) // board only serves jobs ≤ N days old
-        .range(rangeFrom, rangeTo);
+      // `seniority` column is added by a later crawler migration — if it's not
+      // there yet, retry the query once without selecting or filtering on it.
+      const build = (withSeniority) => {
+        const cols =
+          "id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, status" +
+          (withSeniority ? ", seniority" : "");
+        // count=estimated → PostgREST `Prefer: count=estimated`. pageCount is
+        // now approximate (fast planner estimate, not an exact scan).
+        let q = jobsDb()
+          .from(JOBS_TABLE)
+          .select(cols, { count: "estimated" })
+          .eq("status", "open")
+          .gte("first_seen_at", jobsMaxAgeISO()) // board only serves jobs ≤ N days old
+          .range(rangeFrom, rangeTo);
 
-      if (sort === "oldest") q = q.order("first_seen_at", { ascending: true }).order("id", { ascending: true });
-      else if (sort === "company") q = q.order("company_slug", { ascending: true }).order("first_seen_at", { ascending: false });
-      else q = q.order("first_seen_at", { ascending: false }).order("id", { ascending: false });
+        if (sort === "oldest") q = q.order("first_seen_at", { ascending: true }).order("id", { ascending: true });
+        else if (sort === "company") q = q.order("company_slug", { ascending: true }).order("first_seen_at", { ascending: false });
+        else q = q.order("first_seen_at", { ascending: false }).order("id", { ascending: false });
 
-      if (search) {
-        const orStr = buildSearchOr(search);
-        if (orStr) q = q.or(orStr);
+        if (search) {
+          const orStr = buildSearchOr(search);
+          if (orStr) q = q.or(orStr);
+        }
+        // company_slug is hyphenated lowercase ("jane-street"); let "Jane Street"
+        // match by turning spaces/hyphens into wildcards.
+        if (company) q = q.ilike("company_slug", `%${likeSafe(company).trim().replace(/[\s-]+/g, "%")}%`);
+        if (locations.length === 1) {
+          q = q.ilike("location", `%${locCore(locations[0]).replace(/ /g, "%")}%`);
+        } else if (locations.length > 1) {
+          q = q.or(locations.map((loc) => `location.ilike.*${locCore(loc).replace(/ /g, "*")}*`).join(","));
+        }
+        if (locationType) q = q.eq("location_type", locationType);
+        if (source) q = q.eq("source", source);
+        if (withSeniority && seniority) q = q.eq("seniority", seniority);
+        if (postedWithinDays > 0) q = q.gte("first_seen_at", daysAgoISO(postedWithinDays));
+        return q;
+      };
+
+      let resp = await build(true);
+      if (resp.error && /seniority/i.test(String(resp.error.message || resp.error))) {
+        resp = await build(false);
       }
-      // company_slug is hyphenated lowercase ("jane-street"); let "Jane Street"
-      // match by turning spaces/hyphens into wildcards.
-      if (company) q = q.ilike("company_slug", `%${likeSafe(company).trim().replace(/[\s-]+/g, "%")}%`);
-      if (locations.length === 1) {
-        q = q.ilike("location", `%${locCore(locations[0]).replace(/ /g, "%")}%`);
-      } else if (locations.length > 1) {
-        q = q.or(locations.map((loc) => `location.ilike.*${locCore(loc).replace(/ /g, "*")}*`).join(","));
+      const { data, error, count } = resp;
+      if (error) throw error;
+
+      let rows = data || [];
+      if (canSpread) rows = spaceByCompany(rows).slice(from, to + 1);
+
+      // Resolve company display names for just this page's slugs.
+      let companyNameBySlug = {};
+      const slugs = [...new Set(rows.map((r) => r.company_slug).filter(Boolean))];
+      if (slugs.length) {
+        const { data: cRows } = await jobsDb()
+          .from("company")
+          .select("slug, name")
+          .in("slug", slugs);
+        for (const c of cRows || []) companyNameBySlug[c.slug] = c.name;
       }
-      if (locationType) q = q.eq("location_type", locationType);
-      if (source) q = q.eq("source", source);
-      if (withSeniority && seniority) q = q.eq("seniority", seniority);
-      if (postedWithinDays > 0) q = q.gte("first_seen_at", daysAgoISO(postedWithinDays));
-      return q;
-    };
 
-    let resp = await build(true);
-    if (resp.error && /seniority/i.test(String(resp.error.message || resp.error))) {
-      resp = await build(false);
-    }
-    const { data, error, count } = resp;
-    if (error) throw error;
+      const items = rows.map((r) => normalizeJob(r, companyNameBySlug)).filter((j) => j.url);
 
-    let rows = data || [];
-    if (canSpread) rows = spaceByCompany(rows).slice(from, to + 1);
+      // Source facet for the dropdown (best-effort). Only ~7 distinct values
+      // exist, so an 800-row sample is plenty; cached across all jobs requests.
+      let sources = [];
+      try {
+        sources = await cached("jobs:sources", 600000, async () => {
+          const { data: sRows } = await jobsDb()
+            .from(JOBS_TABLE)
+            .select("source")
+            .eq("status", "open")
+            .not("source", "is", null)
+            .limit(800);
+          return [...new Set((sRows || []).map((r) => r.source).filter(Boolean))]
+            .sort()
+            .slice(0, 40);
+        });
+      } catch {
+        /* facets are optional */
+      }
 
-    // Resolve company display names for just this page's slugs.
-    let companyNameBySlug = {};
-    const slugs = [...new Set(rows.map((r) => r.company_slug).filter(Boolean))];
-    if (slugs.length) {
-      const { data: cRows } = await jobsDb()
-        .from("company")
-        .select("slug, name")
-        .in("slug", slugs);
-      for (const c of cRows || []) companyNameBySlug[c.slug] = c.name;
-    }
-
-    const items = rows.map((r) => normalizeJob(r, companyNameBySlug)).filter((j) => j.url);
-
-    // Source facet for the dropdown (best-effort).
-    let sources = [];
-    try {
-      const { data: sRows } = await jobsDb()
-        .from(JOBS_TABLE)
-        .select("source")
-        .eq("status", "open")
-        .not("source", "is", null)
-        .limit(3000);
-      sources = [...new Set((sRows || []).map((r) => r.source).filter(Boolean))]
-        .sort()
-        .slice(0, 40);
-    } catch {
-      /* facets are optional */
-    }
-
-    res.json({
-      items,
-      total: count ?? items.length,
-      page,
-      pageCount: Math.max(1, Math.ceil((count ?? items.length) / JOBS_PAGE_SIZE)),
-      facets: {
-        sources,
-        locationTypes: ["remote", "hybrid", "onsite"],
-        seniorities: SENIORITY_ORDER,
-      },
+      return {
+        items,
+        total: count ?? items.length,
+        page,
+        pageCount: Math.max(1, Math.ceil((count ?? items.length) / JOBS_PAGE_SIZE)),
+        facets: {
+          sources,
+          locationTypes: ["remote", "hybrid", "onsite"],
+          seniorities: SENIORITY_ORDER,
+        },
+      };
     });
+
+    res.set(
+      "Cache-Control",
+      "public, max-age=60, s-maxage=120, stale-while-revalidate=300",
+    );
+    res.set("X-Cache", wasHit ? "HIT" : "MISS");
+    res.json(payload);
   } catch (err) {
     // Until the crawler has run its migrations (and `crawler` is added to the
     // project's exposed schemas) the table is unreachable — degrade to a soft
@@ -1817,51 +1950,59 @@ app.get("/api/jobs/facets", catalogLimiter, optionalAuth, async (req, res) => {
       return res.status(400).json({ error: "field must be 'company', 'location' or 'title'" });
     }
 
-    if (field === "title") {
-      // No blank-query list for titles — there are thousands; only suggest once
-      // the user has typed something.
-      if (!q) return res.json({ field, options: [] });
-      const { data: rows, error } = await jobsDb()
-        .from(JOBS_TABLE)
-        .select("title")
-        .eq("status", "open")
-        .gte("first_seen_at", jobsMaxAgeISO())
-        .not("title", "is", null)
-        .limit(8000);
-      if (error) throw error;
-      const candidates = (rows || []).map((r) => String(r.title || "").trim());
-      return res.json({ field, options: rankFacet(candidates, q, limit) });
-    }
-
-    if (field === "company") {
-      const { data: rows, error } = await jobsDb()
-        .from(JOBS_TABLE)
-        .select("company_slug")
-        .eq("status", "open")
-        .gte("first_seen_at", jobsMaxAgeISO())
-        .not("company_slug", "is", null)
-        .limit(8000);
-      if (error) throw error;
-      const slugs = [...new Set((rows || []).map((r) => r.company_slug).filter(Boolean))];
-      const nameBySlug = {};
-      if (slugs.length) {
-        const { data: cRows } = await jobsDb().from("company").select("slug, name").in("slug", slugs);
-        for (const c of cRows || []) nameBySlug[c.slug] = c.name;
+    const key = `jobs-facet:${field}:${q}`;
+    const wasHit = hasFresh(key);
+    const payload = await cached(key, 300000, async () => {
+      if (field === "title") {
+        // No blank-query list for titles — there are thousands; only suggest once
+        // the user has typed something.
+        if (!q) return { field, options: [] };
+        const { data: rows, error } = await jobsDb()
+          .from(JOBS_TABLE)
+          .select("title")
+          .eq("status", "open")
+          .gte("first_seen_at", jobsMaxAgeISO())
+          .not("title", "is", null)
+          .limit(2500);
+        if (error) throw error;
+        const candidates = (rows || []).map((r) => String(r.title || "").trim());
+        return { field, options: rankFacet(candidates, q, limit) };
       }
-      const candidates = slugs.map((s) => nameBySlug[s] || s.replace(/-/g, " "));
-      return res.json({ field, options: rankFacet(candidates, q, limit) });
-    }
 
-    const { data: rows, error } = await jobsDb()
-      .from(JOBS_TABLE)
-      .select("location")
-      .eq("status", "open")
-      .gte("first_seen_at", jobsMaxAgeISO())
-      .not("location", "is", null)
-      .limit(8000);
-    if (error) throw error;
-    const candidates = (rows || []).map((r) => String(r.location || "").trim());
-    return res.json({ field, options: rankFacet(candidates, q, limit) });
+      if (field === "company") {
+        const { data: rows, error } = await jobsDb()
+          .from(JOBS_TABLE)
+          .select("company_slug")
+          .eq("status", "open")
+          .gte("first_seen_at", jobsMaxAgeISO())
+          .not("company_slug", "is", null)
+          .limit(2500);
+        if (error) throw error;
+        const slugs = [...new Set((rows || []).map((r) => r.company_slug).filter(Boolean))];
+        const nameBySlug = {};
+        if (slugs.length) {
+          const { data: cRows } = await jobsDb().from("company").select("slug, name").in("slug", slugs);
+          for (const c of cRows || []) nameBySlug[c.slug] = c.name;
+        }
+        const candidates = slugs.map((s) => nameBySlug[s] || s.replace(/-/g, " "));
+        return { field, options: rankFacet(candidates, q, limit) };
+      }
+
+      const { data: rows, error } = await jobsDb()
+        .from(JOBS_TABLE)
+        .select("location")
+        .eq("status", "open")
+        .gte("first_seen_at", jobsMaxAgeISO())
+        .not("location", "is", null)
+        .limit(2500);
+      if (error) throw error;
+      const candidates = (rows || []).map((r) => String(r.location || "").trim());
+      return { field, options: rankFacet(candidates, q, limit) };
+    });
+
+    res.set("Cache-Control", "public, max-age=120, s-maxage=300");
+    res.set("X-Cache", wasHit ? "HIT" : "MISS");
+    return res.json(payload);
   } catch (err) {
     const msg = String((err && err.message) || err);
     if (/relation .* does not exist|column .* does not exist|schema must be|not exposed|PGRST106|PGRST205/i.test(msg)) {
@@ -1876,64 +2017,71 @@ app.get("/api/jobs/facets", catalogLimiter, optionalAuth, async (req, res) => {
 // of head-only COUNT queries if that function isn't there yet.
 app.get("/api/jobs/analytics", catalogLimiter, optionalAuth, async (_req, res) => {
   try {
-    const rpc = await jobsDb().rpc("jobs_analytics");
-    if (!rpc.error && rpc.data) {
-      const d = rpc.data;
-      return res.json({
-        total: d.total ?? 0,
-        companiesWithJobs: d.companies_with_jobs ?? 0,
-        bySeniority: d.by_seniority ?? [],
-        byWorkType: d.by_work_type ?? [],
-        bySource: d.by_source ?? [],
-        topCompanies: (d.top_companies ?? []).map((c) => ({
-          company: c.name || c.slug,
-          count: c.count,
-        })),
-        postedByDay: d.posted_by_day ?? [],
-        midSharePct: d.mid_share_pct ?? null,
-      });
-    }
-
-    // Fallback: COUNT-only queries (no row transfer).
-    const countWhere = async (apply) => {
-      let q = jobsDb().from(JOBS_TABLE).select("id", { count: "exact", head: true }).eq("status", "open");
-      if (apply) q = apply(q);
-      const { count } = await q;
-      return count || 0;
-    };
-    const total = await countWhere();
-    const workTypes = ["remote", "hybrid", "onsite"];
-    const byWorkType = [];
-    let typed = 0;
-    for (const t of workTypes) {
-      const c = await countWhere((q) => q.eq("location_type", t));
-      typed += c;
-      byWorkType.push({ type: t, count: c });
-    }
-    byWorkType.push({ type: "unspecified", count: Math.max(0, total - typed) });
-
-    let bySeniority = [];
-    let midCount = 0;
-    try {
-      for (const b of SENIORITY_ORDER) {
-        const c = await countWhere((q) => q.eq("seniority", b));
-        if (b === "mid") midCount = c;
-        bySeniority.push({ bucket: b, count: c });
+    const wasHit = hasFresh("jobs-analytics");
+    const payload = await cached("jobs-analytics", 300000, async () => {
+      const rpc = await jobsDb().rpc("jobs_analytics");
+      if (!rpc.error && rpc.data) {
+        const d = rpc.data;
+        return {
+          total: d.total ?? 0,
+          companiesWithJobs: d.companies_with_jobs ?? 0,
+          bySeniority: d.by_seniority ?? [],
+          byWorkType: d.by_work_type ?? [],
+          bySource: d.by_source ?? [],
+          topCompanies: (d.top_companies ?? []).map((c) => ({
+            company: c.name || c.slug,
+            count: c.count,
+          })),
+          postedByDay: d.posted_by_day ?? [],
+          midSharePct: d.mid_share_pct ?? null,
+        };
       }
-    } catch {
-      bySeniority = [];
-    }
 
-    res.json({
-      total,
-      companiesWithJobs: null,
-      bySeniority,
-      byWorkType,
-      bySource: [],
-      topCompanies: [],
-      postedByDay: [],
-      midSharePct: total ? Math.round((midCount / total) * 1000) / 10 : null,
+      // Fallback: COUNT-only queries (no row transfer).
+      const countWhere = async (apply) => {
+        let q = jobsDb().from(JOBS_TABLE).select("id", { count: "exact", head: true }).eq("status", "open");
+        if (apply) q = apply(q);
+        const { count } = await q;
+        return count || 0;
+      };
+      const total = await countWhere();
+      const workTypes = ["remote", "hybrid", "onsite"];
+      const byWorkType = [];
+      let typed = 0;
+      for (const t of workTypes) {
+        const c = await countWhere((q) => q.eq("location_type", t));
+        typed += c;
+        byWorkType.push({ type: t, count: c });
+      }
+      byWorkType.push({ type: "unspecified", count: Math.max(0, total - typed) });
+
+      let bySeniority = [];
+      let midCount = 0;
+      try {
+        for (const b of SENIORITY_ORDER) {
+          const c = await countWhere((q) => q.eq("seniority", b));
+          if (b === "mid") midCount = c;
+          bySeniority.push({ bucket: b, count: c });
+        }
+      } catch {
+        bySeniority = [];
+      }
+
+      return {
+        total,
+        companiesWithJobs: null,
+        bySeniority,
+        byWorkType,
+        bySource: [],
+        topCompanies: [],
+        postedByDay: [],
+        midSharePct: total ? Math.round((midCount / total) * 1000) / 10 : null,
+      };
     });
+
+    res.set("Cache-Control", "public, max-age=120, s-maxage=300");
+    res.set("X-Cache", wasHit ? "HIT" : "MISS");
+    res.json(payload);
   } catch (err) {
     const msg = String((err && err.message) || err);
     if (/does not exist|schema cache|schema must be|not exposed|PGRST1|PGRST2/i.test(msg)) {
