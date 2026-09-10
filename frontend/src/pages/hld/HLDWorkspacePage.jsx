@@ -351,7 +351,7 @@ function HLDWorkspaceInner() {
     const { data, isLoading, isError, error } = useQuery({
         queryKey: ['catalog-hld-detail', id],
         queryFn: () => apiFetch('/api/catalog/hld/' + id),
-        enabled: !!user && !!id,
+        enabled: !!id,
         retry: (count, err) => !(err instanceof ApiError) && count < 2,
     })
     const problem = data?.item || null

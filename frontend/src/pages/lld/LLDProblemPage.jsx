@@ -222,7 +222,7 @@ export default function LLDProblemPage() {
     const { data, isLoading: probLoading, isError, error } = useQuery({
         queryKey: ['catalog-lld-detail', slug],
         queryFn: () => apiFetch('/api/catalog/lld/' + encodeURIComponent(slug)),
-        enabled: !!user && !!slug,
+        enabled: !!slug,
         retry: (count, err) => !(err instanceof ApiError) && count < 2,
     })
 

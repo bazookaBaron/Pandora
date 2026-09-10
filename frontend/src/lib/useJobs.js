@@ -1,5 +1,4 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { useAuth } from '../contexts/AuthContext'
 import { apiFetch } from './apiClient'
 
 // ── Jobs board hooks ───────────────────────────────────────────────
@@ -13,7 +12,6 @@ const EMPTY = {
 }
 
 export function useJobs(params) {
-    const { user } = useAuth()
     const qs = new URLSearchParams()
     if (params.search) qs.set('search', params.search)
     if (params.company) qs.set('company', params.company)
@@ -28,7 +26,6 @@ export function useJobs(params) {
     const query = useQuery({
         queryKey: ['jobs', params],
         queryFn: () => apiFetch('/api/jobs?' + qs.toString()),
-        enabled: !!user,
         placeholderData: keepPreviousData,
         staleTime: 60_000,
     })
@@ -39,12 +36,11 @@ export function useJobs(params) {
 // Result-aware autocomplete: distinct company / location values that exist in
 // the current OPEN job set, fuzzy-ranked server-side against `query`.
 export function useJobFacet(field, query, enabled = true) {
-    const { user } = useAuth()
     const q = (query || '').trim()
     const result = useQuery({
         queryKey: ['jobs-facet', field, q],
         queryFn: () => apiFetch(`/api/jobs/facets?field=${field}&q=${encodeURIComponent(q)}`),
-        enabled: !!user && !!field && enabled,
+        enabled: !!field && enabled,
         placeholderData: keepPreviousData,
         staleTime: 5 * 60_000,
     })
@@ -57,11 +53,10 @@ const EMPTY_ANALYTICS = {
 }
 
 export function useJobsAnalytics(enabled) {
-    const { user } = useAuth()
     const query = useQuery({
         queryKey: ['jobs-analytics'],
         queryFn: () => apiFetch('/api/jobs/analytics'),
-        enabled: !!user && enabled,
+        enabled: !!enabled,
         staleTime: 5 * 60_000,
     })
     return { ...query, data: query.data || EMPTY_ANALYTICS }

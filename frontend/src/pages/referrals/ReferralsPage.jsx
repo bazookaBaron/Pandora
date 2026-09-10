@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../../components/Navbar'
+import { useAuth } from '../../contexts/AuthContext'
 import { useEntitlements } from '../../lib/useEntitlements'
 import { ApiError, isUsageLimit } from '../../lib/apiClient'
 import { LockedPanel } from '../../components/shared/PaywallGate'
@@ -565,7 +566,35 @@ const TABS = [
     ['mine', 'My requests'],
 ]
 
+// Signed-out visitors can see what the referral board is, but every tab is
+// user-specific — so we show one sign-in prompt instead of the tabs.
+function SignedOutReferrals() {
+    return (
+        <div style={{
+            border: '1px solid var(--subtle)', borderRadius: 12, background: 'var(--panel)',
+            padding: '32px 24px', textAlign: 'center', maxWidth: 460, margin: '8px auto 0',
+        }}>
+            <p style={{ margin: 0, color: 'var(--accent)', fontSize: '0.85rem', lineHeight: 1.6 }}>
+                Post a request for a company you&rsquo;re targeting and members who work there can
+                refer you — or refer candidates targeting your own company.
+            </p>
+            <p style={{ margin: '10px 0 16px', color: 'var(--muted)', fontSize: '0.78rem' }}>
+                Posting a referral request is a Pro feature. Sign in to get started.
+            </p>
+            <Link to="/auth" style={{
+                display: 'inline-block', textDecoration: 'none',
+                padding: '9px 22px', borderRadius: 8, fontWeight: 900, fontSize: '0.8rem',
+                textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--surface)',
+                background: 'linear-gradient(135deg, #22d3ee, #a78bfa)',
+            }}>
+                Sign in
+            </Link>
+        </div>
+    )
+}
+
 export default function ReferralsPage() {
+    const { user } = useAuth()
     const { limits, isLoading: entLoading } = useEntitlements()
     const [tab, setTab] = useState('open')
     const [notice, setNotice] = useState('')
@@ -602,29 +631,35 @@ export default function ReferralsPage() {
                     </p>
                 )}
 
-                <div
-                    className="profile-segment"
-                    role="tablist"
-                    aria-label="Referral views"
-                    style={{ maxWidth: 460, flexWrap: 'wrap', marginBottom: 18 }}
-                >
-                    {TABS.map(([id, label]) => (
-                        <button
-                            key={id}
-                            type="button"
-                            role="tab"
-                            aria-selected={tab === id}
-                            className={'profile-segment-btn' + (tab === id ? ' is-active' : '')}
-                            onClick={() => setTab(id)}
+                {!user ? (
+                    <SignedOutReferrals />
+                ) : (
+                    <>
+                        <div
+                            className="profile-segment"
+                            role="tablist"
+                            aria-label="Referral views"
+                            style={{ maxWidth: 460, flexWrap: 'wrap', marginBottom: 18 }}
                         >
-                            {label}
-                        </button>
-                    ))}
-                </div>
+                            {TABS.map(([id, label]) => (
+                                <button
+                                    key={id}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={tab === id}
+                                    className={'profile-segment-btn' + (tab === id ? ' is-active' : '')}
+                                    onClick={() => setTab(id)}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
 
-                {tab === 'post' && (entLoading ? <LoadingState /> : <PostTab limits={limits} onPosted={onPosted} />)}
-                {tab === 'open' && <OpenTab />}
-                {tab === 'mine' && <MineTab />}
+                        {tab === 'post' && (entLoading ? <LoadingState /> : <PostTab limits={limits} onPosted={onPosted} />)}
+                        {tab === 'open' && <OpenTab />}
+                        {tab === 'mine' && <MineTab />}
+                    </>
+                )}
             </main>
         </>
     )

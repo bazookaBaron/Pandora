@@ -18,7 +18,7 @@ import {
 } from "./lib/aiClient.js";
 import { compileLatexToPdf } from "./lib/latexCompiler.js";
 import { buildFilename } from "./lib/filename.js";
-import { requireAuth } from "./lib/requireAuth.js";
+import { requireAuth, optionalAuth } from "./lib/requireAuth.js";
 import {
   canAccess,
   incrementUsage,
@@ -956,9 +956,9 @@ async function fetchAllRows(table, columns, orderCol, ascending) {
 // Free cap is on the CATALOG (first N rows by id asc), applied BEFORE the
 // caller's filter/sort — so a free user can never page or filter their way to
 // row N+1. pro/max (Infinity) get the full filtered + paged set.
-app.get("/api/catalog/dsa", catalogLimiter, requireAuth, async (req, res) => {
+app.get("/api/catalog/dsa", catalogLimiter, optionalAuth, async (req, res) => {
   try {
-    const plan = await getUserPlan(req.user.id);
+    const plan = req.user ? await getUserPlan(req.user.id) : "free";
     const limit = getLimit(plan, "dsa_catalog_visible");
     const unlimited = isUnlimited(limit);
 
@@ -1048,9 +1048,9 @@ app.get("/api/catalog/dsa", catalogLimiter, requireAuth, async (req, res) => {
 });
 
 // GET /api/catalog/lld?search=&company=&page=
-app.get("/api/catalog/lld", catalogLimiter, requireAuth, async (req, res) => {
+app.get("/api/catalog/lld", catalogLimiter, optionalAuth, async (req, res) => {
   try {
-    const plan = await getUserPlan(req.user.id);
+    const plan = req.user ? await getUserPlan(req.user.id) : "free";
     const limit = getLimit(plan, "lld_catalog_visible");
     const unlimited = isUnlimited(limit);
 
@@ -1121,9 +1121,9 @@ app.get("/api/catalog/lld", catalogLimiter, requireAuth, async (req, res) => {
 // Parallel to /api/catalog/hld/:id. The client still fetches lld_code_files /
 // lld_class_diagrams via its own RLS-scoped queries — only the problem row
 // itself goes through here.
-app.get("/api/catalog/lld/:slug", catalogLimiter, requireAuth, async (req, res) => {
+app.get("/api/catalog/lld/:slug", catalogLimiter, optionalAuth, async (req, res) => {
   try {
-    const plan = await getUserPlan(req.user.id);
+    const plan = req.user ? await getUserPlan(req.user.id) : "free";
     const limit = getLimit(plan, "lld_catalog_visible");
     const unlimited = isUnlimited(limit);
     const slug = String(req.params.slug);
@@ -1164,9 +1164,9 @@ app.get("/api/catalog/lld/:slug", catalogLimiter, requireAuth, async (req, res) 
 // GET /api/catalog/hld
 // list_only (free): full list, every item { locked: true }, premium fields stripped.
 // full (pro/max): normal rows.
-app.get("/api/catalog/hld", catalogLimiter, requireAuth, async (req, res) => {
+app.get("/api/catalog/hld", catalogLimiter, optionalAuth, async (req, res) => {
   try {
-    const plan = await getUserPlan(req.user.id);
+    const plan = req.user ? await getUserPlan(req.user.id) : "free";
     const access = getLimit(plan, "hld_catalog_access"); // 'list_only' | 'full'
 
     const { data, error } = await supabaseAdmin
@@ -1205,9 +1205,11 @@ app.get("/api/catalog/hld", catalogLimiter, requireAuth, async (req, res) => {
 });
 
 // GET /api/catalog/hld/:id  → gated on canAccess('hld_practice')
-app.get("/api/catalog/hld/:id", catalogLimiter, requireAuth, async (req, res) => {
+app.get("/api/catalog/hld/:id", catalogLimiter, optionalAuth, async (req, res) => {
   try {
-    const gate = await canAccess(req.user.id, "hld_practice");
+    const gate = req.user
+      ? await canAccess(req.user.id, "hld_practice")
+      : { allowed: false, plan: "free", reason: "upgrade_required" };
     if (!gate.allowed) {
       return res.status(403).json({
         error: "upgrade_required",
@@ -1246,10 +1248,10 @@ app.get("/api/catalog/hld/:id", catalogLimiter, requireAuth, async (req, res) =>
 app.get(
   "/api/catalog/interview",
   catalogLimiter,
-  requireAuth,
+  optionalAuth,
   async (req, res) => {
     try {
-      const plan = await getUserPlan(req.user.id);
+      const plan = req.user ? await getUserPlan(req.user.id) : "free";
       const limit = getLimit(plan, "interview_q_per_subcategory");
       const unlimited = isUnlimited(limit);
       const subcategory = String(req.query.subcategory || "").trim();
@@ -1302,13 +1304,13 @@ app.get(
 // applied to the CATALOG (first N rows, same ordering as /api/catalog/dsa and
 // /api/catalog/lld) BEFORE the text match — so a free user's search can never
 // surface a capped-out problem.
-app.get("/api/catalog/search", catalogLimiter, requireAuth, async (req, res) => {
+app.get("/api/catalog/search", catalogLimiter, optionalAuth, async (req, res) => {
   try {
     const q = String(req.query.q || "").trim().toLowerCase().slice(0, 100);
     const limit = Math.min(10, Math.max(1, parseInt(req.query.limit, 10) || 6));
     if (!q) return res.json({ dsa: [], lld: [] });
 
-    const plan = await getUserPlan(req.user.id);
+    const plan = req.user ? await getUserPlan(req.user.id) : "free";
     const dsaLimit = getLimit(plan, "dsa_catalog_visible");
     const lldLimit = getLimit(plan, "lld_catalog_visible");
 
@@ -1361,7 +1363,7 @@ app.get("/api/catalog/search", catalogLimiter, requireAuth, async (req, res) => 
 app.get(
   "/api/catalog/companies",
   catalogLimiter,
-  requireAuth,
+  optionalAuth,
   async (_req, res) => {
     try {
       const [lldRes, dsaRows] = await Promise.all([
@@ -1661,7 +1663,7 @@ function jobsNotReady(res) {
   });
 }
 
-app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
+app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
   try {
     const search = String(req.query.search || "").trim().slice(0, 120);
     const company = String(req.query.company || "").trim().slice(0, 80);
@@ -1806,7 +1808,7 @@ app.get("/api/jobs", catalogLimiter, requireAuth, async (req, res) => {
 // GET /api/jobs/facets?field=company|location|title&q=… → up to `limit` distinct
 // values that actually occur in the OPEN job set, fuzzy-ranked against `q`.
 // Powers the result-aware autocomplete on the Jobs filters + search box.
-app.get("/api/jobs/facets", catalogLimiter, requireAuth, async (req, res) => {
+app.get("/api/jobs/facets", catalogLimiter, optionalAuth, async (req, res) => {
   const field = String(req.query.field || "").trim().toLowerCase();
   try {
     const q = String(req.query.q || "").trim().slice(0, 60);
@@ -1872,7 +1874,7 @@ app.get("/api/jobs/facets", catalogLimiter, requireAuth, async (req, res) => {
 // GET /api/jobs/analytics → aggregate metrics for the Jobs → Analytics tab.
 // Prefers the crawler.jobs_analytics() SQL function; falls back to a handful
 // of head-only COUNT queries if that function isn't there yet.
-app.get("/api/jobs/analytics", catalogLimiter, requireAuth, async (_req, res) => {
+app.get("/api/jobs/analytics", catalogLimiter, optionalAuth, async (_req, res) => {
   try {
     const rpc = await jobsDb().rpc("jobs_analytics");
     if (!rpc.error && rpc.data) {

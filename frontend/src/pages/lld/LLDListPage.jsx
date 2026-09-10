@@ -67,7 +67,6 @@ export default function LLDListPage() {
     const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
         queryKey: ['catalog-lld', { search, company: companyKey, page }],
         queryFn: () => apiFetch('/api/catalog/lld?' + qs.toString()),
-        enabled: !!user,
         placeholderData: keepPreviousData,
         staleTime: 60 * 1000,
     })

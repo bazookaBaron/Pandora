@@ -20,9 +20,9 @@ export const TIERS = {
             hld_catalog_access: 'list_only',
             hld_practice_per_month: 0,
             interview_q_per_subcategory: 5,
-            resume_optimizer_per_month: 10,
+            resume_optimizer_per_month: 0,   // locked — Pro/Max only
             ai_explanations_per_month: 5,
-            referral_requests_per_month: 5,
+            referral_requests_per_month: 0,  // locked — Pro/Max only
         },
     },
     pro: {
@@ -35,9 +35,9 @@ export const TIERS = {
             hld_catalog_access: 'full',
             hld_practice_per_month: 5,
             interview_q_per_subcategory: 5,
-            resume_optimizer_per_month: 5,
+            resume_optimizer_per_month: 15,
             ai_explanations_per_month: 50,
-            referral_requests_per_month: 5,
+            referral_requests_per_month: 10,
         },
     },
     max: {
@@ -49,8 +49,8 @@ export const TIERS = {
             hld_catalog_access: 'full',
             hld_practice_per_month: Infinity,
             interview_q_per_subcategory: Infinity,
-            resume_optimizer_per_month: 25, // soft cap, abuse protection only —
-            ai_explanations_per_month: 300, // never shown to the user as a "limit"
+            resume_optimizer_per_month: 50,
+            ai_explanations_per_month: 300, // soft cap, abuse protection only
             referral_requests_per_month: 20,
         },
     },

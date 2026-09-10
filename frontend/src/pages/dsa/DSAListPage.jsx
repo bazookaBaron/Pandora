@@ -242,7 +242,6 @@ export default function DSAListPage({ filterCompany }) {
     const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
         queryKey: ['catalog-dsa', { search, company: companyKey, difficulty: difficultyKey, sort, page }],
         queryFn: () => apiFetch('/api/catalog/dsa?' + qs.toString()),
-        enabled: !!user,
         placeholderData: keepPreviousData,
         staleTime: 60 * 1000,
     })

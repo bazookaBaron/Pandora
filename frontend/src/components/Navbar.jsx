@@ -207,24 +207,37 @@ export default function Navbar() {
                                 </Link>
                             ))}
 
-                            <Link
-                                to="/profile"
-                                onClick={() => setMenuOpen(false)}
-                                className={`nav-pill${isActive('/profile') ? ' active' : ''}`}
-                                style={{ width: '100%', justifyContent: 'flex-start' }}
-                            >
-                                {avatar}
-                                {profileLabel}
-                            </Link>
+                            {user ? (
+                                <>
+                                    <Link
+                                        to="/profile"
+                                        onClick={() => setMenuOpen(false)}
+                                        className={`nav-pill${isActive('/profile') ? ' active' : ''}`}
+                                        style={{ width: '100%', justifyContent: 'flex-start' }}
+                                    >
+                                        {avatar}
+                                        {profileLabel}
+                                    </Link>
 
-                            <button
-                                type="button"
-                                onClick={handleLogout}
-                                className="nav-pill danger"
-                                style={{ width: '100%', justifyContent: 'flex-start' }}
-                            >
-                                Sign out
-                            </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleLogout}
+                                        className="nav-pill danger"
+                                        style={{ width: '100%', justifyContent: 'flex-start' }}
+                                    >
+                                        Sign out
+                                    </button>
+                                </>
+                            ) : (
+                                <Link
+                                    to="/auth"
+                                    onClick={() => setMenuOpen(false)}
+                                    className="nav-pill"
+                                    style={{ width: '100%', justifyContent: 'flex-start' }}
+                                >
+                                    Sign in
+                                </Link>
+                            )}
                         </div>
                     )}
                 </>
@@ -238,10 +251,14 @@ export default function Navbar() {
 
                     <ThemeToggle />
 
-                    <Link to="/profile" className={`nav-pill${isActive('/profile') ? ' active' : ''}`}>
-                        {avatar}
-                        {profileLabel}
-                    </Link>
+                    {user ? (
+                        <Link to="/profile" className={`nav-pill${isActive('/profile') ? ' active' : ''}`}>
+                            {avatar}
+                            {profileLabel}
+                        </Link>
+                    ) : (
+                        <Link to="/auth" className="nav-pill">Sign in</Link>
+                    )}
                 </div>
             )}
         </nav>

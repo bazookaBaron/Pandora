@@ -71,8 +71,10 @@ export default function App() {
                     <RouteErrorBoundary>
                     <Routes>
                         <Route path="/auth" element={<AuthPage />} />
-                        {/* Default landing = Jobs (task 4). Resume Optimizer moved to /optimizer. */}
-                        <Route path="/" element={<ProtectedRoute><JobsPage /></ProtectedRoute>} />
+                        {/* Content is browsable logged-out (free-tier view); the
+                            server applies free caps for anonymous requests. Only
+                            /profile, /subscription/success stay behind auth. */}
+                        <Route path="/" element={<JobsPage />} />
                         <Route path="/optimizer" element={<HomePage />} />
                         <Route path="/jobs" element={<Navigate to="/" replace />} />
                         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
@@ -92,14 +94,14 @@ export default function App() {
                         <Route path="/legal/guidelines" element={<GuidelinesPage />} />
                         <Route path="/subscription/success" element={<ProtectedRoute><SubscriptionSuccessPage /></ProtectedRoute>} />
                         <Route path="/dashboard" element={<Navigate to="/profile" replace />} />
-                        <Route path="/dsa" element={<ProtectedRoute><DSAListPage /></ProtectedRoute>} />
-                        <Route path="/dsa/company/:companyName" element={<ProtectedRoute><DSACompanyPage /></ProtectedRoute>} />
-                        <Route path="/lld" element={<ProtectedRoute><LLDListPage /></ProtectedRoute>} />
-                        <Route path="/lld/:slug" element={<ProtectedRoute><LLDProblemPage /></ProtectedRoute>} />
-                        <Route path="/hld" element={<ProtectedRoute><HLDListPage /></ProtectedRoute>} />
-                        <Route path="/hld/:id" element={<ProtectedRoute><HLDWorkspacePage /></ProtectedRoute>} />
-                        <Route path="/interview" element={<ProtectedRoute><InterviewPage /></ProtectedRoute>} />
-                        <Route path="/referrals" element={<ProtectedRoute><ReferralsPage /></ProtectedRoute>} />
+                        <Route path="/dsa" element={<DSAListPage />} />
+                        <Route path="/dsa/company/:companyName" element={<DSACompanyPage />} />
+                        <Route path="/lld" element={<LLDListPage />} />
+                        <Route path="/lld/:slug" element={<LLDProblemPage />} />
+                        <Route path="/hld" element={<HLDListPage />} />
+                        <Route path="/hld/:id" element={<HLDWorkspacePage />} />
+                        <Route path="/interview" element={<InterviewPage />} />
+                        <Route path="/referrals" element={<ReferralsPage />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                     </RouteErrorBoundary>

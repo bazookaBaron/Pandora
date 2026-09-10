@@ -1,19 +1,16 @@
 import { useQuery } from '@tanstack/react-query'
-import { useAuth } from '../contexts/AuthContext'
 import { supabase } from './supabase'
 import { apiFetch } from './apiClient'
 
 // ── 1. All distinct (category, subcategory) pairs ─────────────────
 // Server-side catalog endpoint — dedupe happens on the server.
 export function useInterviewSubcategories() {
-    const { user } = useAuth()
     return useQuery({
         queryKey: ['catalog-interview-subcategories'],
         queryFn: async () => {
             const data = await apiFetch('/api/catalog/interview')
             return data?.subcategories || []
         },
-        enabled: !!user,
         staleTime: 10 * 60 * 1000,
     })
 }
@@ -25,7 +22,6 @@ export function useInterviewSubcategories() {
 // response so callers can render a paywall slice for the hidden remainder.
 //   { ...query, data: items[], items, locked, total, limit, isLoading, error }
 export function useInterviewQuestions(subcategory) {
-    const { user } = useAuth()
     const query = useQuery({
         queryKey: ['catalog-interview-questions', subcategory],
         queryFn: async () => {
@@ -39,7 +35,7 @@ export function useInterviewQuestions(subcategory) {
                 limit: data?.limit,
             }
         },
-        enabled: !!user && !!subcategory,
+        enabled: !!subcategory,
         staleTime: 5 * 60 * 1000,
     })
 

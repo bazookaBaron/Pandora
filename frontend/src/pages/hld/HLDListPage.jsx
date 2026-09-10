@@ -48,7 +48,6 @@ export default function HLDListPage() {
     const { data, isLoading, isError, error, refetch } = useQuery({
         queryKey: ['catalog-hld'],
         queryFn: () => apiFetch('/api/catalog/hld'),
-        enabled: !!user,
         staleTime: 5 * 60 * 1000,
     })
 
