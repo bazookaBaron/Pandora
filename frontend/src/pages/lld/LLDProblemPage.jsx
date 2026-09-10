@@ -223,6 +223,7 @@ export default function LLDProblemPage() {
         queryKey: ['catalog-lld-detail', slug],
         queryFn: () => apiFetch('/api/catalog/lld/' + encodeURIComponent(slug)),
         enabled: !!slug,
+        staleTime: 5 * 60_000, // problem content is static; was refetching on every mount
         retry: (count, err) => !(err instanceof ApiError) && count < 2,
     })
 

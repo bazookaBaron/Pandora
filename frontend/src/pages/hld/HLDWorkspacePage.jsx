@@ -352,6 +352,7 @@ function HLDWorkspaceInner() {
         queryKey: ['catalog-hld-detail', id],
         queryFn: () => apiFetch('/api/catalog/hld/' + id),
         enabled: !!id,
+        staleTime: 5 * 60_000, // problem content is static; was refetching on every mount
         retry: (count, err) => !(err instanceof ApiError) && count < 2,
     })
     const problem = data?.item || null

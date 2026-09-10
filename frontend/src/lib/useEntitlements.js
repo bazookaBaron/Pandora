@@ -35,7 +35,7 @@ export function useEntitlements() {
         queryKey: ['entitlements', user?.id ?? null],
         queryFn: () => apiFetch('/api/entitlements/me'),
         enabled: !!user,
-        staleTime: 60_000,
+        staleTime: 5 * 60_000, // server re-checks every gated action; a stale client copy is fine
         // Not fully logged in yet → server 401s. Don't retry, just fall to free.
         retry: (count, err) => (err && err.status === 401 ? false : count < 1),
     })

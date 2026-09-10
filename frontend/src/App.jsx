@@ -37,6 +37,11 @@ const queryClient = new QueryClient({
     defaultOptions: {
         queries: {
             retry: 1,
+            // Phase 0.6: stop the refetch-on-every-focus / refetch-on-remount
+            // storm. Per-query staleTime overrides where a page wants fresher.
+            staleTime: 30_000,
+            gcTime: 10 * 60_000,
+            refetchOnWindowFocus: false,
         }
     }
 })
