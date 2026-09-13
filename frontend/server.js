@@ -3318,11 +3318,19 @@ const INDEX_TEMPLATE = existsSync(INDEX_HTML)
 // route. User-triggered fetchers ignore robots.txt by design — the private
 // routes also carry a noindex meta (see the SEO fallback below) as the real
 // guard; this file is the crawl-budget hint.
+//
+// /dsa, /lld, /hld and /interview were previously disallowed here (and
+// separately noindexed in seoHead.js) even though none of them require auth
+// — that combination hid the entire product from Google. Both were lifted
+// together; see seoHead.js's classifyRoute for the per-route detail (e.g.
+// /hld/:id practice-workspace pages stay noindex, only /hld the list page
+// is crawlable).
 app.get("/robots.txt", (req, res) => {
   const base = baseUrl(req);
   res.type("text/plain").send(
     [
       "User-agent: *",
+      "Allow: /",
       "Allow: /optimizer",
       "Allow: /pricing",
       "Allow: /terms",
@@ -3334,15 +3342,16 @@ app.get("/robots.txt", (req, res) => {
       "Allow: /questions",
       "Allow: /legal/",
       "Allow: /blog",
+      "Allow: /dsa",
+      "Allow: /lld",
+      "Allow: /hld",
+      "Allow: /interview",
       "Disallow: /api/",
       "Disallow: /auth",
       "Disallow: /profile",
       "Disallow: /dashboard",
-      "Disallow: /dsa",
-      "Disallow: /lld",
-      "Disallow: /hld",
-      "Disallow: /interview",
       "Disallow: /referrals",
+      "Disallow: /hld/",
       "",
       `Sitemap: ${base}/sitemap.xml`,
       "",
@@ -3350,11 +3359,17 @@ app.get("/robots.txt", (req, res) => {
   );
 });
 
-// ── sitemap.xml (dynamic: static public pages + every published blog post) ──
+// ── sitemap.xml (dynamic: static public pages + every published blog post,
+// DSA company page and LLD problem) ──────────────────────────────────────
 app.get("/sitemap.xml", async (req, res) => {
   const base = baseUrl(req);
   const urls = [
+    { loc: `${base}/`, priority: "1.0", changefreq: "hourly" },
     { loc: `${base}/optimizer`, priority: "1.0", changefreq: "weekly" },
+    { loc: `${base}/dsa`, priority: "0.9", changefreq: "weekly" },
+    { loc: `${base}/lld`, priority: "0.9", changefreq: "weekly" },
+    { loc: `${base}/hld`, priority: "0.8", changefreq: "weekly" },
+    { loc: `${base}/interview`, priority: "0.8", changefreq: "weekly" },
     { loc: `${base}/pricing`, priority: "0.8", changefreq: "monthly" },
     { loc: `${base}/blog`, priority: "0.7", changefreq: "weekly" },
     { loc: `${base}/terms`, priority: "0.3", changefreq: "yearly" },
@@ -3383,6 +3398,43 @@ app.get("/sitemap.xml", async (req, res) => {
     }
   } catch (e) {
     console.warn("[seo] sitemap blog query failed", redact(String(e && e.message)));
+  }
+  try {
+    // "company" is a text[] column (verified against the live schema on
+    // 2026-09-13) — each row can list multiple companies, so we fan out over
+    // the array instead of reading a scalar "company_name".
+    const { data } = await supabaseAdmin
+      .from("leetcode_company_problems")
+      .select("company")
+      .limit(2000);
+    const seen = new Set();
+    for (const row of data || []) {
+      const companies = (row && row.company) || [];
+      for (const raw of companies) {
+        if (!raw) continue;
+        const slug = String(raw)
+          .toLowerCase()
+          .trim()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "");
+        if (!slug || seen.has(slug)) continue;
+        seen.add(slug);
+        urls.push({ loc: `${base}/dsa/company/${slug}`, priority: "0.6", changefreq: "monthly" });
+      }
+    }
+  } catch (e) {
+    console.warn("[seo] sitemap dsa-company query failed", redact(String(e && e.message)));
+  }
+  try {
+    // "slug" confirmed against the live lld_problems schema on 2026-09-13.
+    const { data } = await supabaseAdmin.from("lld_problems").select("slug").limit(2000);
+    for (const row of data || []) {
+      if (row && row.slug) {
+        urls.push({ loc: `${base}/lld/${encodeURIComponent(row.slug)}`, priority: "0.6", changefreq: "monthly" });
+      }
+    }
+  } catch (e) {
+    console.warn("[seo] sitemap lld query failed", redact(String(e && e.message)));
   }
   const body =
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
