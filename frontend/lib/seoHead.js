@@ -49,21 +49,73 @@ export function jsonLdScript(obj) {
   return `<script type="application/ld+json">${json}</script>`;
 }
 
+// "google-cloud" -> "Google Cloud". Cosmetic only (meta text, not on-page
+// UI) — a curated company/problem display-name map can replace this later
+// for brands with irregular casing (NVIDIA, IBM, etc).
+function humanizeSlug(slug) {
+  return String(slug || "")
+    .split("-")
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+// Evidence-gated per-slug metadata overrides for dsaCompany/lldProblem pages.
+// Both start empty — routeMeta() falls back to the humanizeSlug()-derived
+// copy below until an entry exists. The autonomous DSA/LLD proposal
+// generators (frontend/growth/workflows/proposals/{dsa,lld}.ts) insert one
+// new keyed entry per PR, always immediately after the anchor comment so the
+// anchor stays a stable, unique insertion point across repeated runs.
+const DSA_COMPANY_TITLE_OVERRIDES = {
+  // GROWTH_DSA_OVERRIDE_ANCHOR
+};
+const LLD_PROBLEM_TITLE_OVERRIDES = {
+  // GROWTH_LLD_OVERRIDE_ANCHOR
+};
+
 // ── Route classification ─────────────────────────────────────────
+// "/hld/:id" is an interactive practice workspace (session/diagram state,
+// not stable evergreen content) — list page is indexed, detail is not,
+// same pattern as an app's /profile vs its public marketing pages.
 const NOINDEX_EXACT = new Set(["/auth", "/profile", "/dashboard"]);
-const NOINDEX_PREFIXES = ["/dsa", "/lld", "/hld", "/interview", "/referrals"];
+const NOINDEX_PREFIXES = ["/referrals", "/hld/"];
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,199}$/;
 
 // classifyRoute(pathname) -> { kind, key?, slug? }
-//   kind: "public"  — a crawlable marketing/content route (key: home|pricing|blog|blogPost)
-//         "noindex" — a private app route; gets robots=noindex + self canonical
+//   kind: "public"  — a crawlable marketing/content route (key: home|pricing|blog|blogPost|...)
+//         "noindex" — a private app route or non-canonical detail view; robots=noindex + self canonical
 //         "passthrough" — unknown; template served unchanged
 export function classifyRoute(pathname) {
   const p = typeof pathname === "string" && pathname ? pathname : "/";
 
-  // "/" now renders the Jobs section (auth-gated) — see App.jsx / task 4.
-  if (p === "/") return { kind: "noindex" };
+  // "/" renders the public Jobs board — not auth-gated (JobsPage has no
+  // auth check; free + anonymous visitors see live listings).
+  if (p === "/") return { kind: "public", key: "jobs" };
   if (p === "/optimizer") return { kind: "public", key: "home" };
+  if (p === "/dsa") return { kind: "public", key: "dsaList" };
+  if (p.startsWith("/dsa/company/")) {
+    let slug = p.slice("/dsa/company/".length);
+    try {
+      slug = decodeURIComponent(slug);
+    } catch {
+      return { kind: "passthrough" };
+    }
+    if (SLUG_RE.test(slug)) return { kind: "public", key: "dsaCompany", slug };
+    return { kind: "passthrough" };
+  }
+  if (p === "/lld") return { kind: "public", key: "lldList" };
+  if (p.startsWith("/lld/")) {
+    let slug = p.slice("/lld/".length);
+    try {
+      slug = decodeURIComponent(slug);
+    } catch {
+      return { kind: "passthrough" };
+    }
+    if (SLUG_RE.test(slug)) return { kind: "public", key: "lldProblem", slug };
+    return { kind: "passthrough" };
+  }
+  if (p === "/hld") return { kind: "public", key: "hldList" };
+  if (p === "/interview") return { kind: "public", key: "interview" };
   if (p === "/pricing") return { kind: "public", key: "pricing" };
   if (p === "/terms") return { kind: "public", key: "terms" };
   if (p === "/privacy") return { kind: "public", key: "privacy" };
@@ -179,6 +231,84 @@ function routeMeta({ key, base, path, post }) {
       ogImage: base + SITE.defaultOgImage,
     };
   }
+  if (key === "jobs") {
+    return {
+      title: "14,000+ Live Tech Jobs, Refreshed All Day | Vloombox",
+      description:
+        "Tech openings crawled from ~500 companies and refreshed through the day — filter by role, seniority, location and source. Only postings from the last 2 days.",
+      canonical: `${base}/`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "dsaList") {
+    return {
+      title: "DSA Interview Questions by Company | Vloombox",
+      description:
+        "Data structures & algorithms interview questions sorted by the company that actually asked them — practice the ones that matter for your target employer.",
+      canonical: `${base}/dsa`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "dsaCompany") {
+    const slug = path ? path.split("/").pop() : "";
+    const override = DSA_COMPANY_TITLE_OVERRIDES[slug];
+    const name = humanizeSlug(slug);
+    return {
+      title: (override && override.title) || `${name} DSA Interview Questions | Vloombox`,
+      description:
+        (override && override.description) ||
+        `Data structures & algorithms questions asked in ${name} interviews, curated for focused practice before your next round.`,
+      canonical: `${base}/dsa/company/${slug}`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "lldList") {
+    return {
+      title: "Low-Level Design (LLD) Interview Problems | Vloombox",
+      description:
+        "Practice real low-level design problems — the kind asked in Amazon, Uber and Google interviews — with structured, guided solutions.",
+      canonical: `${base}/lld`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "lldProblem") {
+    const slug = path ? path.split("/").pop() : "";
+    const override = LLD_PROBLEM_TITLE_OVERRIDES[slug];
+    const name = humanizeSlug(slug);
+    return {
+      title: (override && override.title) || `${name} — LLD Interview Problem | Vloombox`,
+      description:
+        (override && override.description) ||
+        `Design ${name}: a low-level design interview problem with a guided walkthrough on Vloombox.`,
+      canonical: `${base}/lld/${slug}`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "hldList") {
+    return {
+      title: "High-Level System Design (HLD) Practice | Vloombox",
+      description:
+        "Practice high-level system design interviews with an interactive workspace — the same round that trips up most senior candidates.",
+      canonical: `${base}/hld`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "interview") {
+    return {
+      title: "Interview Question Bank | Vloombox",
+      description:
+        "Behavioral and technical interview questions organized by topic, with AI-assisted explanations to help you actually understand the answer.",
+      canonical: `${base}/interview`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
   if (key === "blog") {
     return {
       title:
@@ -258,6 +388,34 @@ export function buildHeadTags({ key, base, path, post }) {
           logo: { "@type": "ImageObject", url: base + SITE.defaultOgImage },
         },
         mainEntityOfPage: m.canonical,
+      }),
+    );
+  } else if (["jobs", "dsaList", "lldList", "hldList", "interview"].includes(key)) {
+    lines.push(
+      jsonLdScript({
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        name: m.title,
+        description: m.description,
+        url: m.canonical,
+        isPartOf: { "@type": "WebSite", name: SITE.name, url: `${base}/` },
+      }),
+    );
+  } else if (key === "dsaCompany" || key === "lldProblem") {
+    lines.push(
+      jsonLdScript({
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Home", item: `${base}/` },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: key === "dsaCompany" ? "DSA" : "LLD",
+            item: `${base}/${key === "dsaCompany" ? "dsa" : "lld"}`,
+          },
+          { "@type": "ListItem", position: 3, name: m.title, item: m.canonical },
+        ],
       }),
     );
   } else if (key === "home") {
