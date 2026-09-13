@@ -47,6 +47,20 @@ export function useJobFacet(field, query, enabled = true) {
     return { ...result, options: result.data?.options || [] }
 }
 
+const EMPTY_COMPANY = { company: null, postings: [], eligible: false }
+
+// One company's open-postings hub page (/jobs/company/:slug). 404s surface
+// through react-query's `error` like any other apiFetch call.
+export function useJobsCompany(slug) {
+    const query = useQuery({
+        queryKey: ['jobs-company', slug],
+        queryFn: () => apiFetch(`/api/jobs/company/${encodeURIComponent(slug)}`),
+        enabled: !!slug,
+        staleTime: 60_000,
+    })
+    return { ...query, data: query.data || EMPTY_COMPANY }
+}
+
 const EMPTY_ANALYTICS = {
     total: 0, companiesWithJobs: 0, bySeniority: [], byWorkType: [],
     bySource: [], topCompanies: [], postedByDay: [], midSharePct: null,

@@ -73,6 +73,69 @@ const LLD_PROBLEM_TITLE_OVERRIDES = {
   // GROWTH_LLD_OVERRIDE_ANCHOR
 };
 
+// Kept in sync by hand with FAQ_ITEMS in frontend/src/pages/StaticPages.jsx —
+// that file is JSX (can't be imported into this plain-JS/Node module), so the
+// same six Q&A pairs are duplicated here verbatim for the FAQPage JSON-LD.
+// Update both if the FAQ copy changes.
+const FAQ_ITEMS = [
+  {
+    q: "What is Vloombox?",
+    a: "Vloombox is an all-in-one interview-prep platform: practise data structures & algorithms, low-level and high-level system design, and curated interview questions; tailor your résumé to a specific job with AI; browse a continuously refreshed jobs board; and request referrals from people already working at your target company.",
+  },
+  {
+    q: "How do referrals work?",
+    a: "Post a request with the target company and, optionally, attach your résumé. Members who have set that company as their current employer in their profile can see the request and choose to refer you. Vloombox doesn’t independently verify employment, so treat referrals as peer-to-peer help.",
+  },
+  {
+    q: "Who can see my résumé?",
+    a: "Only the member who accepts your referral request can open the résumé you attached to it, and only through a private, expiring link — it is never listed publicly. A résumé you upload to the optimiser is used to generate your suggestions and is not shared with other users.",
+  },
+  {
+    q: "Can I withdraw a referral request?",
+    a: "Yes. You can cancel an open request from the referral board at any time, and every request also expires automatically on the date shown on its card.",
+  },
+  {
+    q: "Does my subscription auto-renew?",
+    a: "No. Pro and Max are a one-time payment for a fixed term (monthly or yearly). Nothing renews automatically — when the term ends your account simply returns to the Free plan. You can cancel anytime by not renewing.",
+  },
+  {
+    q: "How do I get help?",
+    a: "Email support.vloombox@gmail.com, or use the Feedback section in your profile once you’re signed in. We usually reply within 2 business days.",
+  },
+];
+
+// ── Job-hub indexability gate ─────────────────────────────────────
+// Mirrors frontend/growth/intelligence/indexability.ts's evaluateIndexability()
+// defaults exactly (minimumRecords 20, minimumCompleteness .8, minimumUniqueFacts 5,
+// minimumWordCount 350, maximumAgeDays 90) so the live server and the growth
+// CLI's periodic audit agree on the same policy. Reimplemented here (rather
+// than imported) because the live server can't depend on the growth CLI's
+// compiled TS output — keep the numbers in sync by hand if that policy ever
+// changes. Used to decide index,follow vs noindex,follow for /jobs/company/:slug
+// pages: the "curated" flag is a separate, additional gate (only the top-N
+// companies by open-posting volume launch as indexable, per the SEO plan's
+// explicit caution against thin-content flags on a recently-deindexed domain).
+export const JOB_HUB_INDEXABILITY_POLICY = {
+  minimumRecords: 20,
+  minimumCompleteness: 0.8,
+  minimumUniqueFacts: 5,
+  minimumWordCount: 350,
+  maximumAgeDays: 90,
+};
+
+export function evaluateJobHubIndexability(evidence) {
+  const p = JOB_HUB_INDEXABILITY_POLICY;
+  const completeness = evidence.recordCount === 0 ? 0 : evidence.completeRecordCount / evidence.recordCount;
+  const reasons = [];
+  if (!evidence.curated) reasons.push("Not in the curated launch set.");
+  if (evidence.recordCount < p.minimumRecords) reasons.push(`Needs at least ${p.minimumRecords} open postings.`);
+  if (completeness < p.minimumCompleteness) reasons.push(`Needs at least ${Math.round(p.minimumCompleteness * 100)}% complete postings.`);
+  if (evidence.uniqueFactCount < p.minimumUniqueFacts) reasons.push(`Needs at least ${p.minimumUniqueFacts} distinct role/location combinations.`);
+  if (evidence.substantiveWordCount < p.minimumWordCount) reasons.push(`Needs at least ${p.minimumWordCount} substantive words.`);
+  if (!Number.isFinite(evidence.newestAgeDays) || evidence.newestAgeDays > p.maximumAgeDays) reasons.push("No postings fresh enough.");
+  return { eligible: reasons.length === 0, reasons };
+}
+
 // ── Route classification ─────────────────────────────────────────
 // "/hld/:id" is an interactive practice workspace (session/diagram state,
 // not stable evergreen content) — list page is indexed, detail is not,
@@ -101,6 +164,20 @@ export function classifyRoute(pathname) {
       return { kind: "passthrough" };
     }
     if (SLUG_RE.test(slug)) return { kind: "public", key: "dsaCompany", slug };
+    return { kind: "passthrough" };
+  }
+  if (p.startsWith("/jobs/company/")) {
+    let slug = p.slice("/jobs/company/".length);
+    try {
+      slug = decodeURIComponent(slug);
+    } catch {
+      return { kind: "passthrough" };
+    }
+    // Indexability here is per-slug and evidence-based (curated top-N +
+    // evaluateJobHubIndexability), not a blanket allow — the caller
+    // (server.js) resolves that and may downgrade this to "noindex" before
+    // rendering. classifyRoute alone only validates the slug shape.
+    if (SLUG_RE.test(slug)) return { kind: "public", key: "jobsCompany", slug };
     return { kind: "passthrough" };
   }
   if (p === "/lld") return { kind: "public", key: "lldList" };
@@ -157,7 +234,7 @@ function metaTag(attr, key, value) {
 // Resolve the human-facing <title> + description + canonical + OG basics for a
 // public route. Shared by buildHeadTags (OG/Twitter/JSON-LD) and renderIndex
 // (the in-place <title> / <meta name="description"> replacement).
-function routeMeta({ key, base, path, post }) {
+function routeMeta({ key, base, path, post, jobsCompany }) {
   if (key === "home") {
     return {
       title: "Vloombox — Tailor Your Resume to Any Job with AI",
@@ -265,6 +342,19 @@ function routeMeta({ key, base, path, post }) {
       ogImage: base + SITE.defaultOgImage,
     };
   }
+  if (key === "jobsCompany") {
+    const slug = path ? path.split("/").pop() : "";
+    const jc = jobsCompany || {};
+    const name = jc.name || humanizeSlug(slug);
+    const count = Number.isFinite(jc.openCount) ? jc.openCount : undefined;
+    return {
+      title: `${name} Jobs${count ? ` — ${count} Open Roles` : ""} | Vloombox`,
+      description: `${count ? `${count} open` : "Open"} positions at ${name}, crawled directly from their careers page and refreshed through the day.`,
+      canonical: `${base}/jobs/company/${slug}`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
   if (key === "lldList") {
     return {
       title: "Low-Level Design (LLD) Interview Problems | Vloombox",
@@ -343,8 +433,8 @@ function routeMeta({ key, base, path, post }) {
 
 // Build the newline-joined block of <link>/<meta>/<script> lines injected before
 // </head> for a resolved public route. `post` is only used for key "blogPost".
-export function buildHeadTags({ key, base, path, post }) {
-  const m = routeMeta({ key, base, path, post });
+export function buildHeadTags({ key, base, path, post, jobsCompany }) {
+  const m = routeMeta({ key, base, path, post, jobsCompany });
   const lines = [];
 
   lines.push(`<link rel="canonical" href="${escapeHtml(m.canonical)}" />`);
@@ -390,7 +480,7 @@ export function buildHeadTags({ key, base, path, post }) {
         mainEntityOfPage: m.canonical,
       }),
     );
-  } else if (["jobs", "dsaList", "lldList", "hldList", "interview"].includes(key)) {
+  } else if (["jobs", "dsaList", "lldList", "hldList", "interview", "jobsCompany"].includes(key)) {
     lines.push(
       jsonLdScript({
         "@context": "https://schema.org",
@@ -416,6 +506,18 @@ export function buildHeadTags({ key, base, path, post }) {
           },
           { "@type": "ListItem", position: 3, name: m.title, item: m.canonical },
         ],
+      }),
+    );
+  } else if (key === "faq") {
+    lines.push(
+      jsonLdScript({
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: FAQ_ITEMS.map((item) => ({
+          "@type": "Question",
+          name: item.q,
+          acceptedAnswer: { "@type": "Answer", text: item.a },
+        })),
       }),
     );
   } else if (key === "home") {
@@ -445,7 +547,7 @@ export function buildHeadTags({ key, base, path, post }) {
 // String ops only (two anchored regexes + a "</head>" splice), never an HTML
 // parser. Function replacements are used so a "$" in any interpolated text is
 // treated literally.
-export function renderIndex(template, { classify, base, path, post }) {
+export function renderIndex(template, { classify, base, path, post, jobsCompany }) {
   const c = classify || { kind: "passthrough" };
 
   if (c.kind === "passthrough") return template;
@@ -459,8 +561,8 @@ export function renderIndex(template, { classify, base, path, post }) {
   }
 
   // public
-  const m = routeMeta({ key: c.key, base, path, post });
-  const headTags = buildHeadTags({ key: c.key, base, path, post });
+  const m = routeMeta({ key: c.key, base, path, post, jobsCompany });
+  const headTags = buildHeadTags({ key: c.key, base, path, post, jobsCompany });
   const titleTag = `<title>${escapeHtml(m.title)}</title>`;
   const descTag = metaTag("name", "description", m.description);
 

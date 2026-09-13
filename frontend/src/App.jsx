@@ -24,6 +24,7 @@ const HLDWorkspacePage = lazy(() => import('./pages/hld/HLDWorkspacePage'))
 const InterviewPage = lazy(() => import('./pages/interview/InterviewPage'))
 const ReferralsPage = lazy(() => import('./pages/referrals/ReferralsPage'))
 const JobsPage = lazy(() => import('./pages/jobs/JobsPage'))
+const JobsCompanyPage = lazy(() => import('./pages/jobs/JobsCompanyPage'))
 
 const TermsPage = lazy(() => import('./pages/LegalPages').then(m => ({ default: m.TermsPage })))
 const PrivacyPage = lazy(() => import('./pages/LegalPages').then(m => ({ default: m.PrivacyPage })))
@@ -98,6 +99,7 @@ export default function App() {
                         <Route path="/" element={<JobsPage />} />
                         <Route path="/optimizer" element={<HomePage />} />
                         <Route path="/jobs" element={<Navigate to="/" replace />} />
+                        <Route path="/jobs/company/:slug" element={<JobsCompanyPage />} />
                         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                         <Route path="/pricing" element={<PricingPage />} />
                         <Route path="/terms" element={<TermsPage />} />
