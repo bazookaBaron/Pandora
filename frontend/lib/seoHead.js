@@ -49,21 +49,150 @@ export function jsonLdScript(obj) {
   return `<script type="application/ld+json">${json}</script>`;
 }
 
+// "google-cloud" -> "Google Cloud". Cosmetic only (meta text, not on-page
+// UI) — a curated company/problem display-name map can replace this later
+// for brands with irregular casing (NVIDIA, IBM, etc).
+function humanizeSlug(slug) {
+  return String(slug || "")
+    .split("-")
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+// Evidence-gated per-slug metadata overrides for dsaCompany/lldProblem pages.
+// Both start empty — routeMeta() falls back to the humanizeSlug()-derived
+// copy below until an entry exists. The autonomous DSA/LLD proposal
+// generators (frontend/growth/workflows/proposals/{dsa,lld}.ts) insert one
+// new keyed entry per PR, always immediately after the anchor comment so the
+// anchor stays a stable, unique insertion point across repeated runs.
+const DSA_COMPANY_TITLE_OVERRIDES = {
+  // GROWTH_DSA_OVERRIDE_ANCHOR
+};
+const LLD_PROBLEM_TITLE_OVERRIDES = {
+  // GROWTH_LLD_OVERRIDE_ANCHOR
+};
+
+// Kept in sync by hand with FAQ_ITEMS in frontend/src/pages/StaticPages.jsx —
+// that file is JSX (can't be imported into this plain-JS/Node module), so the
+// same six Q&A pairs are duplicated here verbatim for the FAQPage JSON-LD.
+// Update both if the FAQ copy changes.
+const FAQ_ITEMS = [
+  {
+    q: "What is Vloombox?",
+    a: "Vloombox is an all-in-one interview-prep platform: practise data structures & algorithms, low-level and high-level system design, and curated interview questions; tailor your résumé to a specific job with AI; browse a continuously refreshed jobs board; and request referrals from people already working at your target company.",
+  },
+  {
+    q: "How do referrals work?",
+    a: "Post a request with the target company and, optionally, attach your résumé. Members who have set that company as their current employer in their profile can see the request and choose to refer you. Vloombox doesn’t independently verify employment, so treat referrals as peer-to-peer help.",
+  },
+  {
+    q: "Who can see my résumé?",
+    a: "Only the member who accepts your referral request can open the résumé you attached to it, and only through a private, expiring link — it is never listed publicly. A résumé you upload to the optimiser is used to generate your suggestions and is not shared with other users.",
+  },
+  {
+    q: "Can I withdraw a referral request?",
+    a: "Yes. You can cancel an open request from the referral board at any time, and every request also expires automatically on the date shown on its card.",
+  },
+  {
+    q: "Does my subscription auto-renew?",
+    a: "No. Pro and Max are a one-time payment for a fixed term (monthly or yearly). Nothing renews automatically — when the term ends your account simply returns to the Free plan. You can cancel anytime by not renewing.",
+  },
+  {
+    q: "How do I get help?",
+    a: "Email support.vloombox@gmail.com, or use the Feedback section in your profile once you’re signed in. We usually reply within 2 business days.",
+  },
+];
+
+// ── Job-hub indexability gate ─────────────────────────────────────
+// Mirrors frontend/growth/intelligence/indexability.ts's evaluateIndexability()
+// defaults exactly (minimumRecords 20, minimumCompleteness .8, minimumUniqueFacts 5,
+// minimumWordCount 350, maximumAgeDays 90) so the live server and the growth
+// CLI's periodic audit agree on the same policy. Reimplemented here (rather
+// than imported) because the live server can't depend on the growth CLI's
+// compiled TS output — keep the numbers in sync by hand if that policy ever
+// changes. Used to decide index,follow vs noindex,follow for /jobs/company/:slug
+// pages: the "curated" flag is a separate, additional gate (only the top-N
+// companies by open-posting volume launch as indexable, per the SEO plan's
+// explicit caution against thin-content flags on a recently-deindexed domain).
+export const JOB_HUB_INDEXABILITY_POLICY = {
+  minimumRecords: 20,
+  minimumCompleteness: 0.8,
+  minimumUniqueFacts: 5,
+  minimumWordCount: 350,
+  maximumAgeDays: 90,
+};
+
+export function evaluateJobHubIndexability(evidence) {
+  const p = JOB_HUB_INDEXABILITY_POLICY;
+  const completeness = evidence.recordCount === 0 ? 0 : evidence.completeRecordCount / evidence.recordCount;
+  const reasons = [];
+  if (!evidence.curated) reasons.push("Not in the curated launch set.");
+  if (evidence.recordCount < p.minimumRecords) reasons.push(`Needs at least ${p.minimumRecords} open postings.`);
+  if (completeness < p.minimumCompleteness) reasons.push(`Needs at least ${Math.round(p.minimumCompleteness * 100)}% complete postings.`);
+  if (evidence.uniqueFactCount < p.minimumUniqueFacts) reasons.push(`Needs at least ${p.minimumUniqueFacts} distinct role/location combinations.`);
+  if (evidence.substantiveWordCount < p.minimumWordCount) reasons.push(`Needs at least ${p.minimumWordCount} substantive words.`);
+  if (!Number.isFinite(evidence.newestAgeDays) || evidence.newestAgeDays > p.maximumAgeDays) reasons.push("No postings fresh enough.");
+  return { eligible: reasons.length === 0, reasons };
+}
+
 // ── Route classification ─────────────────────────────────────────
+// "/hld/:id" is an interactive practice workspace (session/diagram state,
+// not stable evergreen content) — list page is indexed, detail is not,
+// same pattern as an app's /profile vs its public marketing pages.
 const NOINDEX_EXACT = new Set(["/auth", "/profile", "/dashboard"]);
-const NOINDEX_PREFIXES = ["/dsa", "/lld", "/hld", "/interview", "/referrals"];
+const NOINDEX_PREFIXES = ["/referrals", "/hld/"];
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,199}$/;
 
 // classifyRoute(pathname) -> { kind, key?, slug? }
-//   kind: "public"  — a crawlable marketing/content route (key: home|pricing|blog|blogPost)
-//         "noindex" — a private app route; gets robots=noindex + self canonical
+//   kind: "public"  — a crawlable marketing/content route (key: home|pricing|blog|blogPost|...)
+//         "noindex" — a private app route or non-canonical detail view; robots=noindex + self canonical
 //         "passthrough" — unknown; template served unchanged
 export function classifyRoute(pathname) {
   const p = typeof pathname === "string" && pathname ? pathname : "/";
 
-  // "/" now renders the Jobs section (auth-gated) — see App.jsx / task 4.
-  if (p === "/") return { kind: "noindex" };
+  // "/" renders the public Jobs board — not auth-gated (JobsPage has no
+  // auth check; free + anonymous visitors see live listings).
+  if (p === "/") return { kind: "public", key: "jobs" };
   if (p === "/optimizer") return { kind: "public", key: "home" };
+  if (p === "/dsa") return { kind: "public", key: "dsaList" };
+  if (p.startsWith("/dsa/company/")) {
+    let slug = p.slice("/dsa/company/".length);
+    try {
+      slug = decodeURIComponent(slug);
+    } catch {
+      return { kind: "passthrough" };
+    }
+    if (SLUG_RE.test(slug)) return { kind: "public", key: "dsaCompany", slug };
+    return { kind: "passthrough" };
+  }
+  if (p.startsWith("/jobs/company/")) {
+    let slug = p.slice("/jobs/company/".length);
+    try {
+      slug = decodeURIComponent(slug);
+    } catch {
+      return { kind: "passthrough" };
+    }
+    // Indexability here is per-slug and evidence-based (curated top-N +
+    // evaluateJobHubIndexability), not a blanket allow — the caller
+    // (server.js) resolves that and may downgrade this to "noindex" before
+    // rendering. classifyRoute alone only validates the slug shape.
+    if (SLUG_RE.test(slug)) return { kind: "public", key: "jobsCompany", slug };
+    return { kind: "passthrough" };
+  }
+  if (p === "/lld") return { kind: "public", key: "lldList" };
+  if (p.startsWith("/lld/")) {
+    let slug = p.slice("/lld/".length);
+    try {
+      slug = decodeURIComponent(slug);
+    } catch {
+      return { kind: "passthrough" };
+    }
+    if (SLUG_RE.test(slug)) return { kind: "public", key: "lldProblem", slug };
+    return { kind: "passthrough" };
+  }
+  if (p === "/hld") return { kind: "public", key: "hldList" };
+  if (p === "/interview") return { kind: "public", key: "interview" };
   if (p === "/pricing") return { kind: "public", key: "pricing" };
   if (p === "/terms") return { kind: "public", key: "terms" };
   if (p === "/privacy") return { kind: "public", key: "privacy" };
@@ -105,7 +234,7 @@ function metaTag(attr, key, value) {
 // Resolve the human-facing <title> + description + canonical + OG basics for a
 // public route. Shared by buildHeadTags (OG/Twitter/JSON-LD) and renderIndex
 // (the in-place <title> / <meta name="description"> replacement).
-function routeMeta({ key, base, path, post }) {
+function routeMeta({ key, base, path, post, jobsCompany }) {
   if (key === "home") {
     return {
       title: "Vloombox — Tailor Your Resume to Any Job with AI",
@@ -179,6 +308,97 @@ function routeMeta({ key, base, path, post }) {
       ogImage: base + SITE.defaultOgImage,
     };
   }
+  if (key === "jobs") {
+    return {
+      title: "14,000+ Live Tech Jobs, Refreshed All Day | Vloombox",
+      description:
+        "Tech openings crawled from ~500 companies and refreshed through the day — filter by role, seniority, location and source. Only postings from the last 2 days.",
+      canonical: `${base}/`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "dsaList") {
+    return {
+      title: "DSA Interview Questions by Company | Vloombox",
+      description:
+        "Data structures & algorithms interview questions sorted by the company that actually asked them — practice the ones that matter for your target employer.",
+      canonical: `${base}/dsa`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "dsaCompany") {
+    const slug = path ? path.split("/").pop() : "";
+    const override = DSA_COMPANY_TITLE_OVERRIDES[slug];
+    const name = humanizeSlug(slug);
+    return {
+      title: (override && override.title) || `${name} DSA Interview Questions | Vloombox`,
+      description:
+        (override && override.description) ||
+        `Data structures & algorithms questions asked in ${name} interviews, curated for focused practice before your next round.`,
+      canonical: `${base}/dsa/company/${slug}`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "jobsCompany") {
+    const slug = path ? path.split("/").pop() : "";
+    const jc = jobsCompany || {};
+    const name = jc.name || humanizeSlug(slug);
+    const count = Number.isFinite(jc.openCount) ? jc.openCount : undefined;
+    return {
+      title: `${name} Jobs${count ? ` — ${count} Open Roles` : ""} | Vloombox`,
+      description: `${count ? `${count} open` : "Open"} positions at ${name}, crawled directly from their careers page and refreshed through the day.`,
+      canonical: `${base}/jobs/company/${slug}`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "lldList") {
+    return {
+      title: "Low-Level Design (LLD) Interview Problems | Vloombox",
+      description:
+        "Practice real low-level design problems — the kind asked in Amazon, Uber and Google interviews — with structured, guided solutions.",
+      canonical: `${base}/lld`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "lldProblem") {
+    const slug = path ? path.split("/").pop() : "";
+    const override = LLD_PROBLEM_TITLE_OVERRIDES[slug];
+    const name = humanizeSlug(slug);
+    return {
+      title: (override && override.title) || `${name} — LLD Interview Problem | Vloombox`,
+      description:
+        (override && override.description) ||
+        `Design ${name}: a low-level design interview problem with a guided walkthrough on Vloombox.`,
+      canonical: `${base}/lld/${slug}`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "hldList") {
+    return {
+      title: "High-Level System Design (HLD) Practice | Vloombox",
+      description:
+        "Practice high-level system design interviews with an interactive workspace — the same round that trips up most senior candidates.",
+      canonical: `${base}/hld`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "interview") {
+    return {
+      title: "Interview Question Bank | Vloombox",
+      description:
+        "Behavioral and technical interview questions organized by topic, with AI-assisted explanations to help you actually understand the answer.",
+      canonical: `${base}/interview`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
   if (key === "blog") {
     return {
       title:
@@ -213,8 +433,8 @@ function routeMeta({ key, base, path, post }) {
 
 // Build the newline-joined block of <link>/<meta>/<script> lines injected before
 // </head> for a resolved public route. `post` is only used for key "blogPost".
-export function buildHeadTags({ key, base, path, post }) {
-  const m = routeMeta({ key, base, path, post });
+export function buildHeadTags({ key, base, path, post, jobsCompany }) {
+  const m = routeMeta({ key, base, path, post, jobsCompany });
   const lines = [];
 
   lines.push(`<link rel="canonical" href="${escapeHtml(m.canonical)}" />`);
@@ -260,6 +480,46 @@ export function buildHeadTags({ key, base, path, post }) {
         mainEntityOfPage: m.canonical,
       }),
     );
+  } else if (["jobs", "dsaList", "lldList", "hldList", "interview", "jobsCompany"].includes(key)) {
+    lines.push(
+      jsonLdScript({
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        name: m.title,
+        description: m.description,
+        url: m.canonical,
+        isPartOf: { "@type": "WebSite", name: SITE.name, url: `${base}/` },
+      }),
+    );
+  } else if (key === "dsaCompany" || key === "lldProblem") {
+    lines.push(
+      jsonLdScript({
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Home", item: `${base}/` },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: key === "dsaCompany" ? "DSA" : "LLD",
+            item: `${base}/${key === "dsaCompany" ? "dsa" : "lld"}`,
+          },
+          { "@type": "ListItem", position: 3, name: m.title, item: m.canonical },
+        ],
+      }),
+    );
+  } else if (key === "faq") {
+    lines.push(
+      jsonLdScript({
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: FAQ_ITEMS.map((item) => ({
+          "@type": "Question",
+          name: item.q,
+          acceptedAnswer: { "@type": "Answer", text: item.a },
+        })),
+      }),
+    );
   } else if (key === "home") {
     lines.push(
       jsonLdScript({
@@ -287,7 +547,7 @@ export function buildHeadTags({ key, base, path, post }) {
 // String ops only (two anchored regexes + a "</head>" splice), never an HTML
 // parser. Function replacements are used so a "$" in any interpolated text is
 // treated literally.
-export function renderIndex(template, { classify, base, path, post }) {
+export function renderIndex(template, { classify, base, path, post, jobsCompany }) {
   const c = classify || { kind: "passthrough" };
 
   if (c.kind === "passthrough") return template;
@@ -301,8 +561,8 @@ export function renderIndex(template, { classify, base, path, post }) {
   }
 
   // public
-  const m = routeMeta({ key: c.key, base, path, post });
-  const headTags = buildHeadTags({ key: c.key, base, path, post });
+  const m = routeMeta({ key: c.key, base, path, post, jobsCompany });
+  const headTags = buildHeadTags({ key: c.key, base, path, post, jobsCompany });
   const titleTag = `<title>${escapeHtml(m.title)}</title>`;
   const descTag = metaTag("name", "description", m.description);
 

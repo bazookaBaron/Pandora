@@ -50,7 +50,7 @@ import {
   decodedLen,
 } from "./lib/validate.js";
 import { supabaseAdmin } from "./lib/supabaseAdmin.js";
-import { classifyRoute, renderIndex, baseUrl, escapeHtml } from "./lib/seoHead.js";
+import { classifyRoute, renderIndex, baseUrl, escapeHtml, evaluateJobHubIndexability } from "./lib/seoHead.js";
 import { cached, invalidate, hasFresh } from "./lib/microCache.js";
 import * as pdfPool from "./lib/pdfPool.js";
 import { makeSemaphore } from "./lib/semaphore.js";
@@ -1719,6 +1719,100 @@ const JOBS_SPREAD_GAP = 4;
 const JOBS_MAX_AGE_DAYS = Number(process.env.JOBS_MAX_AGE_DAYS) || 2;
 const jobsMaxAgeISO = () => new Date(Date.now() - JOBS_MAX_AGE_DAYS * 86400000).toISOString();
 
+// ── /jobs/company/:slug — programmatic per-company hub page ────────
+// P1 "page factory": turns the crawler's ~14,880 open postings into real
+// indexable per-company pages instead of leaving them buried in one
+// client-filtered list. Launch is deliberately conservative — a domain that
+// was fully deindexed until this week doesn't need a thin-content flag from
+// 500 sparse company pages on day one, so only the top JOBS_COMPANY_CURATED_N
+// companies by open-posting volume are even candidates for index,follow;
+// every other valid company slug still gets a real page, just noindex,follow
+// (see evaluateJobHubIndexability in lib/seoHead.js for the rest of the gate).
+const JOBS_COMPANY_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,199}$/;
+const JOBS_COMPANY_CURATED_N = Number(process.env.JOBS_COMPANY_CURATED_N) || 50;
+
+async function getCuratedJobsCompanySlugs() {
+  // 6h TTL — matches the growth CLI's page-factory cron cadence; this is a
+  // volume ranking, not per-request-fresh data.
+  return cached("jobs-company:curated", 21_600_000, async () => {
+    const { data } = await jobsDb()
+      .from(JOBS_TABLE)
+      .select("company_slug")
+      .eq("status", "open")
+      .gte("first_seen_at", jobsMaxAgeISO())
+      .limit(20_000);
+    const counts = new Map();
+    for (const row of data || []) {
+      if (!row.company_slug) continue;
+      counts.set(row.company_slug, (counts.get(row.company_slug) || 0) + 1);
+    }
+    return new Set(
+      [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, JOBS_COMPANY_CURATED_N)
+        .map(([slug]) => slug),
+    );
+  });
+}
+
+// Returns null for an unknown company slug, else the full page payload
+// (postings + the resolved indexability decision). Cached per-slug so the
+// JSON API and the HTML shell route share one query instead of doubling up.
+async function getJobsCompanyPayload(slug) {
+  return cached(`jobs-company:${slug}`, 300_000, async () => {
+    const { data: company } = await jobsDb()
+      .from("company")
+      .select("slug, name")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (!company) return null;
+
+    const { data: rows } = await jobsDb()
+      .from(JOBS_TABLE)
+      .select("id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, status, seniority")
+      .eq("status", "open")
+      .eq("company_slug", slug)
+      .gte("first_seen_at", jobsMaxAgeISO())
+      .order("first_seen_at", { ascending: false })
+      .limit(300);
+
+    const postings = (rows || []).filter((r) => r.url);
+    const recordCount = postings.length;
+    const completeRecordCount = postings.filter((r) => r.title && r.location).length;
+    const uniqueFactCount = new Set(postings.map((r) => `${r.title}|${r.location}`)).size;
+    // Rough but honest proxy for what the rendered page actually contains:
+    // every posting's title + location, plus a fixed allowance for the
+    // intro/outro copy JobsCompanyPage.jsx renders around the list.
+    const substantiveWordCount =
+      postings.reduce((sum, r) => sum + String(r.title || "").split(/\s+/).filter(Boolean).length + String(r.location || "").split(/\s+/).filter(Boolean).length, 0) + 60;
+    const newestSeenAt = postings.reduce((max, r) => Math.max(max, Date.parse(r.first_seen_at) || 0), 0);
+    const newestAgeDays = newestSeenAt ? (Date.now() - newestSeenAt) / 86_400_000 : Number.POSITIVE_INFINITY;
+
+    const curatedSlugs = await getCuratedJobsCompanySlugs();
+    const decision = evaluateJobHubIndexability({
+      recordCount,
+      completeRecordCount,
+      uniqueFactCount,
+      substantiveWordCount,
+      newestAgeDays,
+      curated: curatedSlugs.has(slug),
+    });
+
+    return {
+      company: { slug: company.slug, name: company.name || humanizeSlugFallback(slug) },
+      postings: postings.map((r) => normalizeJob(r, {})),
+      eligible: decision.eligible,
+      reasons: decision.reasons,
+    };
+  });
+}
+
+// Cosmetic fallback only — mirrors lib/seoHead.js's humanizeSlug() for the
+// rare case a company row exists with no display name set.
+function humanizeSlugFallback(slug) {
+  return String(slug || "").split("-").filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
+}
+
 function spaceByCompany(rows, gap = JOBS_SPREAD_GAP) {
   const out = [];
   const recent = []; // company_slug of the last `gap` picks
@@ -2013,6 +2107,26 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
       return jobsNotReady(res);
     }
     fail(res, err, "jobs", "Failed to load jobs.");
+  }
+});
+
+// GET /api/jobs/company/:slug → { company, postings, eligible } for one
+// company's programmatic hub page (JobsCompanyPage.jsx). `eligible` mirrors
+// the robots directive the HTML shell route applies to the same slug — the
+// client uses it only to show a "not yet indexed" note, never to hide content.
+app.get("/api/jobs/company/:slug", catalogLimiter, optionalAuth, async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    if (!JOBS_COMPANY_SLUG_RE.test(slug)) return res.status(404).json({ error: "Unknown company." });
+    const key = `jobs-company:${slug}`;
+    const wasHit = hasFresh(key);
+    const payload = await getJobsCompanyPayload(slug);
+    if (!payload) return res.status(404).json({ error: "Unknown company." });
+    res.set("Cache-Control", "public, max-age=60, s-maxage=300, stale-while-revalidate=600");
+    res.set("X-Cache", wasHit ? "HIT" : "MISS");
+    res.json(payload);
+  } catch (err) {
+    fail(res, err, "jobs/company", "Failed to load company jobs.");
   }
 });
 
@@ -3318,11 +3432,20 @@ const INDEX_TEMPLATE = existsSync(INDEX_HTML)
 // route. User-triggered fetchers ignore robots.txt by design — the private
 // routes also carry a noindex meta (see the SEO fallback below) as the real
 // guard; this file is the crawl-budget hint.
+//
+// /dsa, /lld, /hld and /interview were previously disallowed here (and
+// separately noindexed in seoHead.js) even though none of them require auth
+// — that combination hid the entire product from Google. Both were lifted
+// together; see seoHead.js's classifyRoute for the per-route detail (e.g.
+// /hld/:id practice-workspace pages stay noindex, only /hld the list page
+// is crawlable).
 app.get("/robots.txt", (req, res) => {
   const base = baseUrl(req);
   res.type("text/plain").send(
     [
       "User-agent: *",
+      "Allow: /",
+      "Allow: /jobs/company/",
       "Allow: /optimizer",
       "Allow: /pricing",
       "Allow: /terms",
@@ -3334,15 +3457,16 @@ app.get("/robots.txt", (req, res) => {
       "Allow: /questions",
       "Allow: /legal/",
       "Allow: /blog",
+      "Allow: /dsa",
+      "Allow: /lld",
+      "Allow: /hld",
+      "Allow: /interview",
       "Disallow: /api/",
       "Disallow: /auth",
       "Disallow: /profile",
       "Disallow: /dashboard",
-      "Disallow: /dsa",
-      "Disallow: /lld",
-      "Disallow: /hld",
-      "Disallow: /interview",
       "Disallow: /referrals",
+      "Disallow: /hld/",
       "",
       `Sitemap: ${base}/sitemap.xml`,
       "",
@@ -3350,11 +3474,17 @@ app.get("/robots.txt", (req, res) => {
   );
 });
 
-// ── sitemap.xml (dynamic: static public pages + every published blog post) ──
+// ── sitemap.xml (dynamic: static public pages + every published blog post,
+// DSA company page and LLD problem) ──────────────────────────────────────
 app.get("/sitemap.xml", async (req, res) => {
   const base = baseUrl(req);
   const urls = [
+    { loc: `${base}/`, priority: "1.0", changefreq: "hourly" },
     { loc: `${base}/optimizer`, priority: "1.0", changefreq: "weekly" },
+    { loc: `${base}/dsa`, priority: "0.9", changefreq: "weekly" },
+    { loc: `${base}/lld`, priority: "0.9", changefreq: "weekly" },
+    { loc: `${base}/hld`, priority: "0.8", changefreq: "weekly" },
+    { loc: `${base}/interview`, priority: "0.8", changefreq: "weekly" },
     { loc: `${base}/pricing`, priority: "0.8", changefreq: "monthly" },
     { loc: `${base}/blog`, priority: "0.7", changefreq: "weekly" },
     { loc: `${base}/terms`, priority: "0.3", changefreq: "yearly" },
@@ -3384,6 +3514,62 @@ app.get("/sitemap.xml", async (req, res) => {
   } catch (e) {
     console.warn("[seo] sitemap blog query failed", redact(String(e && e.message)));
   }
+  try {
+    // Only the curated, evidence-eligible companies go in the sitemap — a
+    // company that fails evaluateJobHubIndexability still has a real,
+    // reachable page (noindex,follow), it's just never submitted for crawl.
+    const curatedSlugs = [...(await getCuratedJobsCompanySlugs())];
+    const payloads = await Promise.all(curatedSlugs.map((slug) => getJobsCompanyPayload(slug).catch(() => null)));
+    for (let i = 0; i < curatedSlugs.length; i += 1) {
+      if (payloads[i]?.eligible) {
+        urls.push({ loc: `${base}/jobs/company/${curatedSlugs[i]}`, priority: "0.5", changefreq: "daily" });
+      }
+    }
+  } catch (e) {
+    console.warn("[seo] sitemap jobs-company query failed", redact(String(e && e.message)));
+  }
+  try {
+    // "company" is a text[] column (verified against the live schema on
+    // 2026-09-13) — each row can list multiple companies, so we fan out over
+    // the array instead of reading a scalar "company_name".
+    const { data } = await supabaseAdmin
+      .from("leetcode_company_problems")
+      .select("company")
+      .limit(2000);
+    const seen = new Set();
+    for (const row of data || []) {
+      const companies = (row && row.company) || [];
+      for (const raw of companies) {
+        if (!raw) continue;
+        const slug = String(raw)
+          .toLowerCase()
+          .trim()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "");
+        if (!slug || seen.has(slug)) continue;
+        seen.add(slug);
+        urls.push({ loc: `${base}/dsa/company/${slug}`, priority: "0.6", changefreq: "monthly" });
+      }
+    }
+  } catch (e) {
+    console.warn("[seo] sitemap dsa-company query failed", redact(String(e && e.message)));
+  }
+  try {
+    // "slug" confirmed against the live lld_problems schema on 2026-09-13.
+    const { data } = await supabaseAdmin.from("lld_problems").select("slug, updated_at, created_at").limit(2000);
+    for (const row of data || []) {
+      if (row && row.slug) {
+        urls.push({
+          loc: `${base}/lld/${encodeURIComponent(row.slug)}`,
+          lastmod: (row.updated_at || row.created_at || "").slice(0, 10) || undefined,
+          priority: "0.6",
+          changefreq: "monthly",
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("[seo] sitemap lld query failed", redact(String(e && e.message)));
+  }
   const body =
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
@@ -3403,9 +3589,34 @@ app.get("/sitemap.xml", async (req, res) => {
 app.get(/^(?!\/api).*/, async (req, res, next) => {
   if (!INDEX_TEMPLATE) return next(); // dev / no build
 
-  const c = classifyRoute(req.path);
+  let c = classifyRoute(req.path);
 
   let post = null;
+  let jobsCompany = null;
+  if (c.kind === "public" && c.key === "jobsCompany") {
+    let payload = null;
+    try {
+      payload = await getJobsCompanyPayload(c.slug);
+    } catch (e) {
+      console.warn("[seo] jobs-company lookup failed", redact(String(e && e.message)));
+    }
+    if (!payload) {
+      // Unknown company slug → 404 with noindex, same as an unknown blog slug.
+      res.status(404).send(
+        renderIndex(INDEX_TEMPLATE, {
+          classify: { kind: "noindex" },
+          base: baseUrl(req),
+          path: req.path,
+        }),
+      );
+      return;
+    }
+    jobsCompany = { name: payload.company.name, openCount: payload.postings.length };
+    // Real page either way — only the robots directive changes. A company
+    // outside the curated set or short on evidence still gets a normal page,
+    // just noindex,follow (evaluateJobHubIndexability never blocks the page).
+    if (!payload.eligible) c = { kind: "noindex" };
+  }
   if (c.kind === "public" && c.key === "blogPost") {
     try {
       const { data } = await supabaseAdmin
@@ -3439,6 +3650,7 @@ app.get(/^(?!\/api).*/, async (req, res, next) => {
     base: baseUrl(req),
     path: req.path,
     post,
+    jobsCompany,
   });
   res.set("Content-Type", "text/html; charset=utf-8");
   res.set(
