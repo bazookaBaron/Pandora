@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { supabase } from './supabase'
-import { apiFetch } from './apiClient'
+import { apiFetch, ApiError } from './apiClient'
 
 // ── 1. All distinct (category, subcategory) pairs ─────────────────
 // Server-side catalog endpoint — dedupe happens on the server.
@@ -51,19 +50,26 @@ export function useInterviewQuestions(subcategory) {
 }
 
 // ── 3. Lazy answer fetch (only when a question is selected) ───────
-// Stays on direct Supabase — RLS-scoped, per-user answer content.
+// Server-side, not direct Supabase: interview_questions RLS only grants
+// SELECT to `authenticated` (the answer text is paid content), so a
+// logged-out visitor got nothing back for even their free questions. The
+// server route re-checks the same free-tier "first N per subcategory" window
+// as the question list and works for both anon and signed-in users.
 export function useInterviewAnswer(questionId) {
     return useQuery({
         queryKey: ['interview-answer', questionId],
         queryFn: async () => {
-            const { data, error } = await supabase
-                .from('interview_questions')
-                .select('answer, answer_status, chart_config')
-                .eq('id', questionId)
-                // maybeSingle() → null (not a throw) when a stale stored id no longer matches
-                .maybeSingle()
-            if (error) throw error
-            return data ?? null
+            try {
+                const data = await apiFetch('/api/catalog/interview/answer/' + encodeURIComponent(questionId))
+                return data ?? null
+            } catch (err) {
+                // 404 = stale/removed id, 403 = outside this plan's unlocked window
+                // (shouldn't happen via the UI, which only lists unlocked ids — a
+                // stale client cache is the only realistic path). Both render as
+                // "this question isn't available", same as the old maybeSingle()->null case.
+                if (err instanceof ApiError && (err.status === 404 || err.status === 403)) return null
+                throw err
+            }
         },
         staleTime: 10 * 60 * 1000,
         enabled: !!questionId,

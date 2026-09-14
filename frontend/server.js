@@ -1474,6 +1474,68 @@ app.get(
   },
 );
 
+// GET /api/catalog/interview/answer/:id — one question's answer, gated to the
+// same free-tier "first N per subcategory" window as the list route above.
+// interview_questions RLS only grants SELECT to `authenticated` (the answer
+// text is paid content), so a direct Supabase read from the browser returns
+// nothing for a logged-out visitor even on one of their free questions — this
+// route is the server-authoritative path for both anon and signed-in users.
+app.get(
+  "/api/catalog/interview/answer/:id",
+  catalogLimiter,
+  optionalAuth,
+  async (req, res) => {
+    try {
+      const id = String(req.params.id);
+      const plan = req.user ? await getUserPlan(req.user.id) : "free";
+      const key = `interview-answer:${plan}:${id}`;
+      const wasHit = hasFresh(key);
+      const payload = await cached(key, 300000, async () => {
+        const { data: row, error } = await supabaseAdmin
+          .from("interview_questions")
+          .select("id, subcategory, order_number, answer, answer_status, chart_config")
+          .eq("id", id)
+          .maybeSingle();
+        if (error) throw error;
+        if (!row) return { status: "not_found" };
+
+        const limit = getLimit(plan, "interview_q_per_subcategory");
+        if (!isUnlimited(limit)) {
+          // Same ordering as the list route's slice(0, limit) — re-derive the
+          // allowed id set for this subcategory and confirm `id` is in it.
+          const { data: allowed, error: aerr } = await supabaseAdmin
+            .from("interview_questions")
+            .select("id")
+            .eq("subcategory", row.subcategory)
+            .order("order_number")
+            .order("id", { ascending: true })
+            .limit(limit);
+          if (aerr) throw aerr;
+          const isAllowed = (allowed || []).some((r) => String(r.id) === id);
+          if (!isAllowed) return { status: "locked", limit: serializeLimit(limit) };
+        }
+
+        return {
+          status: "ok",
+          answer: row.answer,
+          answer_status: row.answer_status,
+          chart_config: row.chart_config,
+        };
+      });
+
+      if (payload.status === "not_found") return res.status(404).json({ error: "not_found" });
+      if (payload.status === "locked") {
+        return res.status(403).json({ error: "upgrade_required", feature: "interview_q", limit: payload.limit });
+      }
+      res.set("Cache-Control", "private, max-age=300");
+      res.set("X-Cache", wasHit ? "HIT" : "MISS");
+      res.json({ answer: payload.answer, answer_status: payload.answer_status, chart_config: payload.chart_config });
+    } catch (err) {
+      fail(res, err, "catalog/interview/answer", "Failed to load answer.");
+    }
+  },
+);
+
 // GET /api/catalog/search?q=&limit=
 // Server-side jump-to-problem search for the command palette. The tier cap is
 // applied to the CATALOG (first N rows, same ordering as /api/catalog/dsa and
