@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Navbar from '../../components/Navbar'
 import { useJobs, useJobsAnalytics, useJobFacet } from '../../lib/useJobs'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
+import { LockedSlice } from '../../components/shared/PaywallGate'
 
 // ── helpers ────────────────────────────────────────────────────────
 function relTime(iso) {
@@ -387,6 +388,9 @@ function ListingsView() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 6, opacity: isFetching ? 0.6 : 1, transition: 'opacity .15s' }}>
                         {data.items.map((j) => <JobCard key={j.id} j={j} />)}
                     </div>
+                    {data.locked > 0 && (
+                        <LockedSlice count={data.locked} noun="job listings" variant="row" rows={3} />
+                    )}
                     {data.pageCount > 1 && (
                         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 20 }}>
                             <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} style={pagerBtn(page <= 1)}>← Prev</button>

@@ -7,7 +7,7 @@ import { apiFetch } from './apiClient'
 // the DB creds never reach the browser.
 
 const EMPTY = {
-    items: [], total: 0, page: 1, pageCount: 1,
+    items: [], total: 0, page: 1, pageCount: 1, locked: 0, limit: undefined,
     facets: { sources: [], locationTypes: [], seniorities: [] },
 }
 

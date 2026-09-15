@@ -18,7 +18,8 @@ export const TIERS = {
             dsa_catalog_visible: 10,
             lld_catalog_visible: 3,
             hld_catalog_access: 'list_only',
-            hld_practice_per_month: 0,
+            hld_practice_per_month: 0,       // "No HLD" — browse the list, no practice
+            jobs_visible: 5,
             interview_q_per_subcategory: 5,
             resume_optimizer_per_month: 0,   // locked — Pro/Max only
             ai_explanations_per_month: 5,
@@ -34,8 +35,9 @@ export const TIERS = {
             lld_catalog_visible: Infinity,
             hld_catalog_access: 'full',
             hld_practice_per_month: 5,
-            interview_q_per_subcategory: 5,
-            resume_optimizer_per_month: 15,
+            jobs_visible: Infinity,
+            interview_q_per_subcategory: Infinity,
+            resume_optimizer_per_month: 5,   // job-specific resume optimizations / mo
             ai_explanations_per_month: 50,
             referral_requests_per_month: 10,
         },
@@ -48,10 +50,11 @@ export const TIERS = {
             lld_catalog_visible: Infinity,
             hld_catalog_access: 'full',
             hld_practice_per_month: Infinity,
+            jobs_visible: Infinity,
             interview_q_per_subcategory: Infinity,
-            resume_optimizer_per_month: 50,
+            resume_optimizer_per_month: Infinity,
             ai_explanations_per_month: 300, // soft cap, abuse protection only
-            referral_requests_per_month: 20,
+            referral_requests_per_month: Infinity,
         },
     },
 }

@@ -4,6 +4,7 @@ import Navbar from '../components/Navbar'
 import { TIERS, PLAN_ORDER, priceInrPaise } from '../../config/tiers.js'
 import { useEntitlements } from '../lib/useEntitlements'
 import { useAuth } from '../contexts/AuthContext'
+import { useMediaQuery } from '../lib/useMediaQuery'
 import { ErrorState } from '../components/shared/states'
 import { track, EVENTS } from '../lib/analytics'
 import { startCheckout as startRazorpayCheckoutFlow } from '../lib/razorpay'
@@ -12,6 +13,10 @@ import { startCheckout as startRazorpayCheckoutFlow } from '../lib/razorpay'
 // Renders Free / Pro / Max straight from `config/tiers.js`. The Pro/Max CTAs
 // open Razorpay Standard Checkout (one-time payment for a monthly / yearly
 // term). On a verified payment we re-poll entitlements.
+//
+// Desktop: the usual 3-card grid. Mobile: a Free/Pro/Max tab switcher
+// (defaults to Pro) shows ONE full plan card at a time instead of three
+// stacked blocks — same <PlanCard> either way.
 
 const PLAN_META = {
     free: { name: 'Free', tagline: 'Kick the tyres', accent: '#71717a', cta: 'Start free' },
@@ -31,53 +36,179 @@ const FAQ = [
 const isInf = (v) => v === Infinity || v === 'unlimited'
 const rupees = (paise) => `₹${Math.round((paise || 0) / 100).toLocaleString('en-IN')}`
 
-// Human-readable feature bullets derived from a plan's limits.
-function describeLimits(plan) {
-    const l = (TIERS[plan] || TIERS.free).limits
-    const out = []
+// ── Feature checklist (shared by desktop cards + the mobile tab view) ─
+// One row per feature; `label(v)` renders the "on" copy for that tier's
+// limit, `offLabel` is the plain noun shown crossed out when the tier
+// doesn't have the feature at all (limit === 0).
+const FEATURE_ROWS = [
+    {
+        key: 'dsa',
+        limitKey: 'dsa_catalog_visible',
+        label: (v) => (isInf(v) ? 'All DSA problems' : `${v} DSA problems`),
+    },
+    {
+        key: 'lld',
+        limitKey: 'lld_catalog_visible',
+        label: (v) => (isInf(v) ? 'All LLD problems' : `${v} LLD problems`),
+    },
+    {
+        key: 'hld',
+        limitKey: 'hld_practice_per_month',
+        label: (v) => (isInf(v) ? 'Unlimited HLD practice' : `${v} HLD practice${v === 1 ? '' : 's'} / mo`),
+        offLabel: 'HLD practice',
+    },
+    {
+        key: 'jobs',
+        limitKey: 'jobs_visible',
+        label: (v) => (isInf(v) ? 'All job listings' : `${v} job listings`),
+    },
+    {
+        key: 'referrals',
+        limitKey: 'referral_requests_per_month',
+        label: (v) => (isInf(v) ? 'Unlimited referral requests' : `${v} referral requests / mo`),
+        offLabel: 'Referral requests',
+    },
+    {
+        key: 'interview',
+        limitKey: 'interview_q_per_subcategory',
+        label: (v) => (isInf(v) ? 'All interview questions' : `${v} interview questions / topic`),
+    },
+    {
+        key: 'optimizer',
+        limitKey: 'resume_optimizer_per_month',
+        label: (v) => (isInf(v) ? 'Unlimited resume optimizer' : `${v} job-specific resume optimizations / mo`),
+        offLabel: 'Job-specific resume optimizer',
+    },
+]
 
-    out.push(isInf(l.dsa_catalog_visible) ? 'All DSA problems' : `${l.dsa_catalog_visible} DSA problems`)
-    out.push(isInf(l.lld_catalog_visible) ? 'All LLD problems' : `${l.lld_catalog_visible} LLD problems`)
-    out.push(l.hld_catalog_access === 'full' ? 'HLD: full access' : 'HLD: list only')
+function planFeatureRows(planId) {
+    const l = (TIERS[planId] || TIERS.free).limits
+    return FEATURE_ROWS.map((row) => {
+        const v = l[row.limitKey]
+        const included = isInf(v) || v > 0
+        return { key: row.key, included, label: included ? row.label(v) : (row.offLabel || row.label(0)) }
+    })
+}
 
-    out.push(
-        isInf(l.hld_practice_per_month)
-            ? 'Unlimited HLD practice'
-            : l.hld_practice_per_month === 0
-                ? 'No HLD practice sessions'
-                : `${l.hld_practice_per_month} HLD practices / mo`
+function FeatureChecklist({ rows }) {
+    return (
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 9 }}>
+            {rows.map((r) => (
+                <li key={r.key} style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 9,
+                    fontSize: '0.82rem', lineHeight: 1.4,
+                    color: r.included ? 'var(--accent)' : 'var(--faint)',
+                }}>
+                    <span aria-hidden style={{
+                        flexShrink: 0, width: 16, textAlign: 'center', fontWeight: 900,
+                        color: r.included ? 'var(--green)' : '#71717a',
+                    }}>
+                        {r.included ? '✓' : '✕'}
+                    </span>
+                    <span style={{ textDecoration: r.included ? 'none' : 'line-through', textDecorationColor: '#71717a' }}>
+                        {r.label}
+                    </span>
+                </li>
+            ))}
+        </ul>
     )
+}
 
-    out.push(
-        isInf(l.interview_q_per_subcategory)
-            ? 'Unlimited interview questions'
-            : `${l.interview_q_per_subcategory} interview questions per topic`
+// One full plan card — price block + checklist + CTA. Used for every card on
+// desktop and for the single selected plan on mobile.
+function PlanCard({ id, billing, isCurrent, pending, onCheckout }) {
+    const meta = PLAN_META[id] || { name: id, accent: '#71717a' }
+    const paise = priceInrPaise(id, billing)
+    const featured = !!meta.featured
+    const yearlyPaise = priceInrPaise(id, 'yearly')
+    const headline = id === 'free' ? '₹0' : billing === 'yearly' ? rupees(yearlyPaise / 12) : rupees(paise)
+    const rows = planFeatureRows(id)
+    const savingsPct = (() => {
+        const m = priceInrPaise(id, 'monthly')
+        return m && yearlyPaise ? Math.round((1 - yearlyPaise / (m * 12)) * 100) : 0
+    })()
+
+    return (
+        <div style={{
+            position: 'relative',
+            background: 'var(--panel)',
+            border: `1px solid ${featured ? meta.accent + '66' : 'var(--subtle)'}`,
+            borderRadius: 14, padding: '24px 20px 20px',
+            display: 'flex', flexDirection: 'column', gap: 14,
+            boxShadow: featured ? `0 20px 44px -16px ${meta.accent}55` : 'none',
+        }}>
+            {featured && meta.badge && !isCurrent && (
+                <span style={{
+                    position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)',
+                    fontSize: '0.58rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.12em',
+                    color: 'var(--surface)', background: 'linear-gradient(135deg, #22d3ee, #a78bfa)',
+                    borderRadius: 999, padding: '4px 12px', whiteSpace: 'nowrap',
+                }}>
+                    {meta.badge}
+                </span>
+            )}
+            {isCurrent && (
+                <span style={{
+                    position: 'absolute', top: 14, right: 14, fontSize: '0.58rem', fontWeight: 900,
+                    textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--surface)',
+                    background: meta.accent, borderRadius: 6, padding: '3px 8px',
+                }}>
+                    Current
+                </span>
+            )}
+
+            <div>
+                <div style={{ fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: meta.accent }}>{meta.name}</div>
+                <div style={{ color: 'var(--muted)', fontSize: '0.76rem', marginTop: 3 }}>{meta.tagline}</div>
+                <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 5, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.02em' }}>{headline}</span>
+                    <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{id === 'free' ? 'forever' : '/mo'}</span>
+                </div>
+                {id !== 'free' && (
+                    <div style={{ fontSize: '0.68rem', color: 'var(--faint)', marginTop: 4 }}>
+                        {billing === 'yearly'
+                            ? `${rupees(yearlyPaise)} billed once a year`
+                            : `or ${rupees(yearlyPaise)}/yr — save ${savingsPct}%`}
+                    </div>
+                )}
+            </div>
+
+            <FeatureChecklist rows={rows} />
+
+            <button
+                onClick={() => {
+                    if (isCurrent || id === 'free' || pending) return
+                    onCheckout(id)
+                }}
+                disabled={isCurrent || id === 'free' || pending === id}
+                style={{
+                    marginTop: 'auto', padding: '11px 16px', borderRadius: 8,
+                    border: id === 'free' && !isCurrent ? '1px solid var(--subtle)' : 'none',
+                    cursor: (isCurrent || id === 'free' || pending === id) ? 'default' : 'pointer',
+                    fontWeight: 900, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em',
+                    opacity: pending === id ? 0.7 : 1,
+                    background: isCurrent ? 'var(--subtle)'
+                        : id === 'free' ? 'transparent'
+                            : featured ? 'linear-gradient(135deg, #22d3ee, #a78bfa)'
+                                : meta.accent,
+                    color: isCurrent ? 'var(--muted)'
+                        : id === 'free' ? 'var(--accent)'
+                            : 'var(--surface)',
+                }}
+            >
+                {pending === id ? 'Starting…' : isCurrent ? 'Current plan' : meta.cta}
+            </button>
+        </div>
     )
-
-    out.push(
-        isInf(l.resume_optimizer_per_month)
-            ? 'Unlimited resume optimizations'
-            : l.resume_optimizer_per_month === 0
-                ? 'Resume optimizer locked'
-                : `${l.resume_optimizer_per_month} resume optimizations / mo`
-    )
-
-    out.push(
-        isInf(l.ai_explanations_per_month)
-            ? 'Unlimited AI explanations'
-            : l.ai_explanations_per_month === 0
-                ? 'No AI explanations'
-                : `${l.ai_explanations_per_month} AI explanations / mo`
-    )
-
-    return out
 }
 
 export default function PricingPage() {
     const { plan: currentPlan, refetch } = useEntitlements()
     const { user } = useAuth()
     const navigate = useNavigate()
+    const isMobile = useMediaQuery('(max-width: 767px)')
     const [billing, setBilling] = useState('monthly') // 'monthly' | 'yearly'
+    const [mobilePlan, setMobilePlan] = useState('pro') // mobile tab selection — defaults to Pro
     const [note, setNote] = useState('')
     const [pending, setPending] = useState('') // plan id whose modal is open / verifying
 
@@ -115,6 +246,8 @@ export default function PricingPage() {
         }
     }
 
+    const visiblePlans = isMobile ? [mobilePlan] : PLAN_ORDER
+
     return (
         <>
             <Navbar />
@@ -145,7 +278,7 @@ export default function PricingPage() {
                         Prep like it&rsquo;s your job.
                     </h1>
                     <p style={{ color: 'var(--muted)', fontSize: '0.9rem', maxWidth: 520, margin: '10px auto 0', lineHeight: 1.55 }}>
-                        One subscription covers DSA, LLD, HLD, interview questions and the AI resume optimizer.
+                        One subscription covers DSA, LLD, HLD, the jobs board, referrals, interview questions and the AI resume optimizer.
                         Nothing auto-renews &mdash; you&rsquo;re always in control.
                     </p>
 
@@ -174,99 +307,54 @@ export default function PricingPage() {
                             </span>
                         )}
                     </div>
+
+                    {/* Mobile: Free / Pro / Max tab switcher — replaces the 3 stacked cards. */}
+                    {isMobile && (
+                        <div role="tablist" aria-label="Choose a plan" style={{
+                            display: 'flex', gap: 6, marginTop: 16, maxWidth: 420, marginLeft: 'auto', marginRight: 'auto',
+                        }}>
+                            {PLAN_ORDER.map((id) => {
+                                const meta = PLAN_META[id] || { name: id, accent: '#71717a' }
+                                const active = mobilePlan === id
+                                return (
+                                    <button
+                                        key={id}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={active}
+                                        onClick={() => setMobilePlan(id)}
+                                        style={{
+                                            flex: 1, padding: '9px 4px', borderRadius: 8, cursor: 'pointer',
+                                            border: `1px solid ${active ? meta.accent + '88' : 'var(--subtle)'}`,
+                                            background: active ? meta.accent + '1a' : 'var(--panel)',
+                                            color: active ? meta.accent : 'var(--muted)',
+                                            fontWeight: 900, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em',
+                                        }}
+                                    >
+                                        {meta.name.toUpperCase()}
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    )}
                 </header>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(258px, 1fr))', gap: 18, alignItems: 'start' }}>
-                    {PLAN_ORDER.map((id) => {
-                        const meta = PLAN_META[id] || { name: id, accent: '#71717a' }
-                        const paise = priceInrPaise(id, billing)
-                        const isCurrent = currentPlan === id
-                        const bullets = describeLimits(id)
-                        const featured = !!meta.featured
-                        const yearlyPaise = priceInrPaise(id, 'yearly')
-                        const headline = id === 'free'
-                            ? '₹0'
-                            : billing === 'yearly' ? rupees(yearlyPaise / 12) : rupees(paise)
-
-                        return (
-                            <div key={id} style={{
-                                position: 'relative',
-                                background: 'var(--panel)',
-                                border: `1px solid ${featured ? meta.accent + '66' : 'var(--subtle)'}`,
-                                borderRadius: 14, padding: '24px 20px 20px',
-                                display: 'flex', flexDirection: 'column', gap: 14,
-                                boxShadow: featured ? `0 20px 44px -16px ${meta.accent}55` : 'none',
-                            }}>
-                                {featured && meta.badge && !isCurrent && (
-                                    <span style={{
-                                        position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)',
-                                        fontSize: '0.58rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.12em',
-                                        color: 'var(--surface)', background: 'linear-gradient(135deg, #22d3ee, #a78bfa)',
-                                        borderRadius: 999, padding: '4px 12px', whiteSpace: 'nowrap',
-                                    }}>
-                                        {meta.badge}
-                                    </span>
-                                )}
-                                {isCurrent && (
-                                    <span style={{
-                                        position: 'absolute', top: 14, right: 14, fontSize: '0.58rem', fontWeight: 900,
-                                        textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--surface)',
-                                        background: meta.accent, borderRadius: 6, padding: '3px 8px',
-                                    }}>
-                                        Current
-                                    </span>
-                                )}
-
-                                <div>
-                                    <div style={{ fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: meta.accent }}>{meta.name}</div>
-                                    <div style={{ color: 'var(--muted)', fontSize: '0.76rem', marginTop: 3 }}>{meta.tagline}</div>
-                                    <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 5, flexWrap: 'wrap' }}>
-                                        <span style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.02em' }}>{headline}</span>
-                                        <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{id === 'free' ? 'forever' : '/mo'}</span>
-                                    </div>
-                                    {id !== 'free' && (
-                                        <div style={{ fontSize: '0.68rem', color: 'var(--faint)', marginTop: 4 }}>
-                                            {billing === 'yearly'
-                                                ? `${rupees(yearlyPaise)} billed once a year`
-                                                : `or ${rupees(yearlyPaise)}/yr — save ${savingsPct(id)}%`}
-                                        </div>
-                                    )}
-                                </div>
-
-                                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
-                                    {bullets.map((f) => (
-                                        <li key={f} style={{ fontSize: '0.78rem', color: 'var(--accent)', display: 'flex', gap: 8, lineHeight: 1.4 }}>
-                                            <span style={{ color: meta.accent, flexShrink: 0 }}>✓</span>{f}
-                                        </li>
-                                    ))}
-                                </ul>
-
-                                <button
-                                    onClick={() => {
-                                        if (isCurrent || id === 'free' || pending) return
-                                        startCheckout(id)
-                                    }}
-                                    disabled={isCurrent || id === 'free' || pending === id}
-                                    style={{
-                                        marginTop: 'auto', padding: '11px 16px', borderRadius: 8,
-                                        border: id === 'free' && !isCurrent ? '1px solid var(--subtle)' : 'none',
-                                        cursor: (isCurrent || id === 'free' || pending === id) ? 'default' : 'pointer',
-                                        fontWeight: 900, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em',
-                                        opacity: pending === id ? 0.7 : 1,
-                                        background: isCurrent ? 'var(--subtle)'
-                                            : id === 'free' ? 'transparent'
-                                                : featured ? 'linear-gradient(135deg, #22d3ee, #a78bfa)'
-                                                    : meta.accent,
-                                        color: isCurrent ? 'var(--muted)'
-                                            : id === 'free' ? 'var(--accent)'
-                                                : 'var(--surface)',
-                                    }}
-                                >
-                                    {pending === id ? 'Starting…' : isCurrent ? 'Current plan' : meta.cta}
-                                </button>
-                            </div>
-                        )
-                    })}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(258px, 1fr))',
+                    gap: 18, alignItems: 'start',
+                    maxWidth: isMobile ? 420 : undefined, marginLeft: isMobile ? 'auto' : undefined, marginRight: isMobile ? 'auto' : undefined,
+                }}>
+                    {visiblePlans.map((id) => (
+                        <PlanCard
+                            key={id}
+                            id={id}
+                            billing={billing}
+                            isCurrent={currentPlan === id}
+                            pending={pending}
+                            onCheckout={startCheckout}
+                        />
+                    ))}
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'center', gap: 18, flexWrap: 'wrap', marginTop: 20 }}>

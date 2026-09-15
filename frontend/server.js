@@ -2014,7 +2014,10 @@ function jobsNotReady(res) {
 
 app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
   try {
-    const key = `jobs:${qsKey(req)}`;
+    const plan = req.user ? await getUserPlan(req.user.id) : "free";
+    const jobsLimit = getLimit(plan, "jobs_visible");
+    const jobsUnlimited = isUnlimited(jobsLimit);
+    const key = `jobs:${plan}:${qsKey(req)}`;
     const wasHit = hasFresh(key);
     // TTL covers the whole response — the 600-row interleave pool + company
     // spacing + company-name resolve are all re-used from cache within 90s.
@@ -2040,14 +2043,21 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
       const from = (page - 1) * JOBS_PAGE_SIZE;
       const to = from + JOBS_PAGE_SIZE - 1;
 
+      // Free tier: the board only ever exposes the first `jobsLimit` postings
+      // (by the active sort) — clamp the requested window into that range.
+      // `pastCap` = this whole page is beyond the free window (from >= limit).
+      const cappedTo = jobsUnlimited ? to : Math.min(to, jobsLimit - 1);
+      const pastCap = !jobsUnlimited && from > cappedTo;
+
       // For the recency sorts, fetch a fixed pool from row 0, company-space it in
       // JS (recency order otherwise preserved), then slice this page out. The
       // pool size never depends on `page`, so boundaries stay stable. The
       // "company" sort is meant to group, so it opts out; pages past the pool
-      // use raw range order.
-      const canSpread = (sort === "newest" || sort === "oldest") && to < JOBS_INTERLEAVE_POOL;
-      const rangeFrom = canSpread ? 0 : from;
-      const rangeTo = canSpread ? JOBS_INTERLEAVE_POOL - 1 : to;
+      // use raw range order. `pastCap` on a non-spread sort fetches 1 dummy row
+      // (range(0,0)) just to keep `count` accurate — items are discarded below.
+      const canSpread = (sort === "newest" || sort === "oldest") && cappedTo < JOBS_INTERLEAVE_POOL;
+      const rangeFrom = canSpread ? 0 : pastCap ? 0 : from;
+      const rangeTo = canSpread ? JOBS_INTERLEAVE_POOL - 1 : pastCap ? 0 : cappedTo;
 
       const likeSafe = (s) => s.replace(/[%_,()*]/g, " ");
       // Location values often carry commas ("Bengaluru, Karnataka, India"). Strip
@@ -2103,7 +2113,8 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
       if (error) throw error;
 
       let rows = data || [];
-      if (canSpread) rows = spaceByCompany(rows).slice(from, to + 1);
+      if (canSpread) rows = spaceByCompany(rows).slice(from, cappedTo + 1);
+      else if (pastCap) rows = []; // dummy range(0,0) fetch above was only for `count`
 
       // Resolve company display names for just this page's slugs.
       let companyNameBySlug = {};
@@ -2137,11 +2148,14 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
         /* facets are optional */
       }
 
+      const total = count ?? items.length;
       return {
         items,
-        total: count ?? items.length,
+        total,
         page,
-        pageCount: Math.max(1, Math.ceil((count ?? items.length) / JOBS_PAGE_SIZE)),
+        pageCount: jobsUnlimited ? Math.max(1, Math.ceil(total / JOBS_PAGE_SIZE)) : 1,
+        locked: jobsUnlimited ? 0 : Math.max(0, total - jobsLimit),
+        limit: serializeLimit(jobsLimit),
         facets: {
           sources,
           locationTypes: ["remote", "hybrid", "onsite"],
@@ -2150,10 +2164,8 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
       };
     });
 
-    res.set(
-      "Cache-Control",
-      "public, max-age=60, s-maxage=120, stale-while-revalidate=300",
-    );
+    // Payload now varies by plan (free-tier cap) — browser cache only.
+    res.set("Cache-Control", "private, max-age=60");
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
     res.json(payload);
   } catch (err) {
