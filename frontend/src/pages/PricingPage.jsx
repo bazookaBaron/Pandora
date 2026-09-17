@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
-import { TIERS, PLAN_ORDER, priceInrPaise } from '../../config/tiers.js'
+import { TIERS, PLAN_ORDER, priceInrPaise, priceUsdCents } from '../../config/tiers.js'
 import { useEntitlements } from '../lib/useEntitlements'
 import { useAuth } from '../contexts/AuthContext'
 import { useMediaQuery } from '../lib/useMediaQuery'
@@ -26,15 +26,24 @@ const PLAN_META = {
 
 const TRUST = ['Cancel anytime', 'No auto-renewal', 'Secure checkout by Razorpay']
 
-const FAQ = [
+const FAQ_BASE = [
     ['Is there a free plan?', 'Yes — Free gives you a limited amount of every feature, forever. Upgrade only when you hit the limits.'],
     ['Can I change plans later?', 'Yes — upgrade or downgrade whenever you like. A new term starts from the day you switch.'],
     ['What happens when my term ends?', 'Nothing auto-renews. You drop back to Free and can subscribe again whenever you want.'],
-    ['Which payment methods work?', 'All major Indian cards, UPI and net-banking, handled securely by Razorpay.'],
 ]
+const PAYMENT_FAQ = {
+    INR: ['Which payment methods work?', 'All major Indian cards, UPI and net-banking, handled securely by Razorpay.'],
+    USD: ['Which payment methods work?', 'PayPal and major international cards, handled securely by Razorpay.'],
+}
 
 const isInf = (v) => v === Infinity || v === 'unlimited'
 const rupees = (paise) => `₹${Math.round((paise || 0) / 100).toLocaleString('en-IN')}`
+const dollars = (cents) => `$${(Math.round((cents || 0)) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+// Geo-based currency (lib/geo.js on the server): India (and unknown, the
+// safe default) sees/pays INR; everyone else sees/pays USD. One switch here
+// instead of scattering `currency === 'USD' ? ... : ...` through the page.
+const priceOf = (plan, period, currency) => (currency === 'USD' ? priceUsdCents(plan, period) : priceInrPaise(plan, period))
+const money = (amount, currency) => (currency === 'USD' ? dollars(amount) : rupees(amount))
 
 // ── Feature checklist (shared by desktop cards + the mobile tab view) ─
 // One row per feature; `label(v)` renders the "on" copy for that tier's
@@ -122,16 +131,17 @@ function FeatureChecklist({ rows }) {
 
 // One full plan card — price block + checklist + CTA. Used for every card on
 // desktop and for the single selected plan on mobile.
-function PlanCard({ id, billing, isCurrent, pending, onCheckout }) {
+function PlanCard({ id, billing, currency, isCurrent, pending, onCheckout }) {
     const meta = PLAN_META[id] || { name: id, accent: '#71717a' }
-    const paise = priceInrPaise(id, billing)
+    const amount = priceOf(id, billing, currency)
     const featured = !!meta.featured
-    const yearlyPaise = priceInrPaise(id, 'yearly')
-    const headline = id === 'free' ? '₹0' : billing === 'yearly' ? rupees(yearlyPaise / 12) : rupees(paise)
+    const yearlyAmount = priceOf(id, 'yearly', currency)
+    const zero = currency === 'USD' ? '$0' : '₹0'
+    const headline = id === 'free' ? zero : billing === 'yearly' ? money(yearlyAmount / 12, currency) : money(amount, currency)
     const rows = planFeatureRows(id)
     const savingsPct = (() => {
-        const m = priceInrPaise(id, 'monthly')
-        return m && yearlyPaise ? Math.round((1 - yearlyPaise / (m * 12)) * 100) : 0
+        const m = priceOf(id, 'monthly', currency)
+        return m && yearlyAmount ? Math.round((1 - yearlyAmount / (m * 12)) * 100) : 0
     })()
 
     return (
@@ -173,8 +183,8 @@ function PlanCard({ id, billing, isCurrent, pending, onCheckout }) {
                 {id !== 'free' && (
                     <div style={{ fontSize: '0.68rem', color: 'var(--faint)', marginTop: 4 }}>
                         {billing === 'yearly'
-                            ? `${rupees(yearlyPaise)} billed once a year`
-                            : `or ${rupees(yearlyPaise)}/yr — save ${savingsPct}%`}
+                            ? `${money(yearlyAmount, currency)} billed once a year`
+                            : `or ${money(yearlyAmount, currency)}/yr — save ${savingsPct}%`}
                     </div>
                 )}
             </div>
@@ -209,7 +219,7 @@ function PlanCard({ id, billing, isCurrent, pending, onCheckout }) {
 }
 
 export default function PricingPage() {
-    const { plan: currentPlan, refetch } = useEntitlements()
+    const { plan: currentPlan, currency, refetch } = useEntitlements()
     const { user } = useAuth()
     const navigate = useNavigate()
     const isMobile = useMediaQuery('(max-width: 767px)')
@@ -223,8 +233,8 @@ export default function PricingPage() {
     }, [])
 
     const savingsPct = (plan) => {
-        const m = priceInrPaise(plan, 'monthly')
-        const y = priceInrPaise(plan, 'yearly')
+        const m = priceOf(plan, 'monthly', currency)
+        const y = priceOf(plan, 'yearly', currency)
         return m && y ? Math.round((1 - y / (m * 12)) * 100) : 0
     }
     const bestSavings = Math.max(savingsPct('pro'), savingsPct('max'))
@@ -356,6 +366,7 @@ export default function PricingPage() {
                             key={id}
                             id={id}
                             billing={billing}
+                            currency={currency}
                             isCurrent={currentPlan === id}
                             pending={pending}
                             onCheckout={startCheckout}
@@ -380,7 +391,7 @@ export default function PricingPage() {
                         Questions
                     </h2>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        {FAQ.map(([q, a]) => (
+                        {[...FAQ_BASE, PAYMENT_FAQ[currency] || PAYMENT_FAQ.INR].map(([q, a]) => (
                             <div key={q} style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '14px 16px' }}>
                                 <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--bright)' }}>{q}</div>
                                 <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: 6, lineHeight: 1.55 }}>{a}</div>
@@ -390,8 +401,8 @@ export default function PricingPage() {
                 </section>
 
                 <p style={{ textAlign: 'center', marginTop: 28, fontSize: '0.72rem', color: 'var(--faint)' }}>
-                    Prices in INR, processed securely by Razorpay. Every plan is a one-time payment for the
-                    selected term — nothing auto-renews, so there is never a surprise charge.
+                    Prices in {currency === 'USD' ? 'USD' : 'INR'}, processed securely by Razorpay. Every plan is a one-time payment
+                    for the selected term — nothing auto-renews, so there is never a surprise charge.
                 </p>
                 <p style={{ textAlign: 'center', marginTop: 12 }}>
                     <Link to="/" style={{ color: 'var(--pop)', fontSize: '0.8rem', textDecoration: 'none' }}>← Back</Link>

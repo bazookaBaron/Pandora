@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { ssClearPrefix } from '../lib/sessionStore'
 import { identifyUser, resetAnalytics } from '../lib/analytics'
+import { apiFetch } from '../lib/apiClient'
 
 const AuthContext = createContext(null)
 
@@ -14,6 +15,12 @@ export function AuthProvider({ children }) {
     // Analytics: only identify once per user id per mount so a token refresh or
     // repeat SIGNED_IN doesn't re-fire identify on every event.
     const lastIdentifiedRef = useRef(null)
+    // Same guard, for the geo-pricing country detection (server.js's
+    // POST /api/profile/detect-country) — fires once per user id per mount;
+    // the server side is also idempotent (no-ops once profiles.country is
+    // set), so this is just avoiding a pointless repeat call on every token
+    // refresh, not a correctness requirement.
+    const lastCountryCheckRef = useRef(null)
 
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
@@ -29,6 +36,16 @@ export function AuthProvider({ children }) {
             if (session?.user?.id && lastIdentifiedRef.current !== session.user.id) {
                 lastIdentifiedRef.current = session.user.id
                 identifyUser(session.user.id)
+            }
+
+            if (session?.user?.id && lastCountryCheckRef.current !== session.user.id) {
+                lastCountryCheckRef.current = session.user.id
+                apiFetch('/api/profile/detect-country', { method: 'POST' }).catch(() => {
+                    // Best-effort — a failed detection just leaves country
+                    // null, which currencyForCountry() already treats as
+                    // India (the safe default), so there's nothing to
+                    // recover from here.
+                })
             }
 
             // Only a real sign-out should wipe cached data + per-user UI state.

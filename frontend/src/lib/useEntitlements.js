@@ -44,6 +44,10 @@ export function useEntitlements() {
     const plan = data?.plan || 'free' // fail safe = most restrictive
     const limits = data?.limits ? normalizeLimits(data.limits) : { ...FREE_LIMITS }
     const usage = data?.usage || {}
+    // 'INR' fail-safe matches the server's own default (lib/geo.js: unknown
+    // country → INR, never USD) — same reasoning applies here for a
+    // logged-out/not-yet-loaded viewer.
+    const currency = data?.currency === 'USD' ? 'USD' : 'INR'
 
     function can(feature) {
         if (feature === 'hld_catalog') return limits.hld_catalog_access === 'full'
@@ -56,6 +60,7 @@ export function useEntitlements() {
         plan,
         limits,
         usage,
+        currency,
         can,
         isLoading: query.isLoading,
         isError: query.isError,

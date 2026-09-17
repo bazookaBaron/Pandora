@@ -101,7 +101,7 @@ export default function App() {
                         <Route path="/jobs" element={<Navigate to="/" replace />} />
                         <Route path="/jobs/company/:slug" element={<JobsCompanyPage />} />
                         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
-                        <Route path="/pricing" element={<PricingPage />} />
+                        <Route path="/pricing" element={<ProtectedRoute><PricingPage /></ProtectedRoute>} />
                         <Route path="/terms" element={<TermsPage />} />
                         <Route path="/privacy" element={<PrivacyPage />} />
                         <Route path="/refunds" element={<RefundPage />} />

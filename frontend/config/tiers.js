@@ -28,8 +28,12 @@ export const TIERS = {
         },
     },
     pro: {
-        price: { monthly: 900, yearly: 7900 }, // cents, USD — display only
-        // Razorpay charges in paise (INR). This is the amount actually billed.
+        // Billed for non-India users (see lib/geo.js's currencyForCountry) —
+        // no longer "display only". ~27% off monthly x12, matching the INR
+        // yearly discount.
+        price: { monthly: 990, yearly: 8699 }, // cents, USD: $9.90/mo, $86.99/yr
+        // Razorpay charges in paise (INR). Billed for India (and unknown —
+        // the safe default) users.
         price_inr: { monthly: 79900, yearly: 699900 }, // ₹799/mo, ₹6,999/yr
         limits: {
             dsa_catalog_visible: Infinity,
@@ -45,7 +49,8 @@ export const TIERS = {
         },
     },
     max: {
-        price: { monthly: 1900, yearly: 17900 }, // cents, USD — display only
+        // Billed for non-India users — ~27% off monthly x12, same discount as Pro.
+        price: { monthly: 1400, yearly: 12299 }, // cents, USD: $14/mo, $122.99/yr
         price_inr: { monthly: 169900, yearly: 1499900 }, // ₹1,699/mo, ₹14,999/yr
         limits: {
             dsa_catalog_visible: Infinity,
@@ -87,6 +92,15 @@ export function isValidPlan(plan) {
 // (e.g. free). period must be 'monthly' | 'yearly'.
 export function priceInrPaise(plan, period) {
     const p = TIERS[plan] && TIERS[plan].price_inr
+    if (!p) return 0
+    const v = period === 'yearly' ? p.yearly : p.monthly
+    return Number.isFinite(v) ? v : 0
+}
+
+// Amount Razorpay should charge, in cents, for a non-India (USD) checkout.
+// 0 for a plan with no USD price (e.g. free). period must be 'monthly' | 'yearly'.
+export function priceUsdCents(plan, period) {
+    const p = TIERS[plan] && TIERS[plan].price
     if (!p) return 0
     const v = period === 'yearly' ? p.yearly : p.monthly
     return Number.isFinite(v) ? v : 0

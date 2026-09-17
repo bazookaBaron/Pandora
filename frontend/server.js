@@ -24,9 +24,11 @@ import {
   incrementUsage,
   getRemainingUsage,
   getUserPlan,
+  getUserCountry,
   getEntitlementsSummary,
   invalidateUser,
 } from "./lib/entitlements.js";
+import { countryFromIp, currencyForCountry } from "./lib/geo.js";
 import * as resend from "./services/resend.js";
 import {
   referralRequestCreated,
@@ -40,6 +42,7 @@ import {
   serializeLimit,
   isValidPlan,
   priceInrPaise,
+  priceUsdCents,
 } from "./config/tiers.js";
 import * as razorpay from "./services/razorpay.js";
 import {
@@ -334,6 +337,35 @@ app.get("/api/entitlements/me", requireAuth, async (req, res) => {
     res.json(summary);
   } catch (err) {
     fail(res, err, "entitlements/me", "Failed to load entitlements.");
+  }
+});
+
+// POST /api/profile/detect-country — best-effort, idempotent IP -> country
+// fill-in. Fired once per login from AuthContext.jsx (same guard pattern as
+// its analytics identifyUser call), so this covers new signups AND existing
+// users with no country yet, without a backfill script. No-ops once
+// profiles.country is set — never overwrites an existing value (a user who
+// travels or uses a VPN keeps whatever was first detected, not the newest).
+app.post("/api/profile/detect-country", requireAuth, async (req, res) => {
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from("profiles")
+      .select("country")
+      .eq("id", req.user.id)
+      .maybeSingle();
+    if (existing?.country) return res.json({ country: existing.country, updated: false });
+
+    const detected = countryFromIp(req.ip);
+    if (!detected) return res.json({ country: null, updated: false });
+
+    const { error } = await supabaseAdmin
+      .from("profiles")
+      .update({ country: detected })
+      .eq("id", req.user.id);
+    if (error) throw error;
+    res.json({ country: detected, updated: true });
+  } catch (err) {
+    fail(res, err, "profile/detect-country", "Failed to detect country.");
   }
 });
 
@@ -3436,6 +3468,14 @@ const PAID_PLANS = ["pro", "max"];
 const PERIODS = ["monthly", "yearly"];
 const TERM_DAYS = { monthly: 30, yearly: 365 };
 
+// India (and unknown) bills in INR paise; everyone else in USD cents — see
+// lib/geo.js's currencyForCountry for why unknown must stay on the INR side.
+// Shared by order creation and verification so both always agree on which
+// amount a given user/currency should be charged.
+function expectedAmountFor(currency, plan, billingPeriod) {
+  return currency === "USD" ? priceUsdCents(plan, billingPeriod) : priceInrPaise(plan, billingPeriod);
+}
+
 // GET /api/billing/status → { configured, provider, keyId } for the client.
 app.get("/api/billing/status", requireAuth, (_req, res) => {
   res.json({
@@ -3461,14 +3501,15 @@ app.post(
       assert(PAID_PLANS.includes(plan), "plan must be 'pro' or 'max'.");
       assert(PERIODS.includes(billingPeriod), "billingPeriod must be 'monthly' or 'yearly'.");
 
-      const amountPaise = priceInrPaise(plan, billingPeriod);
+      const currency = currencyForCountry(await getUserCountry(req.user.id));
+      const amountPaise = expectedAmountFor(currency, plan, billingPeriod);
       assert(Number.isInteger(amountPaise) && amountPaise >= 100, "Plan price is not configured.");
 
       const order = await razorpay.createOrder({
         amountPaise,
-        currency: "INR",
+        currency,
         receipt: `u${String(req.user.id).slice(0, 8)}_${Date.now().toString(36)}`,
-        notes: { user_id: req.user.id, plan, billingPeriod },
+        notes: { user_id: req.user.id, plan, billingPeriod, currency },
       });
 
       res.json({
@@ -3533,7 +3574,12 @@ app.post(
       const order = await razorpay.fetchOrder(razorpay_order_id);
       if (order) {
         const n = order.notes || {};
-        const expected = priceInrPaise(plan, billingPeriod);
+        // Trust the order's OWN currency (Razorpay's authoritative record of
+        // what was actually charged), not a freshly-recomputed one — the
+        // user's country is a no-op-once-set value so this can't drift in
+        // practice, but checking against what was actually billed is the
+        // more correct invariant regardless.
+        const expected = expectedAmountFor(order.currency, plan, billingPeriod);
         if (
           String(n.user_id || "") !== String(req.user.id) ||
           String(n.plan || "") !== plan ||
@@ -3763,7 +3809,7 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
         return res.status(202).json({ ok: true, note: "order.paid: not a plan order" });
       }
       const paid = Number(order.amount_paid ?? order.amount);
-      if (paid !== priceInrPaise(n.plan, n.billingPeriod)) {
+      if (paid !== expectedAmountFor(order.currency, n.plan, n.billingPeriod)) {
         console.warn("[rzp-webhook] order.paid amount mismatch", redact(JSON.stringify({ id: order.id, paid })));
         return res.status(202).json({ ok: true, note: "amount mismatch" });
       }

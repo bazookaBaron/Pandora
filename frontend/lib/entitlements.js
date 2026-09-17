@@ -34,6 +34,7 @@ import {
   serializeLimit,
 } from "../config/tiers.js";
 import { supabaseAdmin } from "./supabaseAdmin.js";
+import { currencyForCountry } from "./geo.js";
 
 // ── tiny subscription-row cache (bounds Supabase round-trips) ────────────────
 const SUB_TTL_MS = 15 * 1000;
@@ -119,6 +120,24 @@ export async function getUserPlan(userId) {
 
   // expired | paused | unknown
   return "free";
+}
+
+// ── geo-based currency ───────────────────────────────────────────────────
+// Read-only; the actual write happens in POST /api/profile/detect-country
+// (server.js), fired once per login from AuthContext.jsx. Never throws —
+// worst case a missing/unreachable profiles row just falls back to null,
+// which currencyForCountry() treats as India (the safe default).
+export async function getUserCountry(userId) {
+  try {
+    const { data } = await supabaseAdmin
+      .from("profiles")
+      .select("country")
+      .eq("id", userId)
+      .maybeSingle();
+    return data?.country || null;
+  } catch {
+    return null;
+  }
 }
 
 // ── period math ────────────────────────────────────────────────────────────
@@ -398,18 +417,19 @@ export async function getEntitlementsSummary(userId) {
   const limits = {};
   for (const [k, v] of Object.entries(rawLimits)) limits[k] = serializeLimit(v);
 
-  // Fan the per-feature usage reads out in parallel instead of awaiting a
-  // serial loop (~6 sequential Supabase round-trips → 1 batched wait).
-  const results = await Promise.all(
-    METERED_FEATURES.map((f) => getRemainingUsage(userId, f)),
-  );
+  // Fan the per-feature usage reads (+ the country read the pricing page
+  // needs for currency) out in parallel instead of awaiting a serial loop.
+  const [results, country] = await Promise.all([
+    Promise.all(METERED_FEATURES.map((f) => getRemainingUsage(userId, f))),
+    getUserCountry(userId),
+  ]);
   const usage = {};
   METERED_FEATURES.forEach((feature, i) => {
     const { used, limit, resetsAt } = results[i];
     usage[feature] = { used, limit: serializeLimit(limit), resetsAt };
   });
 
-  const summary = { plan, limits, usage };
+  const summary = { plan, limits, usage, currency: currencyForCountry(country) };
   summaryCacheSet(userId, summary);
   return summary;
 }
