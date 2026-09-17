@@ -35,7 +35,17 @@ export function useEntitlements() {
         queryKey: ['entitlements', user?.id ?? null],
         queryFn: () => apiFetch('/api/entitlements/me'),
         enabled: !!user,
-        staleTime: 5 * 60_000, // server re-checks every gated action; a stale client copy is fine
+        // The server re-checks every GATED action regardless of this cache, so
+        // staleness was never a security question — but it IS what the paywall
+        // UI (locked/unlocked cards, the pricing page's "current plan" badge)
+        // renders from, and a long-lived tab left open across an upgrade could
+        // sit on a pre-upgrade "free" snapshot indefinitely: the global
+        // QueryClient default disables refetchOnWindowFocus (perf), and
+        // nothing else here was forcing a re-check. 60s + refetching on focus
+        // means switching back to that tab corrects it within a minute instead
+        // of needing a manual reload.
+        staleTime: 60_000,
+        refetchOnWindowFocus: true,
         // Not fully logged in yet → server 401s. Don't retry, just fall to free.
         retry: (count, err) => (err && err.status === 401 ? false : count < 1),
     })

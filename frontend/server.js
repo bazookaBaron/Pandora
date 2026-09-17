@@ -4173,9 +4173,18 @@ app.get(/^(?!\/api).*/, async (req, res, next) => {
     jobsCompany,
   });
   res.set("Content-Type", "text/html; charset=utf-8");
+  // s-maxage was 300s — a shared/CDN cache could keep serving this shell for
+  // up to 5 minutes after a deploy, and its <script> tags reference the
+  // PREVIOUS build's content-hashed chunk filenames, which Vite doesn't keep
+  // around once superseded. A tab that loads (or a crawler that's served)
+  // one of those stale shells 404s on its first lazy-route navigation —
+  // exactly the "Something broke" report this comment is fixing. 30s keeps
+  // most of the shared-cache benefit while shrinking that window to
+  // something a real deploy essentially never lands inside twice in a row;
+  // ErrorBoundary.jsx's chunk-error auto-reload is the remaining backstop.
   res.set(
     "Cache-Control",
-    c.kind === "public" ? "public, max-age=0, s-maxage=300" : "no-store",
+    c.kind === "public" ? "public, max-age=0, s-maxage=30, stale-while-revalidate=30" : "no-store",
   );
   res.send(html);
 });
