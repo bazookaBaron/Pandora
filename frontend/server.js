@@ -1761,6 +1761,7 @@ function normalizeJob(row, companyNameBySlug, companyTypeBySlug) {
     id: row.id,
     title: String(row.title || (Array.isArray(row.titles) && row.titles[0]) || ""),
     company: String(company || ""),
+    companySlug: row.company_slug || "",
     companyType,
     location: row.location || "",
     locationType,

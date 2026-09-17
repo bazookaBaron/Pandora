@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Navbar from '../../components/Navbar'
 import { useJobs, useJobsAnalytics, useJobsTrend, useJobFacet } from '../../lib/useJobs'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
 import { LockedSlice } from '../../components/shared/PaywallGate'
+import { useAuth } from '../../contexts/AuthContext'
+import { useEntitlements } from '../../lib/useEntitlements'
+import { useCompanySubscriptions, useSubscribeToCompany, useUnsubscribeFromCompany } from '../../lib/useCompanySubscriptions'
 
 // ── helpers ────────────────────────────────────────────────────────
 function relTime(iso) {
@@ -27,6 +31,92 @@ const SEN_LABEL = {
 }
 const COMPANY_TYPE_LABEL = { product: 'Product', startup: 'Startup', service: 'Service', unknown: 'Unspecified' }
 const COMPANY_TYPE_TONE = { product: '#22d3ee', startup: '#a78bfa', service: '#fb923c', unknown: '#52525b' }
+
+function BellIcon({ filled }) {
+    return (
+        <svg viewBox="0 0 24 24" width="14" height="14" fill={filled ? 'currentColor' : 'none'}
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
+    )
+}
+
+function bellBtnStyle(active, disabled) {
+    return {
+        flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 26, height: 26, borderRadius: 6, border: '1px solid var(--subtle)',
+        background: active ? 'rgba(167,139,250,0.16)' : 'transparent',
+        color: active ? '#a78bfa' : 'var(--muted)',
+        cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.55 : 1, padding: 0,
+    }
+}
+
+// Per-card "subscribe to this company's job alerts" toggle — same feature and
+// server-side gating as JobsCompanyPage's SubscribeButton (config/tiers.js:
+// company_subscriptions_max, Pro/Max only), just icon-sized so it works
+// inline on a job card without sending someone to the company's hub page
+// first. Every card on a page shares the one `useCompanySubscriptions` query
+// (react-query dedupes by key), so this is one network read, not N.
+function SubscribeBell({ slug, companyName }) {
+    const { user } = useAuth()
+    const navigate = useNavigate()
+    const { plan, isLoading: planLoading } = useEntitlements()
+    const { data } = useCompanySubscriptions()
+    const subscribe = useSubscribeToCompany()
+    const unsubscribe = useUnsubscribeFromCompany()
+
+    if (!slug) return null
+
+    if (!user) {
+        return (
+            <button type="button" title={`Log in to get alerts for ${companyName || 'this company'}`}
+                onClick={(e) => { e.preventDefault(); navigate('/auth') }} style={bellBtnStyle(false, false)}>
+                <BellIcon filled={false} />
+            </button>
+        )
+    }
+    if (planLoading) return <span style={{ width: 26, height: 26, flexShrink: 0 }} />
+
+    if (plan === 'free') {
+        return (
+            <button type="button" title="Upgrade to Pro or Max to get job alerts for this company"
+                onClick={(e) => { e.preventDefault(); navigate('/pricing') }} style={bellBtnStyle(false, false)}>
+                <BellIcon filled={false} />
+            </button>
+        )
+    }
+
+    const subscriptions = data?.subscriptions || []
+    const limit = data?.limit === 'unlimited' ? Infinity : Number(data?.limit ?? 0)
+    const isSubscribed = subscriptions.some((s) => s.company_slug === slug)
+    const atCap = !isSubscribed && Number.isFinite(limit) && subscriptions.length >= limit
+    const busy = subscribe.isPending || unsubscribe.isPending
+    const disabled = busy || (atCap && !isSubscribed)
+
+    const toggle = async (e) => {
+        e.preventDefault()
+        if (disabled) return
+        try {
+            if (isSubscribed) await unsubscribe.mutateAsync(slug)
+            else await subscribe.mutateAsync({ companySlug: slug, companyName: companyName || slug })
+        } catch {
+            /* a card has no room for an inline error — the profile page shows the full state */
+        }
+    }
+
+    const label = isSubscribed
+        ? `Subscribed to ${companyName || slug} — click to unsubscribe`
+        : atCap
+            ? `Limit reached (${subscriptions.length}/${limit}) — manage on your profile`
+            : `Get emailed when ${companyName || 'this company'} posts new roles`
+
+    return (
+        <button type="button" title={label} onClick={toggle} disabled={disabled} style={bellBtnStyle(isSubscribed, disabled)}>
+            <BellIcon filled={isSubscribed} />
+        </button>
+    )
+}
 
 // ── one job row ────────────────────────────────────────────────────
 // Minimal inline row: title + a NEW tick, one faint meta line underneath
@@ -79,6 +169,8 @@ function JobCard({ j }) {
                     ))}
                 </div>
             </div>
+
+            <SubscribeBell slug={j.companySlug} companyName={j.company} />
 
             <a href={j.url} target="_blank" rel="noopener noreferrer" className="job-apply" style={{
                 flexShrink: 0, padding: '4px 11px', borderRadius: 6,
