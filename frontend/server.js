@@ -1771,6 +1771,7 @@ function normalizeJob(row, companyNameBySlug, companyTypeBySlug) {
     source: row.source || "",
     firstSeen: row.first_seen_at || null,
     lastSeen: row.last_seen_at || null,
+    postedAt: row.posted_at || null,
     status: row.status || "open",
   };
 }
@@ -1785,9 +1786,12 @@ const SENIORITY_ORDER = ["intern", "junior", "mid", "senior", "staff", "principa
 // DB order.
 const JOBS_INTERLEAVE_POOL = 600;
 const JOBS_SPREAD_GAP = 4;
-// Hard age cap: the board only serves jobs first seen in the last N days. The
-// crawler hard-deletes older rows, this is the webapp-side guarantee in case a
-// crawl pass lags. Keep in sync with PGPIPE_MAX_AGE_DAYS in the crawler.
+// Hard age cap: the board only serves jobs actually POSTED in the last N
+// days (posted_at, parsed from the source ATS's own date — not first_seen_at,
+// which is when WE discovered the row and can lag the real posting date by
+// a lot). Storage retention/cleanup is a separate, first_seen_at-based
+// concern in the crawler (PGPIPE_MAX_AGE_DAYS) — this constant governs what's
+// user-visible, not what's stored.
 const JOBS_MAX_AGE_DAYS = Number(process.env.JOBS_MAX_AGE_DAYS) || 1;
 const jobsMaxAgeISO = () => new Date(Date.now() - JOBS_MAX_AGE_DAYS * 86400000).toISOString();
 
@@ -1811,7 +1815,7 @@ async function getCuratedJobsCompanySlugs() {
       .from(JOBS_TABLE)
       .select("company_slug")
       .eq("status", "open")
-      .gte("first_seen_at", jobsMaxAgeISO())
+      .gte("posted_at", jobsMaxAgeISO())
       .limit(20_000);
     const counts = new Map();
     for (const row of data || []) {
@@ -1841,11 +1845,11 @@ async function getJobsCompanyPayload(slug) {
 
     const { data: rows } = await jobsDb()
       .from(JOBS_TABLE)
-      .select("id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, status, seniority")
+      .select("id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, posted_at, status, seniority")
       .eq("status", "open")
       .eq("company_slug", slug)
-      .gte("first_seen_at", jobsMaxAgeISO())
-      .order("first_seen_at", { ascending: false })
+      .gte("posted_at", jobsMaxAgeISO())
+      .order("posted_at", { ascending: false })
       .limit(300);
 
     const postings = (rows || []).filter((r) => r.url);
@@ -2189,7 +2193,7 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
       // there yet, retry the query once without selecting or filtering on it.
       const build = (withSeniority) => {
         const cols =
-          "id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, status, country" +
+          "id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, posted_at, status, country" +
           (withSeniority ? ", seniority" : "");
         // count=estimated → PostgREST `Prefer: count=estimated`. pageCount is
         // now approximate (fast planner estimate, not an exact scan).
@@ -2197,12 +2201,12 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
           .from(JOBS_TABLE)
           .select(cols, { count: "estimated" })
           .eq("status", "open")
-          .gte("first_seen_at", jobsMaxAgeISO()) // board only serves jobs ≤ N days old
+          .gte("posted_at", jobsMaxAgeISO()) // board only serves jobs actually posted ≤ N days ago
           .range(rangeFrom, rangeTo);
 
-        if (sort === "oldest") q = q.order("first_seen_at", { ascending: true }).order("id", { ascending: true });
-        else if (sort === "company") q = q.order("company_slug", { ascending: true }).order("first_seen_at", { ascending: false });
-        else q = q.order("first_seen_at", { ascending: false }).order("id", { ascending: false });
+        if (sort === "oldest") q = q.order("posted_at", { ascending: true }).order("id", { ascending: true });
+        else if (sort === "company") q = q.order("company_slug", { ascending: true }).order("posted_at", { ascending: false });
+        else q = q.order("posted_at", { ascending: false }).order("id", { ascending: false });
 
         if (search) {
           const orStr = buildSearchOr(search);
@@ -2219,7 +2223,7 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
         if (locationType) q = q.eq("location_type", locationType);
         if (source) q = q.eq("source", source);
         if (withSeniority && seniority) q = q.eq("seniority", seniority);
-        if (postedWithinDays > 0) q = q.gte("first_seen_at", daysAgoISO(postedWithinDays));
+        if (postedWithinDays > 0) q = q.gte("posted_at", daysAgoISO(postedWithinDays));
         // Hard filter: the board never serves countries outside US/India. An
         // explicit `country` pick narrows further; otherwise both are in play
         // and the weighted merge below softly favors India (~70%) / US (~30%).
@@ -2364,7 +2368,7 @@ app.get("/api/jobs/facets", catalogLimiter, optionalAuth, async (req, res) => {
           .from(JOBS_TABLE)
           .select("title")
           .eq("status", "open")
-          .gte("first_seen_at", jobsMaxAgeISO())
+          .gte("posted_at", jobsMaxAgeISO())
           .not("title", "is", null)
           .limit(2500);
         if (error) throw error;
@@ -2377,7 +2381,7 @@ app.get("/api/jobs/facets", catalogLimiter, optionalAuth, async (req, res) => {
           .from(JOBS_TABLE)
           .select("company_slug")
           .eq("status", "open")
-          .gte("first_seen_at", jobsMaxAgeISO())
+          .gte("posted_at", jobsMaxAgeISO())
           .not("company_slug", "is", null)
           .limit(2500);
         if (error) throw error;
@@ -2395,7 +2399,7 @@ app.get("/api/jobs/facets", catalogLimiter, optionalAuth, async (req, res) => {
         .from(JOBS_TABLE)
         .select("location")
         .eq("status", "open")
-        .gte("first_seen_at", jobsMaxAgeISO())
+        .gte("posted_at", jobsMaxAgeISO())
         .not("location", "is", null)
         .limit(2500);
       if (error) throw error;
