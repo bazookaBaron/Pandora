@@ -5,6 +5,7 @@ import { useJobs, useJobsAnalytics, useJobsTrend, useJobFacet } from '../../lib/
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
 import { LockedSlice } from '../../components/shared/PaywallGate'
 import { useAuth } from '../../contexts/AuthContext'
+import { useTheme } from '../../contexts/ThemeContext'
 import { useEntitlements } from '../../lib/useEntitlements'
 import { useCompanySubscriptions, useSubscribeToCompany, useUnsubscribeFromCompany } from '../../lib/useCompanySubscriptions'
 
@@ -21,16 +22,11 @@ function relTime(iso) {
 }
 
 const LOC_TONE = { remote: '#4ade80', hybrid: '#22d3ee', onsite: '#f472b6' }
-const SEN_TONE = {
-    intern: '#a1a1aa', junior: '#38bdf8', mid: '#4ade80',
-    senior: '#fbbf24', staff: '#fb923c', principal: '#f472b6', unknown: '#52525b',
-}
 const SEN_LABEL = {
     intern: 'Intern', junior: 'Junior (0–2y)', mid: 'Mid (2–4y)',
     senior: 'Senior (4–8y)', staff: 'Staff (8y+)', principal: 'Principal', unknown: 'Unspecified',
 }
 const COMPANY_TYPE_LABEL = { product: 'Product', startup: 'Startup', service: 'Service', unknown: 'Unspecified' }
-const COMPANY_TYPE_TONE = { product: '#22d3ee', startup: '#a78bfa', service: '#fb923c', unknown: '#52525b' }
 
 function BellIcon({ filled }) {
     return (
@@ -318,33 +314,130 @@ function FacetCombobox({ field, value, onChange, placeholder, style, multiple = 
 }
 
 // ── charts (dependency-free) ───────────────────────────────────────
-function BarRow({ label, value, max, tone }) {
-    const pct = max > 0 ? Math.max(2, (value / max) * 100) : 0
+// ── analytics chart palette ──────────────────────────────────────────
+// Validated against this app's real card surfaces (dark --panel #18181b,
+// light #ffffff) with the dataviz skill's validate_palette.js — categorical
+// hues from the documented default palette's fixed slot order (never
+// eyeballed), seniority as a one-hue ORDINAL ramp (it's a progression —
+// intern→principal — not an unordered identity set, so it gets monotone
+// lightness instead of scattered hues). The light-mode seniority ramp has
+// two adjacent steps slightly under the ideal ΔL gap (only ~10 usable named
+// steps clear the light-surface contrast floor); every segment carries a
+// direct value label, which is this skill's documented relief for exactly
+// that case.
+const CHART_PALETTE = {
+    dark: {
+        categorical3: ['#3987e5', '#d95926', '#199e70'],
+        country: ['#3987e5', '#199e70'],
+        seniorityRamp: ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95'],
+    },
+    light: {
+        categorical3: ['#2a78d6', '#eb6834', '#1baf7a'],
+        country: ['#2a78d6', '#1baf7a'],
+        seniorityRamp: ['#86b6ef', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#104281'],
+    },
+}
+function useChartPalette() {
+    const { theme } = useTheme()
+    return CHART_PALETTE[theme === 'light' ? 'light' : 'dark']
+}
+
+// Sums the known ordered keys into labeled/colored segments, and folds
+// anything else in the raw dict (nulls, an ATS-specific value we didn't
+// enumerate) into one trailing "Other" segment — so a chart never silently
+// drops jobs just because their bucket wasn't one we anticipated.
+function segmentsWithOther(dict, order, labelFor, colors, otherLabel) {
+    const known = order.map((k, i) => ({ label: labelFor(k), value: Number(dict?.[k]) || 0, color: colors[i] }))
+    const knownSum = known.reduce((s, x) => s + x.value, 0)
+    const total = Object.values(dict || {}).reduce((s, v) => s + (Number(v) || 0), 0)
+    const rest = total - knownSum
+    return rest > 0 ? [...known, { label: otherLabel, value: rest, color: 'var(--faint)' }] : known
+}
+
+// Single-bar composition snapshot — one bar split proportionally into its
+// categories, so "what's the mix right now" reads as one whole instead of
+// several independent bars competing for the eye. Segments are too narrow
+// for in-bar text, so identity + share % live in the legend row below
+// (never color-alone, per the ≥2-series rule).
+function StackedBar({ title, segments }) {
+    const shown = (segments || []).filter((s) => s.value > 0)
+    const total = shown.reduce((s, x) => s + x.value, 0)
+    if (!total) return null
     return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.74rem' }}>
-            <span style={{ width: 130, flexShrink: 0, color: 'var(--accent)', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {label}
-            </span>
-            <div style={{ flex: 1, height: 16, background: 'var(--panel)', borderRadius: 4, overflow: 'hidden' }}>
-                <div style={{ width: pct + '%', height: '100%', background: tone || '#22d3ee', opacity: 0.85, borderRadius: 4, transition: 'width .4s' }} />
+        <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '14px 16px' }}>
+            <h3 style={{ fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', margin: '0 0 10px' }}>
+                {title}
+            </h3>
+            <div style={{ display: 'flex', height: 20, borderRadius: 5, overflow: 'hidden', gap: 2 }}>
+                {shown.map((s) => (
+                    <div key={s.label} title={`${s.label}: ${s.value.toLocaleString()} (${Math.round((s.value / total) * 100)}%)`}
+                        style={{ flex: s.value, background: s.color, minWidth: 3 }} />
+                ))}
             </div>
-            <span style={{ width: 52, flexShrink: 0, color: 'var(--bright)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                {value.toLocaleString()}
-            </span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 14px', marginTop: 10 }}>
+                {shown.map((s) => (
+                    <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.7rem' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                        <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{s.label}</span>
+                        <span style={{ fontWeight: 700, color: 'var(--bright)', fontVariantNumeric: 'tabular-nums' }}>
+                            {Math.round((s.value / total) * 100)}%
+                        </span>
+                    </span>
+                ))}
+            </div>
         </div>
     )
 }
 
-function BarChart({ title, rows, toneFor }) {
-    if (!rows || !rows.length) return null
-    const max = Math.max(...rows.map((r) => r.value), 1)
+// "Who's hiring the most right now" — ranked by NEW postings this period
+// (the snapshot's top_companies), not total open roles. A leaderboard by
+// total-open is dominated forever by whoever has the biggest perpetual
+// pipeline; this one moves week to week and actually says something.
+function TrendingCompaniesList({ companies }) {
+    const rows = companies || []
+    if (!rows.length) return null
+    const max = Math.max(...rows.map((c) => c.count), 1)
     return (
         <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '14px 16px' }}>
-            <h3 style={{ fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', margin: '0 0 12px' }}>{title}</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                {rows.map((r) => <BarRow key={r.label} {...r} max={max} tone={toneFor ? toneFor(r) : r.tone} />)}
+            <h3 style={{ fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', margin: '0 0 10px' }}>
+                Trending companies this period
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {rows.slice(0, 10).map((c, i) => (
+                    <div key={c.company} style={{
+                        display: 'flex', alignItems: 'center', gap: 10, padding: '6px 2px',
+                        borderTop: i === 0 ? 'none' : '1px solid var(--subtle)',
+                    }}>
+                        <span style={{ width: 18, flexShrink: 0, fontSize: '0.68rem', color: 'var(--faint)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                            {i + 1}
+                        </span>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: '0.78rem', color: 'var(--accent)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {c.company}
+                        </span>
+                        <div style={{ width: 70, height: 5, background: 'var(--subtle)', borderRadius: 3, overflow: 'hidden', flexShrink: 0 }}>
+                            <div style={{ width: `${Math.max(6, (c.count / max) * 100)}%`, height: '100%', background: 'var(--pop)' }} />
+                        </div>
+                        <span style={{ width: 34, flexShrink: 0, textAlign: 'right', fontSize: '0.74rem', fontWeight: 800, color: 'var(--bright)', fontVariantNumeric: 'tabular-nums' }}>
+                            +{c.count}
+                        </span>
+                    </div>
+                ))}
             </div>
         </div>
+    )
+}
+
+// Up/down vs the prior period — status color (never a categorical hue),
+// always icon + number so it never leans on color alone.
+function DeltaTag({ curr, prev }) {
+    if (prev == null || prev === 0) return null
+    const pct = Math.round(((curr - prev) / prev) * 100)
+    if (pct === 0) return null
+    const up = pct > 0
+    return (
+        <span style={{ fontSize: '0.78rem', fontWeight: 800, color: up ? '#0ca30c' : '#e66767', marginLeft: 8 }}>
+            {up ? '▲' : '▼'} {Math.abs(pct)}%
+        </span>
     )
 }
 
@@ -411,6 +504,73 @@ function LineChart({ title, points, series }) {
     )
 }
 
+// Stacked-area composition TREND — same part-to-whole job as StackedBar, run
+// across time, so a mix shift (India's share of the board growing, say)
+// shows up as a widening band instead of two snapshot numbers you have to
+// compare by hand. `keys` bottom→top; `points` need only carry those keys +
+// `period`.
+function StackedAreaChart({ title, points, keys, colors, labelFor }) {
+    if (!points || points.length < 2) return null
+    const width = 700, height = 200
+    const padL = 42, padR = 12, padT = 10, padB = 26
+    const innerW = width - padL - padR
+    const innerH = height - padT - padB
+    const totals = points.map((p) => keys.reduce((s, k) => s + (Number(p[k]) || 0), 0))
+    const maxTotal = Math.max(1, ...totals)
+    const x = (i) => padL + (points.length > 1 ? (innerW * i) / (points.length - 1) : innerW / 2)
+    const yTop = (v) => padT + innerH - (innerH * v) / maxTotal
+
+    const maxLabels = 6
+    const labelStep = Math.max(1, Math.ceil(points.length / maxLabels))
+    const fmtPeriod = (p) => (p.length > 7 ? p.slice(5) : p)
+
+    // Cumulative sums per point, bottom→top in `keys` order — each series'
+    // fill runs between its own cumulative line and the one below it.
+    const cum = points.map((p) => {
+        let acc = 0
+        return keys.map((k) => { acc += Number(p[k]) || 0; return acc })
+    })
+
+    return (
+        <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '14px 16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                <h3 style={{ fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', margin: 0 }}>
+                    {title}
+                </h3>
+                <div style={{ display: 'flex', gap: 14 }}>
+                    {keys.map((k, i) => (
+                        <span key={k} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.68rem', color: 'var(--muted)', fontWeight: 700 }}>
+                            <span style={{ width: 9, height: 9, borderRadius: 2, background: colors[i], flexShrink: 0 }} />
+                            {labelFor ? labelFor(k) : k}
+                        </span>
+                    ))}
+                </div>
+            </div>
+            <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} style={{ width: '100%', height: 'auto', display: 'block' }}>
+                {[0, 0.5, 1].map((f) => (
+                    <line key={f} x1={padL} x2={width - padR} y1={padT + innerH * (1 - f)} y2={padT + innerH * (1 - f)}
+                        stroke="var(--subtle)" strokeWidth="1" opacity={f === 0 ? 0.7 : 0.28} />
+                ))}
+                {points.map((p, i) => (
+                    (i % labelStep === 0 || i === points.length - 1) ? (
+                        <text key={p.period} x={x(i)} y={height - 7} textAnchor="middle" fontSize="9" fill="var(--muted)">
+                            {fmtPeriod(p.period)}
+                        </text>
+                    ) : null
+                ))}
+                {keys.map((k, ki) => {
+                    const top = points.map((_, i) => `${x(i)},${yTop(cum[i][ki])}`)
+                    const bottom = points.map((_, i) => `${x(i)},${yTop(ki === 0 ? 0 : cum[i][ki - 1])}`).reverse()
+                    return (
+                        <polygon key={k} points={[...top, ...bottom].join(' ')}
+                            fill={colors[ki]} opacity="0.82" stroke="var(--panel)" strokeWidth="1" />
+                    )
+                })}
+            </svg>
+        </div>
+    )
+}
+
 function Metric({ label, value, accent }) {
     return (
         <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '12px 16px', flex: '1 1 150px' }}>
@@ -424,21 +584,68 @@ function Metric({ label, value, accent }) {
     )
 }
 
-// Historical hiring-velocity trend (public.jobs_market_snapshot_daily via
-// /api/jobs/analytics/trend). Independent data source from the live RPC above
-// — renders (and handles its own empty/error state) whether or not the live
-// snapshot has data yet.
-function TrendView() {
+const SENIORITY_ORDER = ['intern', 'junior', 'mid', 'senior', 'staff', 'principal']
+const WORK_TYPE_ORDER = ['remote', 'hybrid', 'onsite']
+const COMPANY_TYPE_ORDER = ['product', 'startup', 'service']
+
+// ── Analytics tab ──────────────────────────────────────────────────
+// Two independent data sources, one page: `live` is the real-time RPC (just
+// the headline "open right now" count — everything else here needs history,
+// which live data doesn't have); `trend` is the daily market snapshot, which
+// drives the velocity line, every composition chart (from its latest
+// period), the geography-mix-over-time area chart, and the trending-company
+// list. Cut from the old version: the ATS/source breakdown (an internal
+// scraping detail, not a market signal) and the mid-level-share tile
+// (an arbitrary single slice of the seniority chart that's shown in full
+// below anyway).
+function AnalyticsView() {
+    const { data: live, isLoading: liveLoading, error: liveError, refetch } = useJobsAnalytics(true)
     const [granularity, setGranularity] = useState('weekly')
-    const { data, isLoading, error } = useJobsTrend(granularity, true)
-    const points = data.points || []
+    const { data: trend, isLoading: trendLoading, error: trendError } = useJobsTrend(granularity, true)
+    const palette = useChartPalette()
+
+    if (liveLoading) return <LoadingState label="Crunching numbers…" />
+    if (liveError) return <ErrorState err={liveError} onRetry={refetch} />
+
+    const liveReady = !(live.notReady || live.total === 0)
+    const points = trend.points || []
+    const trendReady = !trendLoading && !trendError && points.length > 0
+    const latest = trendReady ? points[points.length - 1] : null
+    const prior = trendReady && points.length > 1 ? points[points.length - 2] : null
+
+    const senSegments = latest
+        ? segmentsWithOther(latest.bySeniority, SENIORITY_ORDER, (k) => SEN_LABEL[k] || k, palette.seniorityRamp, 'Unspecified')
+        : []
+    const wtSegments = latest
+        ? segmentsWithOther(latest.byWorkType, WORK_TYPE_ORDER, (k) => k[0].toUpperCase() + k.slice(1), palette.categorical3, 'Unspecified')
+        : []
+    const countrySegments = latest
+        ? segmentsWithOther(latest.byCountry, ['US', 'IN'], (k) => (k === 'US' ? 'United States' : 'India'), palette.country, 'Other')
+        : []
+    const typeSegments = latest
+        ? segmentsWithOther(latest.byCompanyType, COMPANY_TYPE_ORDER, (k) => COMPANY_TYPE_LABEL[k] || k, palette.categorical3, 'Unknown')
+        : []
+    const trendingCompanies = (latest?.topCompanies || []).map((c) => ({ company: c.company, count: c.newPostings || 0 }))
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                <h2 style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.01em', margin: 0 }}>
-                    Historical trend
-                </h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    <Metric label="Open postings" value={liveReady ? live.total.toLocaleString() : '—'} accent="#22d3ee" />
+                    {latest && (
+                        <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '12px 16px', flex: '1 1 150px' }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', fontVariantNumeric: 'tabular-nums' }}>
+                                <span style={{ fontSize: '1.5rem', fontWeight: 900, color: '#a78bfa', letterSpacing: '-0.02em' }}>
+                                    {latest.newPostings.toLocaleString()}
+                                </span>
+                                {prior && <DeltaTag curr={latest.newPostings} prev={prior.newPostings} />}
+                            </div>
+                            <div style={{ fontSize: '0.66rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>
+                                New this {granularity === 'monthly' ? 'month' : 'week'}
+                            </div>
+                        </div>
+                    )}
+                </div>
                 <div className="profile-segment" role="group" aria-label="Trend granularity" style={{ maxWidth: 180 }}>
                     {['weekly', 'monthly'].map((g) => (
                         <button key={g} type="button"
@@ -451,89 +658,51 @@ function TrendView() {
                 </div>
             </div>
 
-            {isLoading ? (
+            {trendLoading ? (
                 <LoadingState label="Loading trend…" />
-            ) : error || points.length === 0 ? (
-                <div style={{
-                    background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10,
-                    padding: '16px', color: 'var(--muted)', fontSize: '0.78rem',
-                }}>
-                    Historical trend data isn't available yet — it populates once the crawler's daily market
-                    snapshot has run for a few {granularity === 'monthly' ? 'months' : 'weeks'}.
-                </div>
+            ) : !trendReady ? (
+                liveReady ? (
+                    <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '16px', color: 'var(--muted)', fontSize: '0.78rem' }}>
+                        Trend &amp; composition data isn't available yet — it populates once the crawler's daily market
+                        snapshot has run for a few {granularity === 'monthly' ? 'months' : 'weeks'}.
+                    </div>
+                ) : (
+                    <EmptyState icon="📊" title="No data yet" message="Analytics populate once the crawler has indexed jobs." />
+                )
             ) : (
-                (() => {
-                    const latest = points[points.length - 1]
-                    const countryRows = Object.entries(latest.byCountry || {}).map(([k, v]) => ({
-                        label: k, value: v, tone: k === 'US' ? '#38bdf8' : k === 'IN' ? '#4ade80' : '#a1a1aa',
-                    }))
-                    const typeRows = Object.entries(latest.byCompanyType || {}).map(([k, v]) => ({
-                        label: COMPANY_TYPE_LABEL[k] || k, value: v, tone: COMPANY_TYPE_TONE[k] || '#a1a1aa',
-                    }))
-                    return (
-                        <>
-                            <LineChart
-                                title={`Hiring velocity — ${granularity}`}
-                                points={points}
-                                series={[
-                                    { key: 'newPostings', label: 'New postings', color: '#22d3ee' },
-                                    { key: 'totalOpen', label: 'Total open', color: '#a78bfa' },
-                                ]}
-                            />
-                            {(countryRows.length > 0 || typeRows.length > 0) && (
-                                <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-                                    {countryRows.length > 0 && <BarChart title="Latest period — by country" rows={countryRows} />}
-                                    {typeRows.length > 0 && <BarChart title="Latest period — by company type" rows={typeRows} />}
-                                </div>
-                            )}
-                        </>
-                    )
-                })()
-            )}
-        </div>
-    )
-}
+                <>
+                    <LineChart
+                        title={`Hiring velocity — ${granularity}`}
+                        points={points}
+                        series={[
+                            { key: 'newPostings', label: 'New postings', color: '#22d3ee' },
+                            { key: 'totalOpen', label: 'Total open', color: '#a78bfa' },
+                        ]}
+                    />
 
-// ── Analytics tab ──────────────────────────────────────────────────
-function AnalyticsView() {
-    const { data, isLoading, error, refetch } = useJobsAnalytics(true)
-
-    if (isLoading) return <LoadingState label="Crunching numbers…" />
-    if (error) return <ErrorState err={error} onRetry={refetch} />
-
-    const liveReady = !(data.notReady || data.total === 0)
-    const senRows = (data.bySeniority || []).map((s) => ({
-        label: SEN_LABEL[s.bucket] || s.bucket, value: s.count, tone: SEN_TONE[s.bucket] || '#a1a1aa',
-    }))
-    const wtRows = (data.byWorkType || []).map((w) => ({
-        label: w.type === 'unspecified' ? 'Unspecified' : w.type[0].toUpperCase() + w.type.slice(1),
-        value: w.count, tone: LOC_TONE[w.type] || '#52525b',
-    }))
-    const srcRows = (data.bySource || []).slice(0, 10).map((s) => ({ label: s.source, value: s.count, tone: '#a78bfa' }))
-    const coRows = (data.topCompanies || []).slice(0, 12).map((c) => ({ label: c.company, value: c.count, tone: '#38bdf8' }))
-
-    return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-            {liveReady ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                        <Metric label="Open postings" value={data.total.toLocaleString()} accent="#22d3ee" />
-                        <Metric label="Companies hiring" value={(data.companiesWithJobs ?? '—').toLocaleString?.() ?? '—'} />
-                        <Metric label="Mid-level (2–4y) share" value={data.midSharePct != null ? data.midSharePct + '%' : '—'} accent="#4ade80" />
+                    <div>
+                        <h2 style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.01em', margin: '0 0 12px' }}>
+                            What the market's hiring for right now
+                        </h2>
+                        <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+                            {senSegments.length > 0 && <StackedBar title="Seniority" segments={senSegments} />}
+                            {wtSegments.length > 0 && <StackedBar title="Work type" segments={wtSegments} />}
+                            {countrySegments.length > 0 && <StackedBar title="Geography" segments={countrySegments} />}
+                            {typeSegments.length > 0 && <StackedBar title="Company type" segments={typeSegments} />}
+                        </div>
                     </div>
 
-                    <BarChart title="By seniority" rows={senRows} />
-                    <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-                        <BarChart title="By work type" rows={wtRows} />
-                        {srcRows.length > 0 && <BarChart title="By source (ATS)" rows={srcRows} />}
-                    </div>
-                    {coRows.length > 0 && <BarChart title="Top companies by open roles" rows={coRows} />}
-                </div>
-            ) : (
-                <EmptyState icon="📊" title="No data yet" message="Analytics populate once the crawler has indexed jobs." />
-            )}
+                    <StackedAreaChart
+                        title={`Geography mix over time — ${granularity}`}
+                        points={points.map((p) => ({ period: p.period, US: p.byCountry?.US || 0, IN: p.byCountry?.IN || 0 }))}
+                        keys={['IN', 'US']}
+                        colors={[palette.country[1], palette.country[0]]}
+                        labelFor={(k) => (k === 'IN' ? 'India' : 'United States')}
+                    />
 
-            <TrendView />
+                    <TrendingCompaniesList companies={trendingCompanies} />
+                </>
+            )}
         </div>
     )
 }
