@@ -8,7 +8,7 @@ import { apiFetch } from './apiClient'
 
 const EMPTY = {
     items: [], total: 0, page: 1, pageCount: 1, locked: 0, limit: undefined,
-    facets: { sources: [], locationTypes: [], seniorities: [] },
+    facets: { sources: [], locationTypes: [], seniorities: [], companyTypes: [], countries: [] },
 }
 
 export function useJobs(params) {
@@ -17,6 +17,7 @@ export function useJobs(params) {
     if (params.company) qs.set('company', params.company)
     if (params.location) qs.set('location', params.location)
     if (params.locationType) qs.set('location_type', params.locationType)
+    if (params.companyType) qs.set('company_type', params.companyType)
     if (params.source) qs.set('source', params.source)
     if (params.seniority) qs.set('seniority', params.seniority)
     if (params.postedWithin) qs.set('posted_within', params.postedWithin)
@@ -74,4 +75,21 @@ export function useJobsAnalytics(enabled) {
         staleTime: 5 * 60_000,
     })
     return { ...query, data: query.data || EMPTY_ANALYTICS }
+}
+
+const EMPTY_TREND = { granularity: 'weekly', points: [] }
+
+// Historical hiring-velocity series from the crawler's daily market snapshot
+// (public.jobs_market_snapshot_daily), resampled server-side into weekly or
+// monthly buckets. Independent of useJobsAnalytics's live RPC — it may have
+// data (or not) regardless of whether the live snapshot is ready.
+export function useJobsTrend(granularity, enabled) {
+    const g = granularity === 'monthly' ? 'monthly' : 'weekly'
+    const query = useQuery({
+        queryKey: ['jobs-trend', g],
+        queryFn: () => apiFetch(`/api/jobs/analytics/trend?granularity=${g}`),
+        enabled: !!enabled,
+        staleTime: 5 * 60_000,
+    })
+    return { ...query, data: query.data || EMPTY_TREND }
 }

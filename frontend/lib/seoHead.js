@@ -312,7 +312,7 @@ function routeMeta({ key, base, path, post, jobsCompany }) {
     return {
       title: "14,000+ Live Tech Jobs, Refreshed All Day | Vloombox",
       description:
-        "Tech openings crawled from ~500 companies and refreshed through the day — filter by role, seniority, location and source. Only postings from the last 2 days.",
+        "Tech openings crawled from ~500 companies and refreshed through the day — filter by role, seniority, location and source. Only postings from the last 24 hours.",
       canonical: `${base}/`,
       ogType: "website",
       ogImage: base + SITE.defaultOgImage,

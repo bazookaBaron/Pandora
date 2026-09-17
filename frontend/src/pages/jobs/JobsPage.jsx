@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Navbar from '../../components/Navbar'
-import { useJobs, useJobsAnalytics, useJobFacet } from '../../lib/useJobs'
+import { useJobs, useJobsAnalytics, useJobsTrend, useJobFacet } from '../../lib/useJobs'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
 import { LockedSlice } from '../../components/shared/PaywallGate'
 
@@ -25,6 +25,8 @@ const SEN_LABEL = {
     intern: 'Intern', junior: 'Junior (0–2y)', mid: 'Mid (2–4y)',
     senior: 'Senior (4–8y)', staff: 'Staff (8y+)', principal: 'Principal', unknown: 'Unspecified',
 }
+const COMPANY_TYPE_LABEL = { product: 'Product', startup: 'Startup', service: 'Service', unknown: 'Unspecified' }
+const COMPANY_TYPE_TONE = { product: '#22d3ee', startup: '#a78bfa', service: '#fb923c', unknown: '#52525b' }
 
 // ── one job row ────────────────────────────────────────────────────
 // Minimal inline row: title + a NEW tick, one faint meta line underneath
@@ -39,6 +41,7 @@ function JobCard({ j }) {
     if (j.company) meta.push(<span style={{ color: 'var(--accent)', fontWeight: 600 }}>{j.company}</span>)
     if (j.location) meta.push(j.location)
     if (j.locationType) meta.push(<span style={{ color: locTone || 'inherit' }}>{j.locationType}</span>)
+    if (j.companyType && j.companyType !== 'unknown') meta.push(COMPANY_TYPE_LABEL[j.companyType] || j.companyType)
     if (sen) meta.push(SEN_LABEL[sen] || sen)
     if (j.firstSeen) meta.push(relTime(j.firstSeen))
 
@@ -253,6 +256,69 @@ function BarChart({ title, rows, toneFor }) {
     )
 }
 
+// Dependency-free SVG line chart — mirrors BarChart's card styling. `points`
+// is an ascending-by-period array of flat objects; `series` picks which keys
+// to draw. Fixed viewBox + `width: 100%` keeps it legible from ~375px mobile
+// up to desktop without a charting library.
+function LineChart({ title, points, series }) {
+    if (!points || points.length < 2) return null
+    const width = 700, height = 220
+    const padL = 42, padR = 12, padT = 10, padB = 26
+    const innerW = width - padL - padR
+    const innerH = height - padT - padB
+    const maxY = Math.max(1, ...points.flatMap((p) => series.map((s) => Number(p[s.key]) || 0)))
+    const x = (i) => padL + (points.length > 1 ? (innerW * i) / (points.length - 1) : innerW / 2)
+    const y = (v) => padT + innerH - (innerH * v) / maxY
+
+    const maxLabels = 6
+    const labelStep = Math.max(1, Math.ceil(points.length / maxLabels))
+    const fmtPeriod = (p) => (p.length > 7 ? p.slice(5) : p) // "2026-09-14" -> "09-14", "2026-09" stays
+
+    return (
+        <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '14px 16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                <h3 style={{ fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', margin: 0 }}>
+                    {title}
+                </h3>
+                <div style={{ display: 'flex', gap: 14 }}>
+                    {series.map((s) => (
+                        <span key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.68rem', color: 'var(--muted)', fontWeight: 700 }}>
+                            <span style={{ width: 9, height: 9, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                            {s.label}
+                        </span>
+                    ))}
+                </div>
+            </div>
+            <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} style={{ width: '100%', height: 'auto', display: 'block' }}>
+                {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+                    <line key={f} x1={padL} x2={width - padR} y1={padT + innerH * (1 - f)} y2={padT + innerH * (1 - f)}
+                        stroke="var(--subtle)" strokeWidth="1" opacity={f === 0 ? 0.7 : 0.28} />
+                ))}
+                {[0, 0.5, 1].map((f) => (
+                    <text key={f} x={padL - 7} y={padT + innerH * (1 - f) + 3} textAnchor="end" fontSize="9" fill="var(--muted)">
+                        {Math.round(maxY * f).toLocaleString()}
+                    </text>
+                ))}
+                {points.map((p, i) => (
+                    (i % labelStep === 0 || i === points.length - 1) ? (
+                        <text key={p.period} x={x(i)} y={height - 7} textAnchor="middle" fontSize="9" fill="var(--muted)">
+                            {fmtPeriod(p.period)}
+                        </text>
+                    ) : null
+                ))}
+                {series.map((s) => (
+                    <polyline key={s.key}
+                        points={points.map((p, i) => `${x(i)},${y(Number(p[s.key]) || 0)}`).join(' ')}
+                        fill="none" stroke={s.color} strokeWidth="2.25" strokeLinejoin="round" strokeLinecap="round" />
+                ))}
+                {series.map((s) => points.map((p, i) => (
+                    <circle key={s.key + p.period} cx={x(i)} cy={y(Number(p[s.key]) || 0)} r="2.5" fill={s.color} />
+                )))}
+            </svg>
+        </div>
+    )
+}
+
 function Metric({ label, value, accent }) {
     return (
         <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '12px 16px', flex: '1 1 150px' }}>
@@ -266,16 +332,84 @@ function Metric({ label, value, accent }) {
     )
 }
 
+// Historical hiring-velocity trend (public.jobs_market_snapshot_daily via
+// /api/jobs/analytics/trend). Independent data source from the live RPC above
+// — renders (and handles its own empty/error state) whether or not the live
+// snapshot has data yet.
+function TrendView() {
+    const [granularity, setGranularity] = useState('weekly')
+    const { data, isLoading, error } = useJobsTrend(granularity, true)
+    const points = data.points || []
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <h2 style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.01em', margin: 0 }}>
+                    Historical trend
+                </h2>
+                <div className="profile-segment" role="group" aria-label="Trend granularity" style={{ maxWidth: 180 }}>
+                    {['weekly', 'monthly'].map((g) => (
+                        <button key={g} type="button"
+                            className={'profile-segment-btn' + (granularity === g ? ' is-active' : '')}
+                            aria-pressed={granularity === g}
+                            onClick={() => setGranularity(g)}>
+                            {g === 'weekly' ? 'Weekly' : 'Monthly'}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {isLoading ? (
+                <LoadingState label="Loading trend…" />
+            ) : error || points.length === 0 ? (
+                <div style={{
+                    background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10,
+                    padding: '16px', color: 'var(--muted)', fontSize: '0.78rem',
+                }}>
+                    Historical trend data isn't available yet — it populates once the crawler's daily market
+                    snapshot has run for a few {granularity === 'monthly' ? 'months' : 'weeks'}.
+                </div>
+            ) : (
+                (() => {
+                    const latest = points[points.length - 1]
+                    const countryRows = Object.entries(latest.byCountry || {}).map(([k, v]) => ({
+                        label: k, value: v, tone: k === 'US' ? '#38bdf8' : k === 'IN' ? '#4ade80' : '#a1a1aa',
+                    }))
+                    const typeRows = Object.entries(latest.byCompanyType || {}).map(([k, v]) => ({
+                        label: COMPANY_TYPE_LABEL[k] || k, value: v, tone: COMPANY_TYPE_TONE[k] || '#a1a1aa',
+                    }))
+                    return (
+                        <>
+                            <LineChart
+                                title={`Hiring velocity — ${granularity}`}
+                                points={points}
+                                series={[
+                                    { key: 'newPostings', label: 'New postings', color: '#22d3ee' },
+                                    { key: 'totalOpen', label: 'Total open', color: '#a78bfa' },
+                                ]}
+                            />
+                            {(countryRows.length > 0 || typeRows.length > 0) && (
+                                <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+                                    {countryRows.length > 0 && <BarChart title="Latest period — by country" rows={countryRows} />}
+                                    {typeRows.length > 0 && <BarChart title="Latest period — by company type" rows={typeRows} />}
+                                </div>
+                            )}
+                        </>
+                    )
+                })()
+            )}
+        </div>
+    )
+}
+
 // ── Analytics tab ──────────────────────────────────────────────────
 function AnalyticsView() {
     const { data, isLoading, error, refetch } = useJobsAnalytics(true)
 
     if (isLoading) return <LoadingState label="Crunching numbers…" />
     if (error) return <ErrorState err={error} onRetry={refetch} />
-    if (data.notReady || data.total === 0) {
-        return <EmptyState icon="📊" title="No data yet" message="Analytics populate once the crawler has indexed jobs." />
-    }
 
+    const liveReady = !(data.notReady || data.total === 0)
     const senRows = (data.bySeniority || []).map((s) => ({
         label: SEN_LABEL[s.bucket] || s.bucket, value: s.count, tone: SEN_TONE[s.bucket] || '#a1a1aa',
     }))
@@ -287,19 +421,27 @@ function AnalyticsView() {
     const coRows = (data.topCompanies || []).slice(0, 12).map((c) => ({ label: c.company, value: c.count, tone: '#38bdf8' }))
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                <Metric label="Open postings" value={data.total.toLocaleString()} accent="#22d3ee" />
-                <Metric label="Companies hiring" value={(data.companiesWithJobs ?? '—').toLocaleString?.() ?? '—'} />
-                <Metric label="Mid-level (2–4y) share" value={data.midSharePct != null ? data.midSharePct + '%' : '—'} accent="#4ade80" />
-            </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+            {liveReady ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                        <Metric label="Open postings" value={data.total.toLocaleString()} accent="#22d3ee" />
+                        <Metric label="Companies hiring" value={(data.companiesWithJobs ?? '—').toLocaleString?.() ?? '—'} />
+                        <Metric label="Mid-level (2–4y) share" value={data.midSharePct != null ? data.midSharePct + '%' : '—'} accent="#4ade80" />
+                    </div>
 
-            <BarChart title="By seniority" rows={senRows} />
-            <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-                <BarChart title="By work type" rows={wtRows} />
-                {srcRows.length > 0 && <BarChart title="By source (ATS)" rows={srcRows} />}
-            </div>
-            {coRows.length > 0 && <BarChart title="Top companies by open roles" rows={coRows} />}
+                    <BarChart title="By seniority" rows={senRows} />
+                    <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+                        <BarChart title="By work type" rows={wtRows} />
+                        {srcRows.length > 0 && <BarChart title="By source (ATS)" rows={srcRows} />}
+                    </div>
+                    {coRows.length > 0 && <BarChart title="Top companies by open roles" rows={coRows} />}
+                </div>
+            ) : (
+                <EmptyState icon="📊" title="No data yet" message="Analytics populate once the crawler has indexed jobs." />
+            )}
+
+            <TrendView />
         </div>
     )
 }
@@ -310,6 +452,7 @@ function ListingsView() {
     const [company, setCompany] = useState('')
     const [locations, setLocations] = useState([]) // multi-select
     const [locationType, setLocationType] = useState('')
+    const [companyType, setCompanyType] = useState('')
     const [source, setSource] = useState('')
     const [seniority, setSeniority] = useState('')
     const [postedWithin, setPostedWithin] = useState('')
@@ -318,16 +461,16 @@ function ListingsView() {
 
     const locationParam = locations.join(',')
 
-    useEffect(() => { setPage(1) }, [search, company, locationParam, locationType, source, seniority, postedWithin, sort])
+    useEffect(() => { setPage(1) }, [search, company, locationParam, locationType, companyType, source, seniority, postedWithin, sort])
 
     const { data, isLoading, isFetching, error, refetch } =
-        useJobs({ search, company, location: locationParam, locationType, source, seniority, postedWithin, sort, page })
+        useJobs({ search, company, location: locationParam, locationType, companyType, source, seniority, postedWithin, sort, page })
 
     const sourceOptions = useMemo(
         () => [{ value: '', label: 'All sources' }, ...(data.facets?.sources || []).map((s) => ({ value: s, label: s }))],
         [data.facets],
     )
-    const anyFilter = search || company || locations.length || locationType || source || seniority || postedWithin
+    const anyFilter = search || company || locations.length || locationType || companyType || source || seniority || postedWithin
 
     return (
         <>
@@ -344,6 +487,10 @@ function ListingsView() {
                     { value: '', label: 'Any' }, { value: 'remote', label: 'Remote' },
                     { value: 'hybrid', label: 'Hybrid' }, { value: 'onsite', label: 'Onsite' },
                 ]} />
+                <Segmented value={companyType} onChange={setCompanyType} options={[
+                    { value: '', label: 'All' }, { value: 'product', label: 'Product' },
+                    { value: 'startup', label: 'Startup' }, { value: 'service', label: 'Service' },
+                ]} />
                 <select className="input-field" value={seniority} onChange={(e) => setSeniority(e.target.value)} style={selStyle}>
                     <option value="">Any level</option>
                     {['intern', 'junior', 'mid', 'senior', 'staff', 'principal'].map((s) => (
@@ -351,9 +498,8 @@ function ListingsView() {
                     ))}
                 </select>
                 <select className="input-field" value={postedWithin} onChange={(e) => setPostedWithin(e.target.value)} style={selStyle}>
-                    <option value="">Any time (≤ 2 days)</option>
+                    <option value="">Any time (≤ 24 hours)</option>
                     <option value="1">Past 24 hours</option>
-                    <option value="2">Past 2 days</option>
                 </select>
                 {sourceOptions.length > 1 && (
                     <select className="input-field" value={source} onChange={(e) => setSource(e.target.value)} style={selStyle}>
@@ -424,7 +570,7 @@ export default function JobsPage() {
                 <header style={{ marginBottom: 16 }}>
                     <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>Jobs</h1>
                     <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: 6 }}>
-                        Tech openings crawled from ~500 companies, refreshed through the day. Only jobs from the last 2 days — anything older is dropped.
+                        Tech openings crawled from ~500 companies, refreshed through the day. Only jobs from the last 24 hours — anything older is dropped.
                     </p>
                 </header>
 

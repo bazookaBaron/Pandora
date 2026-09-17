@@ -63,7 +63,7 @@ export default function JobsCompanyPage() {
                         <EmptyState
                             icon="🗂️"
                             title="No open roles right now"
-                            message="This company doesn't have any postings in the last couple of days — check back soon."
+                            message="This company doesn't have any postings in the last 24 hours — check back soon."
                         />
                     )}
                     {!isLoading && !error && postings.length > 0 && (
