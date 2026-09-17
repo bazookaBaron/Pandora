@@ -5,6 +5,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
 import { apiFetch } from '../../lib/apiClient'
+import { consumeInitialData } from '../../lib/initialData'
 import Navbar from '../../components/Navbar'
 import FluidCheckbox from '../../components/shared/FluidCheckbox'
 import DifficultyBadge from '../../components/shared/DifficultyBadge'
@@ -239,11 +240,18 @@ export default function DSAListPage({ filterCompany }) {
     if (sort) qs.set('sort', sort)
     qs.set('page', String(page))
 
+    // The server only ever embeds the anonymous/free-tier DEFAULT view (see
+    // server.js's catch-all route) — only seed from it when the current
+    // query key actually IS that default (e.g. someone landing on
+    // /dsa?search=foo shouldn't get seeded with unfiltered data).
+    const isDefaultView = !search && !companyKey && !difficultyKey && sort === 'id' && page === 1
+
     const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
         queryKey: ['catalog-dsa', { search, company: companyKey, difficulty: difficultyKey, sort, page }],
         queryFn: () => apiFetch('/api/catalog/dsa?' + qs.toString()),
         placeholderData: keepPreviousData,
         staleTime: 60 * 1000,
+        ...(isDefaultView ? { initialData: () => consumeInitialData('dsaList') } : null),
     })
 
     const items = data?.items || []

@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
 import { apiFetch } from '../../lib/apiClient'
+import { consumeInitialData } from '../../lib/initialData'
 import { useMediaQuery } from '../../lib/useMediaQuery'
 import { UpgradeButton } from '../../components/shared/PaywallGate'
 import { ErrorState, EmptyState } from '../../components/shared/states'
@@ -45,10 +46,15 @@ export default function HLDListPage() {
     // (`access: 'list_only'`) gets each item stripped to id/title/companies/
     // difficulty with `locked: true` and no description/slug — enough to browse,
     // nothing to practice with. Pro/max get full rows + `access: 'full'`.
+    // queryKey never varies with search/company/difficulty (those filter the
+    // fetched list client-side), so — unlike DSA/LLD — no "is this the
+    // default view" guard is needed: the server-embedded snapshot always
+    // matches what this key would fetch anyway.
     const { data, isLoading, isError, error, refetch } = useQuery({
         queryKey: ['catalog-hld'],
         queryFn: () => apiFetch('/api/catalog/hld'),
         staleTime: 5 * 60 * 1000,
+        initialData: () => consumeInitialData('hldList'),
     })
 
     const items = data?.items || []
