@@ -45,9 +45,24 @@ function refreshSessionOnce() {
     return refreshPromise
 }
 
+// A retried request still 401ing means the session is genuinely dead
+// server-side, not a slow client — this used to only fire a UI event
+// (SessionExpiredBanner) without ever actually clearing the local session,
+// so AuthContext's `session` stayed truthy, ProtectedRoute never
+// re-evaluated, and a protected page (e.g. Profile) kept rendering fully —
+// stale cached data, editable forms, a clickable Save button — even though
+// every one of those actions would now silently 401. Actually signing out
+// locally makes AuthContext's SIGNED_OUT handling (clear query cache,
+// navigate to /auth) run for real, same as a deliberate logout.
+// Deduped so a burst of concurrent 401s doesn't fire signOut() N times.
+let signOutInFlight = false
 function emitAuthExpired() {
     if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('auth:expired'))
+    }
+    if (!signOutInFlight) {
+        signOutInFlight = true
+        supabase.auth.signOut().finally(() => { signOutInFlight = false })
     }
 }
 
