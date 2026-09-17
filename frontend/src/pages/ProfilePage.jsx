@@ -7,6 +7,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { useMediaQuery } from '../lib/useMediaQuery'
 import { useEntitlements } from '../lib/useEntitlements'
 import { useCompanyOptions } from '../lib/useReferrals'
+import { useCompanySubscriptions, useUnsubscribeFromCompany } from '../lib/useCompanySubscriptions'
+import { UpgradeButton } from '../components/shared/PaywallGate'
 import Navbar from '../components/Navbar'
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -569,6 +571,100 @@ function ReferralProfileCard({ user }) {
     )
 }
 
+// ── Subscribed companies (job alerts) ───────────────────────────────
+// Pro/Max users subscribe to companies from /jobs/company/:slug; this card
+// lists + removes those subscriptions. Free users (limit 0) see a locked
+// upsell instead — mirrors the PaywallGate pattern used elsewhere.
+function CompanySubscriptionsCard() {
+    const { plan, isLoading: planLoading } = useEntitlements()
+    const { data, isLoading, error } = useCompanySubscriptions()
+    const unsubscribe = useUnsubscribeFromCompany()
+    const [removingSlug, setRemovingSlug] = useState(null)
+
+    const subscriptions = data?.subscriptions || []
+    const limit = data?.limit === 'unlimited' ? Infinity : Number(data?.limit ?? 0)
+    const used = data?.used ?? subscriptions.length
+
+    const handleRemove = async (slug) => {
+        setRemovingSlug(slug)
+        try {
+            await unsubscribe.mutateAsync(slug)
+        } finally {
+            setRemovingSlug(null)
+        }
+    }
+
+    if (planLoading) {
+        return (
+            <section className="card profile-card">
+                <h2 className="profile-section-title">Subscribed companies</h2>
+                <div style={{ height: 38, background: 'var(--subtle)', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
+            </section>
+        )
+    }
+
+    if (plan === 'free') {
+        return (
+            <section className="card profile-card">
+                <h2 className="profile-section-title">Subscribed companies</h2>
+                <p style={{ color: 'var(--muted)', fontSize: '0.82rem', lineHeight: 1.6, marginBottom: 14 }}>
+                    Subscribe to a company from its jobs page and get a daily email digest whenever they post new roles.
+                    This is a Pro/Max feature.
+                </p>
+                <UpgradeButton size="sm">Unlock job alerts</UpgradeButton>
+            </section>
+        )
+    }
+
+    return (
+        <section className="card profile-card">
+            <h2 className="profile-section-title">Subscribed companies</h2>
+            <p style={{ color: 'var(--muted)', fontSize: '0.78rem', marginBottom: 14 }}>
+                {Number.isFinite(limit) ? `${used} of ${limit} slots used` : `${used} subscribed`} — you'll get a batched
+                email digest (at most once every 24 hours) when a subscribed company posts new roles.
+            </p>
+
+            {isLoading ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ height: 38, background: 'var(--subtle)', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                    <div style={{ height: 38, background: 'var(--subtle)', borderRadius: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                </div>
+            ) : error ? (
+                <p style={{ color: 'var(--red, #f87171)', fontSize: '0.82rem' }}>Couldn't load your subscriptions — try refreshing.</p>
+            ) : subscriptions.length === 0 ? (
+                <p style={{ color: 'var(--faint)', fontSize: '0.82rem' }}>
+                    No subscriptions yet. Visit a company's jobs page to subscribe.
+                </p>
+            ) : (
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {subscriptions.map((s) => (
+                        <li
+                            key={s.company_slug}
+                            style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                                padding: '10px 14px', background: 'var(--surface-2)', border: '1px solid var(--subtle)', borderRadius: 8,
+                            }}
+                        >
+                            <Link to={`/jobs/company/${s.company_slug}`} style={{ color: 'var(--bright)', fontWeight: 700, fontSize: '0.85rem', textDecoration: 'none' }}>
+                                {s.company_name}
+                            </Link>
+                            <button
+                                type="button"
+                                className="link-btn"
+                                disabled={removingSlug === s.company_slug}
+                                onClick={() => handleRemove(s.company_slug)}
+                                style={{ color: 'var(--red, #f87171)' }}
+                            >
+                                {removingSlug === s.company_slug ? 'Removing…' : 'Remove'}
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </section>
+    )
+}
+
 // ── Main page ────────────────────────────────────────────────────────
 
 export default function ProfilePage() {
@@ -727,6 +823,9 @@ export default function ProfilePage() {
 
                 {/* Referral profile */}
                 <ReferralProfileCard user={user} />
+
+                {/* Subscribed companies (job alerts) */}
+                <CompanySubscriptionsCard />
 
                 {/* Security — only for email/password accounts */}
                 {!isOAuth && (

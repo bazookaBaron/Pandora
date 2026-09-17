@@ -94,6 +94,62 @@ export function referralRequestCreated({
 }
 
 /**
+ * Daily batched digest for a company-subscription job alert. One email per
+ * subscriber per company that has new postings in the last 24h (see
+ * server.js: sendCompanySubscriptionDigest). No unsubscribe token — this is
+ * an opted-in transactional alert for a paid feature; the email just points
+ * back to the Profile page, where the subscription can be removed.
+ *
+ * @param {{ companyName: string,
+ *           newJobs: Array<{ title: string, url: string, location?: string|null,
+ *                             seniority?: string|null }>,
+ *           manageUrl: string }} args
+ */
+export function companyJobAlertEmail({ companyName, newJobs, manageUrl }) {
+  const jobs = Array.isArray(newJobs) ? newJobs : [];
+  const count = jobs.length;
+  const subject = `${count} new job${count === 1 ? "" : "s"} at ${companyName}`;
+
+  const jobLine = (j) => {
+    const meta = [j.location, j.seniority].filter(Boolean).join(" · ");
+    return meta ? `${j.title} (${meta}) — ${j.url}` : `${j.title} — ${j.url}`;
+  };
+
+  const text =
+    `${subject}\n\n` +
+    jobs.map(jobLine).join("\n") +
+    `\n\nManage your subscriptions: ${manageUrl}\n`;
+
+  const jobRow = (j) => {
+    const meta = [j.location, j.seniority].filter(Boolean).join(" · ");
+    return (
+      `<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.08);">` +
+      `<a href="${esc(j.url)}" style="color:#ffffff;font-weight:700;text-decoration:none;font-size:14px;">${esc(
+        j.title,
+      )}</a>` +
+      (meta
+        ? `<div style="color:#a1a1aa;font-size:12px;margin-top:2px;">${esc(meta)}</div>`
+        : "") +
+      `</div>`
+    );
+  };
+
+  const html =
+    WRAP_OPEN +
+    h1(subject) +
+    p(`New postings at <strong style="color:#ffffff;">${esc(companyName)}</strong> since your last digest:`) +
+    `<div style="margin-top:10px;">${jobs.map(jobRow).join("")}</div>` +
+    button(manageUrl, "Manage subscriptions") +
+    `<p style="margin:22px 0 0;font-size:12px;line-height:1.5;color:#8a8a8a;">` +
+    "You receive this once every 24 hours because you subscribed to job alerts for this company. " +
+    `Manage or stop these emails any time from your <a href="${esc(manageUrl)}" style="color:#8a8a8a;">Profile page</a>.` +
+    "</p>" +
+    WRAP_CLOSE;
+
+  return { subject, html, text };
+}
+
+/**
  * Tell the poster that someone accepted their referral request. Includes the
  * accepter's email on purpose.
  *

@@ -24,6 +24,7 @@ export const TIERS = {
             resume_optimizer_per_month: 0,   // locked — Pro/Max only
             ai_explanations_per_month: 5,
             referral_requests_per_month: 0,  // locked — Pro/Max only
+            company_subscriptions_max: 0,    // locked — Pro/Max only (job-alert subscriptions)
         },
     },
     pro: {
@@ -40,6 +41,7 @@ export const TIERS = {
             resume_optimizer_per_month: 5,   // job-specific resume optimizations / mo
             ai_explanations_per_month: 50,
             referral_requests_per_month: 10,
+            company_subscriptions_max: 4,    // persistent count-cap, NOT monthly-metered
         },
     },
     max: {
@@ -55,6 +57,9 @@ export const TIERS = {
             resume_optimizer_per_month: Infinity,
             ai_explanations_per_month: 300, // soft cap, abuse protection only
             referral_requests_per_month: Infinity,
+            // Deliberately finite (unlike most Max limits above) — product
+            // spec caps Max at 10 company subscriptions, not unlimited.
+            company_subscriptions_max: 10,
         },
     },
 }
