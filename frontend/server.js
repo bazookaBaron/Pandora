@@ -1740,8 +1740,11 @@ function jobsDb() {
 }
 
 // Map a raw crawler.job_posting row + resolved company name -> the shape
-// JobsPage.jsx renders.
-function normalizeJob(row, companyNameBySlug) {
+// JobsPage.jsx renders. `companyTypeBySlug` is optional (a Map or plain
+// object) — omitted when the caller never needed company_type for this
+// request (e.g. no weighting/filter applied), in which case companyType is
+// just left blank rather than forcing an extra lookup.
+function normalizeJob(row, companyNameBySlug, companyTypeBySlug) {
   const company =
     (companyNameBySlug && companyNameBySlug[row.company_slug]) ||
     row.company_slug ||
@@ -1749,12 +1752,17 @@ function normalizeJob(row, companyNameBySlug) {
   let locationType = String(row.location_type || "").toLowerCase();
   if (locationType === "telecommute") locationType = "remote"; // schema.org enum leak
   if (locationType === "on_site") locationType = "onsite";
+  const companyType = companyTypeBySlug
+    ? (companyTypeBySlug instanceof Map ? companyTypeBySlug.get(row.company_slug) : companyTypeBySlug[row.company_slug]) || ""
+    : "";
   return {
     id: row.id,
     title: String(row.title || (Array.isArray(row.titles) && row.titles[0]) || ""),
     company: String(company || ""),
+    companyType,
     location: row.location || "",
     locationType,
+    country: row.country || "",
     seniority: row.seniority || "",
     employmentType: row.employment_type || "",
     url: row.url || "",
@@ -1778,7 +1786,7 @@ const JOBS_SPREAD_GAP = 4;
 // Hard age cap: the board only serves jobs first seen in the last N days. The
 // crawler hard-deletes older rows, this is the webapp-side guarantee in case a
 // crawl pass lags. Keep in sync with PGPIPE_MAX_AGE_DAYS in the crawler.
-const JOBS_MAX_AGE_DAYS = Number(process.env.JOBS_MAX_AGE_DAYS) || 2;
+const JOBS_MAX_AGE_DAYS = Number(process.env.JOBS_MAX_AGE_DAYS) || 1;
 const jobsMaxAgeISO = () => new Date(Date.now() - JOBS_MAX_AGE_DAYS * 86400000).toISOString();
 
 // ── /jobs/company/:slug — programmatic per-company hub page ────────
@@ -1899,6 +1907,82 @@ function spaceByCompany(rows, gap = JOBS_SPREAD_GAP) {
     if (recent.length > gap) recent.shift();
   }
   return out;
+}
+
+// ── Country / company-type weighting on the default feed ───────────────
+// crawler.job_posting.country and crawler.company.company_type (joined via
+// company_slug -> company.slug) let the DEFAULT "Latest first" feed softly
+// favor product companies and Indian postings without ever hard-quota-ing a
+// page — see weightedStrataMerge() below. company_type isn't a job_posting
+// column, so an explicit `company_type` filter is resolved to a slug list
+// first (bounded — ~a few hundred companies) and applied as an `.in()`.
+const COMPANY_TYPES = ["product", "startup", "service"]; // valid explicit-filter values (unknown is default-only)
+const COMPANY_TYPE_WEIGHT = { product: 0.6, startup: 0.3, service: 0.1, unknown: 0.05 };
+const COUNTRIES = ["US", "IN"];
+const COUNTRY_WEIGHT = { US: 0.3, IN: 0.7 };
+
+// slug -> company_type ('unknown' when unset), cached — this table is small
+// (~hundreds of companies) so a full scan is cheap and reused across the
+// explicit filter, the weighting below, and (indirectly) the analytics tab.
+async function getCompanyTypeMap() {
+  return cached("jobs:company-types", 300000, async () => {
+    const { data, error } = await jobsDb().from("company").select("slug, company_type").limit(20000);
+    if (error) throw error;
+    const map = new Map();
+    for (const row of data || []) {
+      if (row.slug) map.set(row.slug, row.company_type || "unknown");
+    }
+    return map;
+  });
+}
+
+// Deterministic smooth weighted round-robin merge (the algorithm nginx uses
+// for weighted upstream balancing): rows are bucketed into strata by
+// `keyWeightFn`, each stratum keeps its incoming (recency) order, and on every
+// round the stratum with the highest accrued credit emits its next row and is
+// discounted by the total weight. This softly biases composition toward the
+// configured ratios — a stratum that runs out is just skipped — without ever
+// enforcing a hard per-page quota.
+function weightedStrataMerge(rows, keyWeightFn) {
+  const groups = new Map(); // key -> { items, weight, current, cursor }
+  for (const row of rows) {
+    const { key, weight } = keyWeightFn(row);
+    let g = groups.get(key);
+    if (!g) {
+      g = { items: [], weight: Math.max(weight, 0.0001), current: 0, cursor: 0 };
+      groups.set(key, g);
+    }
+    g.items.push(row);
+  }
+  if (groups.size <= 1) return rows.slice();
+
+  const totalWeight = [...groups.values()].reduce((s, g) => s + g.weight, 0);
+  const out = [];
+  while (out.length < rows.length) {
+    let pick = null;
+    for (const g of groups.values()) {
+      if (g.cursor >= g.items.length) continue; // stratum exhausted — skip, no quota to enforce
+      g.current += g.weight;
+      if (!pick || g.current > pick.current) pick = g;
+    }
+    if (!pick) break; // shouldn't happen while out.length < rows.length, but stay safe
+    out.push(pick.items[pick.cursor++]);
+    pick.current -= totalWeight;
+  }
+  return out;
+}
+
+// Per-row (company_type, country) stratum + its combined weight, for the
+// default "Latest first" feed. When a request has already hard-filtered one
+// axis to a single value (explicit company_type or country filter), every row
+// shares the same weight on that axis, so this naturally stops influencing
+// that dimension — exactly the "explicit filter overrides the default
+// weighting for that dimension" behavior.
+function jobStratumOf(row, companyTypeMap) {
+  const type = (companyTypeMap && companyTypeMap.get(row.company_slug)) || "unknown";
+  const country = COUNTRIES.includes(row.country) ? row.country : "IN";
+  const weight = (COMPANY_TYPE_WEIGHT[type] ?? COMPANY_TYPE_WEIGHT.unknown) * (COUNTRY_WEIGHT[country] ?? 0.5);
+  return { key: `${type}|${country}`, weight };
 }
 
 // Lightweight fuzzy matcher for facet autocomplete (no pg_trgm dependency).
@@ -2038,6 +2122,16 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
       const source = String(req.query.source || "").trim().slice(0, 40);
       const seniority = String(req.query.seniority || "").trim().toLowerCase().slice(0, 20);
       const postedWithinDays = Math.max(0, Math.min(31, parseInt(req.query.posted_within, 10) || 0));
+      // Explicit overrides for the two weighted axes (see jobStratumOf below).
+      // company_type isn't a job_posting column, so it's resolved to a slug
+      // list before the query runs. country IS a column — 'other' is never a
+      // valid explicit value since it's excluded by the hard filter below.
+      const companyType = COMPANY_TYPES.includes(String(req.query.company_type || "").trim().toLowerCase())
+        ? String(req.query.company_type).trim().toLowerCase()
+        : "";
+      const countryFilter = COUNTRIES.includes(String(req.query.country || "").trim().toUpperCase())
+        ? String(req.query.country).trim().toUpperCase()
+        : "";
       const sort = String(req.query.sort || "newest").trim();
       const page = Math.max(1, parseInt(req.query.page, 10) || 1);
       const from = (page - 1) * JOBS_PAGE_SIZE;
@@ -2058,6 +2152,28 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
       const canSpread = (sort === "newest" || sort === "oldest") && cappedTo < JOBS_INTERLEAVE_POOL;
       const rangeFrom = canSpread ? 0 : pastCap ? 0 : from;
       const rangeTo = canSpread ? JOBS_INTERLEAVE_POOL - 1 : pastCap ? 0 : cappedTo;
+      // The weighted composition (60/30/10 product/startup/service, 30/70
+      // US/India) only shapes the DEFAULT "Latest first" feed — "oldest" and
+      // "company" sorts stay purely chronological/alphabetical.
+      const willWeight = canSpread && sort === "newest";
+
+      // company_type map is needed either to resolve an explicit filter into a
+      // slug list, or to weight the default feed — fetch it once, up front,
+      // for both. Left null (and skipped) when neither applies.
+      let companyTypeMap = null;
+      if (companyType || willWeight) {
+        try {
+          companyTypeMap = await getCompanyTypeMap();
+        } catch {
+          companyTypeMap = null; // company_type not ready yet — degrade to unweighted/unfiltered
+        }
+      }
+      let companyTypeSlugs = null;
+      if (companyType && companyTypeMap) {
+        companyTypeSlugs = [...companyTypeMap.entries()]
+          .filter(([, t]) => (t || "unknown") === companyType)
+          .map(([s]) => s);
+      }
 
       const likeSafe = (s) => s.replace(/[%_,()*]/g, " ");
       // Location values often carry commas ("Bengaluru, Karnataka, India"). Strip
@@ -2071,7 +2187,7 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
       // there yet, retry the query once without selecting or filtering on it.
       const build = (withSeniority) => {
         const cols =
-          "id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, status" +
+          "id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, status, country" +
           (withSeniority ? ", seniority" : "");
         // count=estimated → PostgREST `Prefer: count=estimated`. pageCount is
         // now approximate (fast planner estimate, not an exact scan).
@@ -2102,6 +2218,19 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
         if (source) q = q.eq("source", source);
         if (withSeniority && seniority) q = q.eq("seniority", seniority);
         if (postedWithinDays > 0) q = q.gte("first_seen_at", daysAgoISO(postedWithinDays));
+        // Hard filter: the board never serves countries outside US/India. An
+        // explicit `country` pick narrows further; otherwise both are in play
+        // and the weighted merge below softly favors India (~70%) / US (~30%).
+        q = countryFilter ? q.eq("country", countryFilter) : q.in("country", COUNTRIES);
+        // company_type isn't a job_posting column — resolved to a slug list
+        // up front. An empty match list still needs a filter that returns zero
+        // rows rather than skipping the filter entirely.
+        if (companyTypeSlugs) {
+          // company_slug is always `^[a-z0-9][a-z0-9-]{0,199}$` (see
+          // JOBS_COMPANY_SLUG_RE) — an underscore never occurs in a real slug,
+          // so this sentinel is a safe "match nothing" value.
+          q = companyTypeSlugs.length ? q.in("company_slug", companyTypeSlugs) : q.eq("company_slug", "__no_company_type_match__");
+        }
         return q;
       };
 
@@ -2113,8 +2242,12 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
       if (error) throw error;
 
       let rows = data || [];
-      if (canSpread) rows = spaceByCompany(rows).slice(from, cappedTo + 1);
-      else if (pastCap) rows = []; // dummy range(0,0) fetch above was only for `count`
+      if (canSpread) {
+        const pool = willWeight ? weightedStrataMerge(rows, (row) => jobStratumOf(row, companyTypeMap)) : rows;
+        rows = spaceByCompany(pool).slice(from, cappedTo + 1);
+      } else if (pastCap) {
+        rows = []; // dummy range(0,0) fetch above was only for `count`
+      }
 
       // Resolve company display names for just this page's slugs.
       let companyNameBySlug = {};
@@ -2127,7 +2260,7 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
         for (const c of cRows || []) companyNameBySlug[c.slug] = c.name;
       }
 
-      const items = rows.map((r) => normalizeJob(r, companyNameBySlug)).filter((j) => j.url);
+      const items = rows.map((r) => normalizeJob(r, companyNameBySlug, companyTypeMap)).filter((j) => j.url);
 
       // Source facet for the dropdown (best-effort). Only ~7 distinct values
       // exist, so an 800-row sample is plenty; cached across all jobs requests.
@@ -2160,6 +2293,8 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
           sources,
           locationTypes: ["remote", "hybrid", "onsite"],
           seniorities: SENIORITY_ORDER,
+          companyTypes: COMPANY_TYPES,
+          countries: COUNTRIES,
         },
       };
     });
@@ -2364,6 +2499,124 @@ app.get("/api/jobs/analytics", catalogLimiter, optionalAuth, async (_req, res) =
       });
     }
     fail(res, err, "jobs/analytics", "Failed to load job analytics.");
+  }
+});
+
+// GET /api/jobs/analytics/trend?granularity=weekly|monthly → historical
+// hiring-velocity series from the crawler's daily market snapshot
+// (public.jobs_market_snapshot_daily — plain `public` schema, no jobsDb()
+// cross-schema client needed). One row/day, so this is cheap even
+// unpaginated; resampled into week/month buckets in Node.
+const JOBS_SNAPSHOT_TABLE = "jobs_market_snapshot_daily";
+
+// Monday-of-the-week date (UTC) as the weekly bucket key — sortable as a plain
+// string and avoids ISO week-numbering edge cases at year boundaries.
+function jobsWeekBucketKey(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  const dow = (d.getUTCDay() + 6) % 7; // Mon=0 … Sun=6
+  d.setUTCDate(d.getUTCDate() - dow);
+  return d.toISOString().slice(0, 10);
+}
+function jobsMonthBucketKey(dateStr) {
+  return String(dateStr).slice(0, 7); // "YYYY-MM"
+}
+
+function mergeJsonbCounts(target, obj) {
+  for (const [k, v] of Object.entries(obj || {})) {
+    target[k] = (target[k] || 0) + (Number(v) || 0);
+  }
+}
+
+function mergeTopCompanies(target, arr) {
+  for (const c of Array.isArray(arr) ? arr : []) {
+    const name = c && (c.company || c.name);
+    if (!name) continue;
+    const n = Number(c.new_postings ?? c.newPostings ?? c.count) || 0;
+    target[name] = (target[name] || 0) + n;
+  }
+}
+
+// Resample ascending-by-date daily snapshot rows into week/month buckets.
+// new_postings/closed_postings are summed across the bucket (a real velocity
+// total); total_open takes the LAST day's value in the bucket (a point-in-time
+// stock, not something to sum); the jsonb breakdowns are summed key-by-key.
+function resampleJobsSnapshots(rowsAsc, granularity) {
+  const keyFn = granularity === "monthly" ? jobsMonthBucketKey : jobsWeekBucketKey;
+  const buckets = new Map();
+  for (const row of rowsAsc) {
+    const period = keyFn(row.snapshot_date);
+    let b = buckets.get(period);
+    if (!b) {
+      b = {
+        period,
+        totalOpen: 0,
+        newPostings: 0,
+        closedPostings: 0,
+        bySeniority: {},
+        byWorkType: {},
+        byCountry: {},
+        byCompanyType: {},
+        topCompaniesAcc: {},
+      };
+      buckets.set(period, b);
+    }
+    b.newPostings += Number(row.new_postings) || 0;
+    b.closedPostings += Number(row.closed_postings) || 0;
+    b.totalOpen = Number(row.total_open) || 0; // rowsAsc is date-ascending → last write wins = latest day
+    mergeJsonbCounts(b.bySeniority, row.by_seniority);
+    mergeJsonbCounts(b.byWorkType, row.by_work_type);
+    mergeJsonbCounts(b.byCountry, row.by_country);
+    mergeJsonbCounts(b.byCompanyType, row.by_company_type);
+    mergeTopCompanies(b.topCompaniesAcc, row.top_companies);
+  }
+  return [...buckets.values()]
+    .sort((a, b) => a.period.localeCompare(b.period))
+    .map((b) => ({
+      period: b.period,
+      totalOpen: b.totalOpen,
+      newPostings: b.newPostings,
+      closedPostings: b.closedPostings,
+      bySeniority: b.bySeniority,
+      byWorkType: b.byWorkType,
+      byCountry: b.byCountry,
+      byCompanyType: b.byCompanyType,
+      topCompanies: Object.entries(b.topCompaniesAcc)
+        .sort((a, c) => c[1] - a[1])
+        .slice(0, 10)
+        .map(([company, newPostings]) => ({ company, newPostings })),
+    }));
+}
+
+app.get("/api/jobs/analytics/trend", catalogLimiter, optionalAuth, async (req, res) => {
+  const granularity = String(req.query.granularity || "weekly").trim().toLowerCase() === "monthly" ? "monthly" : "weekly";
+  try {
+    const key = `jobs-trend:${granularity}`;
+    const wasHit = hasFresh(key);
+    const payload = await cached(key, 300000, async () => {
+      const { data, error } = await supabaseAdmin
+        .from(JOBS_SNAPSHOT_TABLE)
+        .select(
+          "snapshot_date, total_open, new_postings, closed_postings, by_seniority, by_work_type, by_country, by_company_type, top_companies",
+        )
+        .order("snapshot_date", { ascending: true })
+        .limit(1000); // ~2.7 years of daily rows — comfortable headroom for a 1 row/day table
+      if (error) throw error;
+      const rowsAsc = data || [];
+      return { granularity, points: rowsAsc.length ? resampleJobsSnapshots(rowsAsc, granularity) : [] };
+    });
+
+    res.set("Cache-Control", "public, max-age=120, s-maxage=300");
+    res.set("X-Cache", wasHit ? "HIT" : "MISS");
+    res.json(payload);
+  } catch (err) {
+    // Same story as /api/jobs — the snapshot table may not exist yet if the
+    // crawler's migration + cron haven't landed/run. Degrade to an empty,
+    // non-error series rather than a 500.
+    const msg = String((err && err.message) || err);
+    if (/relation .* does not exist|does not exist|schema cache|PGRST1|PGRST2/i.test(msg)) {
+      return res.json({ granularity, points: [], notReady: true });
+    }
+    fail(res, err, "jobs/analytics/trend", "Failed to load job trend.");
   }
 });
 
