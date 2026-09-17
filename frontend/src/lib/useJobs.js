@@ -1,5 +1,6 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiFetch } from './apiClient'
+import { consumeInitialData } from './initialData'
 
 // ── Jobs board hooks ───────────────────────────────────────────────
 // Reads the crawler-populated job table (see C:\Users\debna\Downloads\job-crawler).
@@ -58,6 +59,15 @@ export function useJobsCompany(slug) {
         queryFn: () => apiFetch(`/api/jobs/company/${encodeURIComponent(slug)}`),
         enabled: !!slug,
         staleTime: 60_000,
+        // Server embeds this keyed just by name, not by slug (it only ever
+        // renders one company page per request) — guard against a stale
+        // seed applying to the WRONG company if the user navigates
+        // client-side from one /jobs/company/:slug straight to another
+        // without a full page reload in between.
+        initialData: () => {
+            const seed = consumeInitialData('jobsCompany')
+            return seed && seed.company?.slug === slug ? seed : undefined
+        },
     })
     return { ...query, data: query.data || EMPTY_COMPANY }
 }

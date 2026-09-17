@@ -49,6 +49,21 @@ export function jsonLdScript(obj) {
   return `<script type="application/ld+json">${json}</script>`;
 }
 
+// window.__INITIAL_DATA__ hydration script (SSR-lite: seed react-query's
+// cache before the client bundle boots, so a crawler — or a slow first
+// paint on a real visit — gets real content in the raw HTML instead of a
+// blank shell waiting on a client-side fetch). Same "<" -> "<"
+// neutralization as jsonLdScript, for the same reason: a string value in
+// the payload (a job title, a search term) must never be able to close the
+// script tag early. A plain (non-module) script here runs during parsing,
+// before the deferred `type="module"` entry script below it executes —
+// the global is guaranteed to exist by the time the app boots regardless
+// of where in <body> this is spliced.
+export function initialDataScript(data) {
+  const json = JSON.stringify(data).replace(/</g, "\\u003c");
+  return `<script>window.__INITIAL_DATA__ = ${json};</script>`;
+}
+
 // "google-cloud" -> "Google Cloud". Cosmetic only (meta text, not on-page
 // UI) — a curated company/problem display-name map can replace this later
 // for brands with irregular casing (NVIDIA, IBM, etc).
@@ -547,8 +562,16 @@ export function buildHeadTags({ key, base, path, post, jobsCompany }) {
 // String ops only (two anchored regexes + a "</head>" splice), never an HTML
 // parser. Function replacements are used so a "$" in any interpolated text is
 // treated literally.
-export function renderIndex(template, { classify, base, path, post, jobsCompany }) {
+// `initialData`, when present, is spliced in as window.__INITIAL_DATA__
+// right before </body> — for both "public" and "noindex" classifications
+// (a noindex route can still want a warm client cache; only the <head>
+// treatment differs by kind). Passing it in is entirely the caller's
+// choice — server.js decides which routes fetch it and never lets that
+// fetch's failure block the response (see the catch-all route).
+export function renderIndex(template, { classify, base, path, post, jobsCompany, initialData }) {
   const c = classify || { kind: "passthrough" };
+  const withInitialData = (html) =>
+    initialData !== undefined ? html.replace("</body>", () => `${initialDataScript(initialData)}\n</body>`) : html;
 
   if (c.kind === "passthrough") return template;
 
@@ -557,7 +580,7 @@ export function renderIndex(template, { classify, base, path, post, jobsCompany 
     const inject =
       '<meta name="robots" content="noindex, follow" />\n' +
       `<link rel="canonical" href="${canonical}" />\n</head>`;
-    return template.replace("</head>", () => inject);
+    return withInitialData(template.replace("</head>", () => inject));
   }
 
   // public
@@ -566,8 +589,9 @@ export function renderIndex(template, { classify, base, path, post, jobsCompany 
   const titleTag = `<title>${escapeHtml(m.title)}</title>`;
   const descTag = metaTag("name", "description", m.description);
 
-  return template
+  const html = template
     .replace(/<title>[\s\S]*?<\/title>/, () => titleTag)
     .replace(/<meta\s+name="description"[^>]*>/i, () => descTag)
     .replace("</head>", () => `${headTags}\n</head>`);
+  return withInitialData(html);
 }

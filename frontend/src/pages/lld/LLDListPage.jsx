@@ -4,6 +4,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
 import { apiFetch } from '../../lib/apiClient'
+import { consumeInitialData } from '../../lib/initialData'
 import { useMediaQuery } from '../../lib/useMediaQuery'
 import { LockedSlice } from '../../components/shared/PaywallGate'
 import { ErrorState, EmptyState } from '../../components/shared/states'
@@ -64,11 +65,16 @@ export default function LLDListPage() {
     if (companyKey) qs.set('company', companyKey)
     qs.set('page', String(page))
 
+    // Server only embeds the anonymous/free-tier DEFAULT view — only seed
+    // from it when the current key actually is that default.
+    const isDefaultView = !search && !companyKey && page === 1
+
     const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
         queryKey: ['catalog-lld', { search, company: companyKey, page }],
         queryFn: () => apiFetch('/api/catalog/lld?' + qs.toString()),
         placeholderData: keepPreviousData,
         staleTime: 60 * 1000,
+        ...(isDefaultView ? { initialData: () => consumeInitialData('lldList') } : null),
     })
 
     const items = data?.items || []

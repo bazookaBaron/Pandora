@@ -977,6 +977,181 @@ async function fetchAllRows(table, columns, orderCol, ascending) {
   return all;
 }
 
+// Extracted from the /api/catalog/dsa route so the SSR initial-data embed
+// (see the catch-all route near renderIndex) can hit the exact same cached()
+// key + producer for an anonymous request instead of duplicating the
+// Supabase fetch logic. Takes plain values instead of `req` — the route
+// handler below just parses req.query/req.user into these before calling it.
+async function buildDsaCatalogPayload({ plan, search, companies, difficulties, sort, page }) {
+  const limit = getLimit(plan, "dsa_catalog_visible");
+  const unlimited = isUnlimited(limit);
+  const pageSize = 50;
+  const offset = (page - 1) * pageSize;
+
+  // PostgREST search token — mirrors the jobs route's `locCore`: strip the
+  // chars significant to the `.or()` grammar / ilike, collapse whitespace,
+  // then wildcard the gaps so multi-word searches still match.
+  const esc = search
+    .replace(/[%_,()*:.]/g, " ")
+    .trim()
+    .replace(/\s+/g, "*");
+
+  const COMPANY_FREE_VISIBLE = 5;
+
+  // ── Fast path: filters/sort/paginate/count entirely in Postgres ────
+  // Only for unlimited plans, no company filter, sort in {id, alpha}. If
+  // BOTH difficulty and search are set we can't express them as one
+  // `.or()` (a 2nd `.or()` overwrites the 1st) → fall through to Node.
+  const fastPath =
+    unlimited &&
+    companies.length === 0 &&
+    (sort === "id" || sort === "alpha") &&
+    !(difficulties.length && search);
+
+  if (fastPath) {
+    // SQL-side path: filters/sort/paginate/count in Postgres; estimated count -> pageCount approximate.
+    let q = supabaseAdmin
+      .from("leetcode_company_problems")
+      .select("id, title, difficulty, link, company, topics", {
+        count: "estimated",
+      });
+    if (difficulties.length) {
+      // stored `difficulty` is upper/mixed case; ilike is case-insensitive.
+      q = q.or(difficulties.map((d) => `difficulty.ilike.${d}`).join(","));
+    } else if (search) {
+      q = q.or(`title.ilike.*${esc}*,topics.ilike.*${esc}*`);
+    }
+    q =
+      sort === "alpha"
+        ? q.order("title", { ascending: true })
+        : q.order("id", { ascending: true });
+    q = q.range(offset, offset + pageSize - 1);
+    const { data, count, error } = await q;
+    if (error) throw error;
+    const items = normalizeDsa(data || []);
+    const total = count ?? items.length;
+    return {
+      items,
+      total,
+      locked: 0,
+      lockedCount: 0,
+      companyLock: false,
+      limit: serializeLimit(limit),
+      page,
+      pageSize,
+      pageCount: Math.max(1, Math.ceil(total / pageSize)),
+      filteredCount: total,
+    };
+  }
+
+  // ── Cases that still need the whole table in memory ───────────────
+  //   - free user filtering by company  → freemium 5-row + count
+  //   - unlimited but not the fast path → company filter, difficulty
+  //     sort, or a difficulty+search combo we can't push down.
+  const needsFullSet =
+    (!unlimited && companies.length > 0) || (unlimited && !fastPath);
+
+  if (needsFullSet) {
+    const rowsAll = normalizeDsa(
+      await fetchAllRows(
+        "leetcode_company_problems",
+        "id, title, difficulty, link, company, topics",
+        "id",
+        true,
+      ),
+    );
+    const total = rowsAll.length;
+
+    // Company-filter freemium: filter the FULL set first, then return 5
+    // full rows + a COUNT of the rest (no premium row data leaves).
+    if (!unlimited && companies.length > 0) {
+      const matched = filterSortDsa(rowsAll, {
+        search,
+        companies,
+        difficulties,
+        sort,
+      });
+      const items = matched.slice(0, COMPANY_FREE_VISIBLE);
+      const lockedCount = Math.max(0, matched.length - COMPANY_FREE_VISIBLE);
+      return {
+        items,
+        total,
+        locked: lockedCount,
+        lockedCount, // explicit: render this many placeholder cards
+        companyLock: true, // client: per-question lock cards, not a LockedSlice row
+        limit: serializeLimit(limit),
+        page: 1,
+        pageSize,
+        pageCount: 1,
+        filteredCount: matched.length,
+      };
+    }
+
+    // Unlimited + (company filter | difficulty sort | difficulty+search):
+    // filter/sort/paginate in Node against the full set.
+    const filtered = filterSortDsa(rowsAll, {
+      search,
+      companies,
+      difficulties,
+      sort,
+    });
+    const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+    const pageOut = Math.min(page, pageCount);
+    const items = filtered.slice(
+      (pageOut - 1) * pageSize,
+      pageOut * pageSize,
+    );
+    return {
+      items,
+      total,
+      locked: 0,
+      lockedCount: 0,
+      companyLock: false,
+      limit: serializeLimit(limit),
+      page: pageOut,
+      pageSize,
+      pageCount,
+      filteredCount: filtered.length,
+    };
+  }
+
+  // ── Free, no company filter ──────────────────────────────────────
+  // Only the first `cap` rows are ever visible, so fetch just those
+  // instead of the whole table.
+  const capN = Math.min(limit, 500);
+  const { data: capRows, error: capErr } = await supabaseAdmin
+    .from("leetcode_company_problems")
+    .select("id, title, difficulty, link, company, topics")
+    .order("id", { ascending: true })
+    .range(0, capN - 1);
+  if (capErr) throw capErr;
+  const { count: totalCount } = await supabaseAdmin
+    .from("leetcode_company_problems")
+    .select("id", { count: "estimated", head: true });
+  const rowsAll = normalizeDsa(capRows || []);
+  const total = totalCount ?? rowsAll.length;
+
+  const filtered = filterSortDsa(rowsAll, {
+    search,
+    companies,
+    difficulties,
+    sort,
+  });
+  const locked = Math.max(0, total - limit);
+  return {
+    items: filtered, // free: capped preview, no pagination
+    total,
+    locked,
+    lockedCount: locked,
+    companyLock: false,
+    limit: serializeLimit(limit),
+    page: 1,
+    pageSize,
+    pageCount: 1,
+    filteredCount: filtered.length,
+  };
+}
+
 // GET /api/catalog/dsa?search=&company=&difficulty=&sort=&page=
 // Free cap is on the CATALOG (first N rows by id asc), applied BEFORE the
 // caller's filter/sort — so a free user can never page or filter their way to
@@ -987,183 +1162,18 @@ app.get("/api/catalog/dsa", catalogLimiter, optionalAuth, async (req, res) => {
     const plan = req.user ? await getUserPlan(req.user.id) : "free";
     const key = `dsa:${plan}:${qsKey(req)}`;
     const wasHit = hasFresh(key);
-    const payload = await cached(key, 120000, async () => {
-      const limit = getLimit(plan, "dsa_catalog_visible");
-      const unlimited = isUnlimited(limit);
-
-      const search = String(req.query.search || "").slice(0, 200);
-      const companies = csvParam(req.query.company);
-      const difficulties = csvParam(req.query.difficulty);
-      const sort = ["alpha", "difficulty", "id"].includes(String(req.query.sort))
-        ? String(req.query.sort)
-        : "id";
-      const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-      const pageSize = 50;
-      const offset = (page - 1) * pageSize;
-
-      // PostgREST search token — mirrors the jobs route's `locCore`: strip the
-      // chars significant to the `.or()` grammar / ilike, collapse whitespace,
-      // then wildcard the gaps so multi-word searches still match.
-      const esc = search
-        .replace(/[%_,()*:.]/g, " ")
-        .trim()
-        .replace(/\s+/g, "*");
-
-      const COMPANY_FREE_VISIBLE = 5;
-
-      // ── Fast path: filters/sort/paginate/count entirely in Postgres ────
-      // Only for unlimited plans, no company filter, sort in {id, alpha}. If
-      // BOTH difficulty and search are set we can't express them as one
-      // `.or()` (a 2nd `.or()` overwrites the 1st) → fall through to Node.
-      const fastPath =
-        unlimited &&
-        companies.length === 0 &&
-        (sort === "id" || sort === "alpha") &&
-        !(difficulties.length && search);
-
-      if (fastPath) {
-        // SQL-side path: filters/sort/paginate/count in Postgres; estimated count -> pageCount approximate.
-        let q = supabaseAdmin
-          .from("leetcode_company_problems")
-          .select("id, title, difficulty, link, company, topics", {
-            count: "estimated",
-          });
-        if (difficulties.length) {
-          // stored `difficulty` is upper/mixed case; ilike is case-insensitive.
-          q = q.or(difficulties.map((d) => `difficulty.ilike.${d}`).join(","));
-        } else if (search) {
-          q = q.or(`title.ilike.*${esc}*,topics.ilike.*${esc}*`);
-        }
-        q =
-          sort === "alpha"
-            ? q.order("title", { ascending: true })
-            : q.order("id", { ascending: true });
-        q = q.range(offset, offset + pageSize - 1);
-        const { data, count, error } = await q;
-        if (error) throw error;
-        const items = normalizeDsa(data || []);
-        const total = count ?? items.length;
-        return {
-          items,
-          total,
-          locked: 0,
-          lockedCount: 0,
-          companyLock: false,
-          limit: serializeLimit(limit),
-          page,
-          pageSize,
-          pageCount: Math.max(1, Math.ceil(total / pageSize)),
-          filteredCount: total,
-        };
-      }
-
-      // ── Cases that still need the whole table in memory ───────────────
-      //   - free user filtering by company  → freemium 5-row + count
-      //   - unlimited but not the fast path → company filter, difficulty
-      //     sort, or a difficulty+search combo we can't push down.
-      const needsFullSet =
-        (!unlimited && companies.length > 0) || (unlimited && !fastPath);
-
-      if (needsFullSet) {
-        const rowsAll = normalizeDsa(
-          await fetchAllRows(
-            "leetcode_company_problems",
-            "id, title, difficulty, link, company, topics",
-            "id",
-            true,
-          ),
-        );
-        const total = rowsAll.length;
-
-        // Company-filter freemium: filter the FULL set first, then return 5
-        // full rows + a COUNT of the rest (no premium row data leaves).
-        if (!unlimited && companies.length > 0) {
-          const matched = filterSortDsa(rowsAll, {
-            search,
-            companies,
-            difficulties,
-            sort,
-          });
-          const items = matched.slice(0, COMPANY_FREE_VISIBLE);
-          const lockedCount = Math.max(0, matched.length - COMPANY_FREE_VISIBLE);
-          return {
-            items,
-            total,
-            locked: lockedCount,
-            lockedCount, // explicit: render this many placeholder cards
-            companyLock: true, // client: per-question lock cards, not a LockedSlice row
-            limit: serializeLimit(limit),
-            page: 1,
-            pageSize,
-            pageCount: 1,
-            filteredCount: matched.length,
-          };
-        }
-
-        // Unlimited + (company filter | difficulty sort | difficulty+search):
-        // filter/sort/paginate in Node against the full set.
-        const filtered = filterSortDsa(rowsAll, {
-          search,
-          companies,
-          difficulties,
-          sort,
-        });
-        const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-        const pageOut = Math.min(page, pageCount);
-        const items = filtered.slice(
-          (pageOut - 1) * pageSize,
-          pageOut * pageSize,
-        );
-        return {
-          items,
-          total,
-          locked: 0,
-          lockedCount: 0,
-          companyLock: false,
-          limit: serializeLimit(limit),
-          page: pageOut,
-          pageSize,
-          pageCount,
-          filteredCount: filtered.length,
-        };
-      }
-
-      // ── Free, no company filter ──────────────────────────────────────
-      // Only the first `cap` rows are ever visible, so fetch just those
-      // instead of the whole table.
-      const capN = Math.min(limit, 500);
-      const { data: capRows, error: capErr } = await supabaseAdmin
-        .from("leetcode_company_problems")
-        .select("id, title, difficulty, link, company, topics")
-        .order("id", { ascending: true })
-        .range(0, capN - 1);
-      if (capErr) throw capErr;
-      const { count: totalCount } = await supabaseAdmin
-        .from("leetcode_company_problems")
-        .select("id", { count: "estimated", head: true });
-      const rowsAll = normalizeDsa(capRows || []);
-      const total = totalCount ?? rowsAll.length;
-
-      const filtered = filterSortDsa(rowsAll, {
-        search,
-        companies,
-        difficulties,
-        sort,
-      });
-      const locked = Math.max(0, total - limit);
-      return {
-        items: filtered, // free: capped preview, no pagination
-        total,
-        locked,
-        lockedCount: locked,
-        companyLock: false,
-        limit: serializeLimit(limit),
-        page: 1,
-        pageSize,
-        pageCount: 1,
-        filteredCount: filtered.length,
-      };
-    });
+    const payload = await cached(key, 120000, () =>
+      buildDsaCatalogPayload({
+        plan,
+        search: String(req.query.search || "").slice(0, 200),
+        companies: csvParam(req.query.company),
+        difficulties: csvParam(req.query.difficulty),
+        sort: ["alpha", "difficulty", "id"].includes(String(req.query.sort))
+          ? String(req.query.sort)
+          : "id",
+        page: Math.max(1, parseInt(req.query.page, 10) || 1),
+      }),
+    );
 
     res.set("Cache-Control", "private, max-age=120");
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
@@ -1174,109 +1184,117 @@ app.get("/api/catalog/dsa", catalogLimiter, optionalAuth, async (req, res) => {
 });
 
 // GET /api/catalog/lld?search=&company=&page=
+// Extracted from the /api/catalog/lld route — same reasoning as
+// buildDsaCatalogPayload above (reused by the SSR initial-data embed).
+async function buildLldCatalogPayload({ plan, search, companies, page }) {
+  const limit = getLimit(plan, "lld_catalog_visible");
+  const unlimited = isUnlimited(limit);
+  const pageSize = 12;
+  const offset = (page - 1) * pageSize;
+
+  // Same PostgREST search token sanitizer as /api/catalog/dsa.
+  const esc = search
+    .replace(/[%_,()*:.]/g, " ")
+    .trim()
+    .replace(/\s+/g, "*");
+
+  // Apply the shared search + company array filters to a query builder.
+  // `companies` is a real text[] column → `.contains` (@>) for one value,
+  // `.overlaps` (&&) for any-of, matching the old `.some()` semantics.
+  const applyFilters = (q) => {
+    if (search) q = q.or(`title.ilike.*${esc}*,requirements.ilike.*${esc}*`);
+    if (companies.length === 1) q = q.contains("companies", [companies[0]]);
+    else if (companies.length > 1) q = q.overlaps("companies", companies);
+    return q;
+  };
+
+  if (unlimited) {
+    // Full SQL-side path: filter / sort / paginate / count in Postgres;
+    // estimated count -> pageCount approximate.
+    let q = supabaseAdmin
+      .from("lld_problems")
+      .select("id, slug, title, requirements, companies, created_at", {
+        count: "estimated",
+      })
+      .order("created_at", { ascending: false });
+    q = applyFilters(q).range(offset, offset + pageSize - 1);
+    const { data, count, error } = await q;
+    if (error) throw error;
+    const items = data || [];
+    const total = count ?? items.length;
+    return {
+      items,
+      total,
+      locked: 0,
+      limit: serializeLimit(limit),
+      page,
+      pageSize,
+      pageCount: Math.max(1, Math.ceil(total / pageSize)),
+      filteredCount: total,
+    };
+  }
+
+  // ── Free: old semantics = first `cap` rows by created_at desc, THEN
+  // filtered. `cap` is tiny (e.g. 3) so filter those in Node. ──
+  const cap = Math.max(0, limit);
+  let capRows = [];
+  if (cap > 0) {
+    const { data, error } = await supabaseAdmin
+      .from("lld_problems")
+      .select("id, slug, title, requirements, companies, created_at")
+      .order("created_at", { ascending: false })
+      .range(0, cap - 1);
+    if (error) throw error;
+    capRows = data || [];
+  }
+  const { count: totalCount } = await supabaseAdmin
+    .from("lld_problems")
+    .select("id", { count: "estimated", head: true });
+  const total = totalCount ?? capRows.length;
+
+  const s = search.toLowerCase();
+  const filtered = capRows.filter((p) => {
+    if (
+      search &&
+      !(p.title || "").toLowerCase().includes(s) &&
+      !(p.requirements || "").toLowerCase().includes(s)
+    )
+      return false;
+    if (
+      companies.length &&
+      !companies.some((c) => (p.companies || []).includes(c))
+    )
+      return false;
+    return true;
+  });
+
+  const locked = Math.max(0, total - cap);
+  return {
+    items: filtered,
+    total,
+    locked,
+    limit: serializeLimit(limit),
+    page: 1,
+    pageSize,
+    pageCount: 1,
+    filteredCount: filtered.length,
+  };
+}
+
+// GET /api/catalog/lld?search=&company=&page=
 app.get("/api/catalog/lld", catalogLimiter, optionalAuth, async (req, res) => {
   try {
     const plan = req.user ? await getUserPlan(req.user.id) : "free";
     const key = `lld:${plan}:${qsKey(req)}`;
     const wasHit = hasFresh(key);
-    const payload = await cached(key, 120000, async () => {
-      const limit = getLimit(plan, "lld_catalog_visible");
-      const unlimited = isUnlimited(limit);
-
-      const search = String(req.query.search || "").slice(0, 200);
-      const companies = csvParam(req.query.company);
-      const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-      const pageSize = 12;
-      const offset = (page - 1) * pageSize;
-
-      // Same PostgREST search token sanitizer as /api/catalog/dsa.
-      const esc = search
-        .replace(/[%_,()*:.]/g, " ")
-        .trim()
-        .replace(/\s+/g, "*");
-
-      // Apply the shared search + company array filters to a query builder.
-      // `companies` is a real text[] column → `.contains` (@>) for one value,
-      // `.overlaps` (&&) for any-of, matching the old `.some()` semantics.
-      const applyFilters = (q) => {
-        if (search) q = q.or(`title.ilike.*${esc}*,requirements.ilike.*${esc}*`);
-        if (companies.length === 1) q = q.contains("companies", [companies[0]]);
-        else if (companies.length > 1) q = q.overlaps("companies", companies);
-        return q;
-      };
-
-      if (unlimited) {
-        // Full SQL-side path: filter / sort / paginate / count in Postgres;
-        // estimated count -> pageCount approximate.
-        let q = supabaseAdmin
-          .from("lld_problems")
-          .select("id, slug, title, requirements, companies, created_at", {
-            count: "estimated",
-          })
-          .order("created_at", { ascending: false });
-        q = applyFilters(q).range(offset, offset + pageSize - 1);
-        const { data, count, error } = await q;
-        if (error) throw error;
-        const items = data || [];
-        const total = count ?? items.length;
-        return {
-          items,
-          total,
-          locked: 0,
-          limit: serializeLimit(limit),
-          page,
-          pageSize,
-          pageCount: Math.max(1, Math.ceil(total / pageSize)),
-          filteredCount: total,
-        };
-      }
-
-      // ── Free: old semantics = first `cap` rows by created_at desc, THEN
-      // filtered. `cap` is tiny (e.g. 3) so filter those in Node. ──
-      const cap = Math.max(0, limit);
-      let capRows = [];
-      if (cap > 0) {
-        const { data, error } = await supabaseAdmin
-          .from("lld_problems")
-          .select("id, slug, title, requirements, companies, created_at")
-          .order("created_at", { ascending: false })
-          .range(0, cap - 1);
-        if (error) throw error;
-        capRows = data || [];
-      }
-      const { count: totalCount } = await supabaseAdmin
-        .from("lld_problems")
-        .select("id", { count: "estimated", head: true });
-      const total = totalCount ?? capRows.length;
-
-      const s = search.toLowerCase();
-      const filtered = capRows.filter((p) => {
-        if (
-          search &&
-          !(p.title || "").toLowerCase().includes(s) &&
-          !(p.requirements || "").toLowerCase().includes(s)
-        )
-          return false;
-        if (
-          companies.length &&
-          !companies.some((c) => (p.companies || []).includes(c))
-        )
-          return false;
-        return true;
-      });
-
-      const locked = Math.max(0, total - cap);
-      return {
-        items: filtered,
-        total,
-        locked,
-        limit: serializeLimit(limit),
-        page: 1,
-        pageSize,
-        pageCount: 1,
-        filteredCount: filtered.length,
-      };
-    });
+    const payload = await cached(key, 120000, () =>
+      buildLldCatalogPayload({
+        plan,
+        search: String(req.query.search || "").slice(0, 200),
+        companies: csvParam(req.query.company),
+        page: Math.max(1, parseInt(req.query.page, 10) || 1),
+      }),
+    );
 
     res.set("Cache-Control", "private, max-age=120");
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
@@ -1338,6 +1356,47 @@ app.get("/api/catalog/lld/:slug", catalogLimiter, optionalAuth, async (req, res)
   }
 });
 
+// Extracted from the /api/catalog/hld route — same reasoning as
+// buildDsaCatalogPayload above (reused by the SSR initial-data embed).
+async function buildHldCatalogPayload({ plan }) {
+  const access = getLimit(plan, "hld_catalog_access"); // 'list_only' | 'full'
+
+  // Lean column list — only what the two maps below and HLDListPage.jsx
+  // actually read (id, title, description, slug, difficulty, companies).
+  // `hld_questions` has no title/slug/questionid/company columns, so the
+  // display title comes from `question` and the slug is just the id.
+  const { data, error } = await supabaseAdmin
+    .from("hld_questions")
+    .select("id, question, description, difficulty, companies, created_at")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  const rows = data || [];
+
+  // The full list is returned to every tier; HLDListPage filters + paginates
+  // client-side (12/page) to match the LLD panel's pagination UX.
+  if (access === "list_only") {
+    const items = rows.map((r) => ({
+      id: r.id,
+      title: r.question || "(Untitled)",
+      companies: r.companies || [],
+      difficulty: r.difficulty || null,
+      locked: true,
+    }));
+    return { items, total: rows.length, locked: rows.length, access };
+  }
+
+  const items = rows.map((r) => ({
+    id: r.id,
+    title: r.question || "(Untitled)",
+    description: r.description || "",
+    companies: r.companies || [],
+    slug: String(r.id),
+    difficulty: r.difficulty || null,
+    locked: false,
+  }));
+  return { items, total: rows.length, locked: 0, access };
+}
+
 // GET /api/catalog/hld
 // list_only (free): full list, every item { locked: true }, premium fields stripped.
 // full (pro/max): normal rows.
@@ -1346,44 +1405,7 @@ app.get("/api/catalog/hld", catalogLimiter, optionalAuth, async (req, res) => {
     const plan = req.user ? await getUserPlan(req.user.id) : "free";
     const key = `hld:${plan}:${qsKey(req)}`;
     const wasHit = hasFresh(key);
-    const payload = await cached(key, 120000, async () => {
-      const access = getLimit(plan, "hld_catalog_access"); // 'list_only' | 'full'
-
-      // Lean column list — only what the two maps below and HLDListPage.jsx
-      // actually read (id, title, description, slug, difficulty, companies).
-      // `hld_questions` has no title/slug/questionid/company columns, so the
-      // display title comes from `question` and the slug is just the id.
-      const { data, error } = await supabaseAdmin
-        .from("hld_questions")
-        .select("id, question, description, difficulty, companies, created_at")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      const rows = data || [];
-
-      // The full list is returned to every tier; HLDListPage filters + paginates
-      // client-side (12/page) to match the LLD panel's pagination UX.
-      if (access === "list_only") {
-        const items = rows.map((r) => ({
-          id: r.id,
-          title: r.question || "(Untitled)",
-          companies: r.companies || [],
-          difficulty: r.difficulty || null,
-          locked: true,
-        }));
-        return { items, total: rows.length, locked: rows.length, access };
-      }
-
-      const items = rows.map((r) => ({
-        id: r.id,
-        title: r.question || "(Untitled)",
-        description: r.description || "",
-        companies: r.companies || [],
-        slug: String(r.id),
-        difficulty: r.difficulty || null,
-        locked: false,
-      }));
-      return { items, total: rows.length, locked: 0, access };
-    });
+    const payload = await cached(key, 120000, () => buildHldCatalogPayload({ plan }));
 
     res.set("Cache-Control", "private, max-age=120");
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
@@ -4113,6 +4135,43 @@ app.get(/^(?!\/api).*/, async (req, res, next) => {
 
   let post = null;
   let jobsCompany = null;
+  // Seeds window.__INITIAL_DATA__ (see lib/seoHead.js's renderIndex +
+  // initialDataScript) for the handful of routes whose real content
+  // otherwise depends on a client-side fetch after the shell paints — Google
+  // hitting that fetch mid-render is what produced the confirmed soft-404 on
+  // /dsa (Search Console: "Request failed (499)"). Always the anonymous/
+  // free-tier view (a crawler never carries auth, and it's what a logged-out
+  // human sees too) — never let building this be able to break the page:
+  // every branch below is try/catch'd, falls through to `undefined` on any
+  // failure, and the client's existing fetch-on-mount is the fallback,
+  // completely unchanged.
+  let initialData;
+  if (c.kind === "public" && c.key === "dsaList") {
+    try {
+      const key = `dsa:free:`;
+      initialData = { dsaList: await cached(key, 120000, () => buildDsaCatalogPayload({
+        plan: "free", search: "", companies: [], difficulties: [], sort: "id", page: 1,
+      })) };
+    } catch (e) {
+      console.warn("[seo] dsa initial-data fetch failed", redact(String(e && e.message)));
+    }
+  } else if (c.kind === "public" && c.key === "lldList") {
+    try {
+      const key = `lld:free:`;
+      initialData = { lldList: await cached(key, 120000, () => buildLldCatalogPayload({
+        plan: "free", search: "", companies: [], page: 1,
+      })) };
+    } catch (e) {
+      console.warn("[seo] lld initial-data fetch failed", redact(String(e && e.message)));
+    }
+  } else if (c.kind === "public" && c.key === "hldList") {
+    try {
+      const key = `hld:free:`;
+      initialData = { hldList: await cached(key, 120000, () => buildHldCatalogPayload({ plan: "free" })) };
+    } catch (e) {
+      console.warn("[seo] hld initial-data fetch failed", redact(String(e && e.message)));
+    }
+  }
   if (c.kind === "public" && c.key === "jobsCompany") {
     let payload = null;
     try {
@@ -4132,6 +4191,10 @@ app.get(/^(?!\/api).*/, async (req, res, next) => {
       return;
     }
     jobsCompany = { name: payload.company.name, openCount: payload.postings.length };
+    // Already fetched above for the meta tags — reuse it as the hydration
+    // seed too instead of a second lookup. Same payload an anonymous
+    // GET /api/jobs/company/:slug returns (the route has no plan branching).
+    initialData = { jobsCompany: payload };
     // Real page either way — only the robots directive changes. A company
     // outside the curated set or short on evidence still gets a normal page,
     // just noindex,follow (evaluateJobHubIndexability never blocks the page).
@@ -4171,6 +4234,7 @@ app.get(/^(?!\/api).*/, async (req, res, next) => {
     path: req.path,
     post,
     jobsCompany,
+    initialData,
   });
   res.set("Content-Type", "text/html; charset=utf-8");
   // s-maxage was 300s — a shared/CDN cache could keep serving this shell for
