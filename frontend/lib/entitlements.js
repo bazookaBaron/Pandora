@@ -344,6 +344,50 @@ export async function incrementUsage(userId, feature) {
   }
 }
 
+// ── company-subscription count-cap (NOT monthly-metered) ───────────────────
+// Unlike the METERED_FEATURES above (which reset on a monthly period), company
+// subscriptions are a persistent cap: Free = 0 (locked out), Pro = 4, Max = 10
+// (see config/tiers.js `company_subscriptions_max`). No `usage` table involved
+// — just a live COUNT(*) against public.company_subscriptions.
+export async function canAddCompanySubscription(userId) {
+  const plan = await getUserPlan(userId);
+  const limit = getLimit(plan, "company_subscriptions_max");
+
+  if (!limit || (Number.isFinite(limit) && limit <= 0)) {
+    return {
+      allowed: false,
+      plan,
+      limit: serializeLimit(limit ?? 0),
+      used: null,
+      reason: "upgrade_required",
+    };
+  }
+
+  const { count, error } = await supabaseAdmin
+    .from("company_subscriptions")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId);
+  if (error) {
+    console.error(
+      "[entitlements] company_subscriptions count failed:",
+      error.message || error,
+    );
+    // Fail closed — don't let a transient read error bypass the cap.
+    return { allowed: false, plan, limit: serializeLimit(limit), used: null, reason: "error" };
+  }
+
+  const used = count || 0;
+  const allowed = isUnlimited(limit) ? true : used < limit;
+  return {
+    allowed,
+    plan,
+    used,
+    limit: serializeLimit(limit),
+    remaining: isUnlimited(limit) ? null : Math.max(0, limit - used),
+    reason: allowed ? undefined : "usage_limit",
+  };
+}
+
 // ── summary for GET /api/entitlements/me ───────────────────────────────────
 export async function getEntitlementsSummary(userId) {
   const hit = summaryCache.get(userId);

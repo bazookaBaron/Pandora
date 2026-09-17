@@ -31,7 +31,9 @@ import * as resend from "./services/resend.js";
 import {
   referralRequestCreated,
   referralAccepted,
+  companyJobAlertEmail,
 } from "./lib/referralEmails.js";
+import { canAddCompanySubscription } from "./lib/entitlements.js";
 import {
   getLimit,
   isUnlimited,
@@ -2902,6 +2904,136 @@ app.get(
   },
 );
 
+// ── Company subscriptions (job alerts) ─────────────────────────────
+// Pro/Max users subscribe to a company from its /jobs/company/:slug hub page
+// and get a batched email digest once every 24h when new postings appear
+// (see sendCompanySubscriptionDigest below, cron "30 5 * * *"). Free users
+// are locked out entirely (company_subscriptions_max = 0). Pro caps at 4
+// companies, Max at 10 — a persistent count-cap, NOT a monthly-metered
+// feature, so this does NOT touch the `usage` table machinery.
+//
+// public.company_subscriptions / company_subscription_alerts_sent both sit
+// behind RLS that the browser cannot write to — every mutation goes through
+// this server with the service-role key, because the count-cap gate
+// (canAddCompanySubscription) must run before every insert. See sql/18.
+//
+// This block is intentionally self-contained (new routes only, no edits to
+// existing route logic) to keep the merge surface small against the other
+// in-flight work on this file (jobs filters/analytics).
+
+// GET /api/company-subscriptions → the caller's subscribed companies + their
+// current cap (mirrors the shape of GET /api/referrals/mine).
+app.get("/api/company-subscriptions", requireAuth, async (req, res) => {
+  try {
+    const { data: rows, error } = await supabaseAdmin
+      .from("company_subscriptions")
+      .select("id, company_slug, company_name, created_at")
+      .eq("user_id", req.user.id)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+
+    const plan = await getUserPlan(req.user.id);
+    const limit = getLimit(plan, "company_subscriptions_max");
+
+    res.json({
+      subscriptions: rows || [],
+      plan,
+      limit: serializeLimit(limit),
+      used: (rows || []).length,
+    });
+  } catch (err) {
+    fail(res, err, "company-subscriptions", "Failed to load your company subscriptions.");
+  }
+});
+
+// POST /api/company-subscriptions  { company_slug, company_name }
+// Subscribes the caller to a company. Gated by plan (Free: 0 slots) and by
+// the per-plan count-cap; both checked server-side, never trusting the client.
+app.post("/api/company-subscriptions", requireAuth, async (req, res) => {
+  try {
+    const { company_slug, company_name } = req.body || {};
+    const slug = String(company_slug || "").trim().toLowerCase();
+    const name = String(company_name || "").trim();
+
+    assert(
+      JOBS_COMPANY_SLUG_RE.test(slug),
+      "company_slug is required and must be a valid company slug.",
+    );
+    assert(
+      isNonEmptyString(name) && maxLen(name, 200),
+      "company_name is required (1–200 characters).",
+    );
+
+    // Gate — must run before any insert (persistent count-cap, not metered).
+    const gate = await canAddCompanySubscription(req.user.id);
+    if (!gate.allowed) {
+      return res.status(402).json({
+        error: gate.reason === "upgrade_required" ? "upgrade_required" : "usage_limit",
+        feature: "company_subscriptions",
+        used: gate.used,
+        limit: gate.limit,
+      });
+    }
+
+    // Confirm the slug is a real, known company before letting a user
+    // subscribe to it (also satisfies the FK on company_subscriptions).
+    const { data: company, error: cErr } = await jobsDb()
+      .from("company")
+      .select("slug, name")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (cErr) throw cErr;
+    if (!company) return res.status(404).json({ error: "unknown_company" });
+
+    const { data: row, error: insErr } = await supabaseAdmin
+      .from("company_subscriptions")
+      .insert({
+        user_id: req.user.id,
+        company_slug: slug,
+        company_name: name || company.name || slug,
+      })
+      .select()
+      .single();
+
+    if (insErr) {
+      const msg = String(insErr.message || insErr.code || "");
+      if (insErr.code === "23505" || /duplicate key|unique/i.test(msg)) {
+        return res.status(409).json({ error: "already_subscribed" });
+      }
+      throw insErr;
+    }
+
+    res.status(201).json({
+      id: row.id,
+      company_slug: row.company_slug,
+      company_name: row.company_name,
+      created_at: row.created_at,
+    });
+  } catch (err) {
+    fail(res, err, "company-subscriptions/create", "Failed to subscribe to this company.");
+  }
+});
+
+// DELETE /api/company-subscriptions/:slug — unsubscribe the caller from one
+// company. No quota refund logic needed (this isn't metered usage).
+app.delete("/api/company-subscriptions/:slug", requireAuth, async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    const { data, error } = await supabaseAdmin
+      .from("company_subscriptions")
+      .delete()
+      .eq("user_id", req.user.id)
+      .eq("company_slug", slug)
+      .select()
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: "not_subscribed" });
+    res.json({ ok: true, company_slug: slug });
+  } catch (err) {
+    fail(res, err, "company-subscriptions/delete", "Failed to unsubscribe from this company.");
+  }
+});
+
 // ── Code execution proxy ──────────────────────────────────────────
 const JUDGE0_BASE = "https://judge0-ce.p.rapidapi.com";
 const JUDGE0_LANG_IDS = {
@@ -3785,6 +3917,133 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
 } else {
   console.warn(
     "[referrals] expiry sweep disabled (no SUPABASE_SERVICE_ROLE_KEY)",
+  );
+}
+
+// ── Company subscription job-alert digest ─────────────────────────
+// Runs daily at 05:30 server time (off-peak, doesn't collide with the 03:15
+// referral sweep above). For every company with at least one subscriber,
+// finds postings first seen in roughly the last 24h (via the
+// company_subscription_new_postings() SQL join — see sql/18), fans out one
+// email per (subscriber, company-with-new-postings) pair via resend.sendMany,
+// records each sent (user_id, job_posting_id) pair in the dedup log so a
+// retried/overlapping run never double-sends, then prunes dedup rows older
+// than 3 days (job_posting rows themselves only live ~24h, so nothing older
+// than a few days is ever useful there). No-op without a service-role key.
+async function sendCompanySubscriptionDigest() {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return;
+  try {
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+
+    // Restricted to subscribed companies via a real DB-level join (see the
+    // SQL function) — never by pulling every subscription row into the app
+    // just to build an .in() filter.
+    const { data: newPostings, error: postErr } = await supabaseAdmin.rpc(
+      "company_subscription_new_postings",
+      { since },
+    );
+    if (postErr) throw postErr;
+
+    if (newPostings && newPostings.length) {
+      const slugs = [...new Set(newPostings.map((p) => p.company_slug))];
+
+      const { data: subs, error: subErr } = await supabaseAdmin
+        .from("company_subscriptions")
+        .select("user_id, company_slug, company_name")
+        .in("company_slug", slugs);
+      if (subErr) throw subErr;
+
+      const postingsByCompany = new Map();
+      for (const p of newPostings) {
+        if (!postingsByCompany.has(p.company_slug)) postingsByCompany.set(p.company_slug, []);
+        postingsByCompany.get(p.company_slug).push(p);
+      }
+
+      const jobPostingIds = [...new Set(newPostings.map((p) => p.id))];
+      const { data: alreadySent, error: sentErr } = await supabaseAdmin
+        .from("company_subscription_alerts_sent")
+        .select("user_id, job_posting_id")
+        .in("job_posting_id", jobPostingIds);
+      if (sentErr) throw sentErr;
+      const sentSet = new Set(
+        (alreadySent || []).map((r) => `${r.user_id}:${r.job_posting_id}`),
+      );
+
+      const emails = [];
+      const toRecord = [];
+
+      for (const sub of subs || []) {
+        const postings = postingsByCompany.get(sub.company_slug) || [];
+        const unsent = postings.filter(
+          (p) => !sentSet.has(`${sub.user_id}:${p.id}`),
+        );
+        if (!unsent.length) continue;
+
+        const authUser = await referralAuthUser(sub.user_id);
+        if (!authUser || !authUser.email) continue;
+
+        const tpl = companyJobAlertEmail({
+          companyName: sub.company_name,
+          newJobs: unsent.map((p) => ({
+            title: p.title,
+            url: p.url,
+            location: p.location,
+            seniority: p.seniority,
+          })),
+          manageUrl: `${APP_BASE_URL}/profile`,
+        });
+        emails.push({ to: authUser.email, tag: "company_job_alert", ...tpl });
+
+        for (const p of unsent) {
+          toRecord.push({ user_id: sub.user_id, job_posting_id: p.id });
+        }
+      }
+
+      if (emails.length) {
+        const summary = await resend.sendMany(emails);
+        console.log("[company-subs] digest fan-out:", summary);
+      }
+
+      if (toRecord.length) {
+        const { error: recErr } = await supabaseAdmin
+          .from("company_subscription_alerts_sent")
+          .upsert(toRecord, { onConflict: "user_id,job_posting_id", ignoreDuplicates: true });
+        if (recErr) {
+          console.error(
+            "[company-subs] failed to record sent alerts:",
+            redact(recErr.message || String(recErr)),
+          );
+        }
+      }
+    } else {
+      console.log("[company-subs] digest: no new postings for subscribed companies");
+    }
+
+    // Prune old dedup rows — best effort, part of the same daily run.
+    const pruneBefore = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    const { error: pruneErr } = await supabaseAdmin
+      .from("company_subscription_alerts_sent")
+      .delete()
+      .lt("sent_at", pruneBefore);
+    if (pruneErr) {
+      console.error(
+        "[company-subs] dedup-log prune failed:",
+        redact(pruneErr.message || String(pruneErr)),
+      );
+    }
+  } catch (e) {
+    console.error(
+      "[company-subs] digest failed",
+      redact((e && e.message) || String(e)),
+    );
+  }
+}
+
+if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  cron.schedule("30 5 * * *", sendCompanySubscriptionDigest);
+} else {
+  console.warn(
+    "[company-subs] job-alert digest disabled (no SUPABASE_SERVICE_ROLE_KEY)",
   );
 }
 
