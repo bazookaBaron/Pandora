@@ -126,6 +126,16 @@ const catalogLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many requests — slow down." },
 });
+// The subscribe bell is optimistic client-side (instant toggle, no waiting on
+// this request) — cheap to spam-click by design. This caps the actual writes
+// so on/off/on/off doesn't turn into an unbounded insert/delete loop.
+const subscribeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests — slow down." },
+});
 
 app.use("/api", generalLimiter);
 
@@ -3207,7 +3217,7 @@ app.get("/api/company-subscriptions", requireAuth, async (req, res) => {
 // POST /api/company-subscriptions  { company_slug, company_name }
 // Subscribes the caller to a company. Gated by plan (Free: 0 slots) and by
 // the per-plan count-cap; both checked server-side, never trusting the client.
-app.post("/api/company-subscriptions", requireAuth, async (req, res) => {
+app.post("/api/company-subscriptions", subscribeLimiter, requireAuth, async (req, res) => {
   try {
     const { company_slug, company_name } = req.body || {};
     const slug = String(company_slug || "").trim().toLowerCase();
@@ -3274,7 +3284,7 @@ app.post("/api/company-subscriptions", requireAuth, async (req, res) => {
 
 // DELETE /api/company-subscriptions/:slug — unsubscribe the caller from one
 // company. No quota refund logic needed (this isn't metered usage).
-app.delete("/api/company-subscriptions/:slug", requireAuth, async (req, res) => {
+app.delete("/api/company-subscriptions/:slug", subscribeLimiter, requireAuth, async (req, res) => {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();
     const { data, error } = await supabaseAdmin
