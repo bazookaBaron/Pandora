@@ -63,6 +63,12 @@ const FEATURE_ROWS = [
         label: (v) => (isInf(v) ? 'All job listings' : `${v} job listings`),
     },
     {
+        key: 'jobAlerts',
+        limitKey: 'company_subscriptions_max',
+        label: (v) => (isInf(v) ? 'Unlimited company job alerts' : `${v} company job alert${v === 1 ? '' : 's'}`),
+        offLabel: 'Company job alerts',
+    },
+    {
         key: 'referrals',
         limitKey: 'referral_requests_per_month',
         label: (v) => (isInf(v) ? 'Unlimited referral requests' : `${v} referral requests / mo`),
