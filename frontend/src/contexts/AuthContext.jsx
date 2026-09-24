@@ -8,6 +8,22 @@ import { apiFetch } from '../lib/apiClient'
 
 const AuthContext = createContext(null)
 
+const SIGN_OUT_TIMEOUT_MS = 5000
+
+// Removes supabase-js's persisted session (and PKCE verifier / user copies)
+// from localStorage so a reload can't restore it.
+function clearStoredSession() {
+    try {
+        const key = supabase.auth.storageKey
+        const keys = Object.keys(window.localStorage).filter(k =>
+            (key && k.startsWith(key)) || /^sb-.+-auth-token/.test(k)
+        )
+        keys.forEach(k => window.localStorage.removeItem(k))
+    } catch {
+        // Storage unavailable (private mode / blocked) — nothing persisted to clear.
+    }
+}
+
 export function AuthProvider({ children }) {
     const [session, setSession] = useState(undefined) // undefined = loading
     const queryClient = useQueryClient()
@@ -53,10 +69,7 @@ export function AuthProvider({ children }) {
             // load and TOKEN_REFRESHED / USER_UPDATED / SIGNED_IN during a
             // normal session — none of those should clear anything.
             if (event === 'SIGNED_OUT') {
-                lastIdentifiedRef.current = null
-                queryClient.clear()
-                ssClearPrefix('iq:')
-                resetAnalytics()
+                clearUserState()
                 navigate('/auth', { replace: true })
             }
         })
@@ -68,8 +81,42 @@ export function AuthProvider({ children }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
+    const clearUserState = () => {
+        lastIdentifiedRef.current = null
+        queryClient.clear()
+        ssClearPrefix('iq:')
+        resetAnalytics()
+    }
+
+    // supabase.auth.signOut() doesn't always clear the local session: if the
+    // access token is expired and the refresh fails (offline, flaky network)
+    // it returns an error early and keeps the stored session, and it can hang
+    // waiting on the auth lock. Either way SIGNED_OUT never fires, `session`
+    // stays truthy, and /auth bounces the user straight back to / — the
+    // button looks dead. So on any failure, wipe the stored session ourselves
+    // and hard-navigate to /auth, which boots a fresh client with no session.
     const logout = async () => {
-        await supabase.auth.signOut()
+        let ok = false
+        try {
+            const result = await Promise.race([
+                supabase.auth.signOut(),
+                new Promise(resolve => setTimeout(() => resolve({ error: new Error('signOut timed out') }), SIGN_OUT_TIMEOUT_MS)),
+            ])
+            ok = !result?.error
+        } catch {
+            ok = false
+        }
+
+        if (ok) {
+            setSession(null)
+            navigate('/auth', { replace: true })
+            return
+        }
+
+        clearStoredSession()
+        clearUserState()
+        setSession(null)
+        window.location.replace('/auth')
     }
 
     return (

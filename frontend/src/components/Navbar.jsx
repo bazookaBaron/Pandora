@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAvatarUrl } from '../lib/useAvatar'
@@ -88,7 +88,6 @@ function MobileTileBar({ isActive }) {
 
 export default function Navbar() {
     const { user, logout } = useAuth()
-    const navigate = useNavigate()
     const location = useLocation()
     const isMobile = useMediaQuery('(max-width: 767px)')
     const [menuOpen, setMenuOpen] = useState(false)
@@ -97,7 +96,6 @@ export default function Navbar() {
     const handleLogout = async () => {
         setMenuOpen(false)
         await logout()
-        navigate('/auth')
     }
 
     const isActive = (to) => {

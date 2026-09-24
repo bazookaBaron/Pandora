@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/apiClient'
@@ -669,7 +669,6 @@ function CompanySubscriptionsCard() {
 
 export default function ProfilePage() {
     const { user, logout } = useAuth()
-    const navigate = useNavigate()
     const { plan, isLoading: planLoading } = useEntitlements()
 
     const [newPw, setNewPw] = useState('')
@@ -724,7 +723,6 @@ export default function ProfilePage() {
 
     const handleLogout = async () => {
         await logout()
-        navigate('/auth')
     }
 
     const planLabel = plan === 'pro' ? 'Pro Plan' : plan === 'max' ? 'Max Plan' : 'Free Plan'
