@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { Lock } from 'lucide-react'
-import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
 import { apiFetch } from '../../lib/apiClient'
@@ -262,6 +262,20 @@ export default function DSAListPage({ filterCompany }) {
     const filteredCount = data?.filteredCount ?? items.length
     const pageCount = data?.pageCount ?? 1
     const unlimited = data?.limit === 'unlimited'
+
+    // Warm the next page in the background so "Next" renders from cache.
+    const queryClient = useQueryClient()
+    const nextPageQs = new URLSearchParams(qs)
+    nextPageQs.set('page', String(page + 1))
+    const nextPageUrl = '/api/catalog/dsa?' + nextPageQs.toString()
+    useEffect(() => {
+        if (!data || page >= pageCount) return
+        queryClient.prefetchQuery({
+            queryKey: ['catalog-dsa', { search, company: companyKey, difficulty: difficultyKey, sort, page: page + 1 }],
+            queryFn: () => apiFetch(nextPageUrl),
+            staleTime: 60 * 1000,
+        })
+    }, [data, page, pageCount, nextPageUrl, queryClient, search, companyKey, difficultyKey, sort])
 
     const { progressMap, toggleStatus, toggleBookmark } = useProgress('dsa')
 

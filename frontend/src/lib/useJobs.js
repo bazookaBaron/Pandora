@@ -1,4 +1,5 @@
-import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { apiFetch } from './apiClient'
 import { consumeInitialData } from './initialData'
 
@@ -12,7 +13,7 @@ const EMPTY = {
     facets: { sources: [], locationTypes: [], seniorities: [], companyTypes: [], countries: [] },
 }
 
-export function useJobs(params) {
+function jobsQueryString(params) {
     const qs = new URLSearchParams()
     if (params.search) qs.set('search', params.search)
     if (params.company) qs.set('company', params.company)
@@ -24,13 +25,33 @@ export function useJobs(params) {
     if (params.postedWithin) qs.set('posted_within', params.postedWithin)
     if (params.sort && params.sort !== 'newest') qs.set('sort', params.sort)
     if (params.page && params.page > 1) qs.set('page', String(params.page))
+    return qs.toString()
+}
 
+export function useJobs(params) {
+    const queryClient = useQueryClient()
     const query = useQuery({
         queryKey: ['jobs', params],
-        queryFn: () => apiFetch('/api/jobs?' + qs.toString()),
+        queryFn: () => apiFetch('/api/jobs?' + jobsQueryString(params)),
         placeholderData: keepPreviousData,
         staleTime: 60_000,
     })
+
+    // Warm the next page in the background so "Next" renders from cache.
+    const page = params.page || 1
+    const hasNext = !query.isPlaceholderData && page < (query.data?.pageCount ?? 1)
+    const nextParams = hasNext ? { ...params, page: page + 1 } : null
+    const nextKey = nextParams ? JSON.stringify(nextParams) : null
+    useEffect(() => {
+        if (!nextParams) return
+        queryClient.prefetchQuery({
+            queryKey: ['jobs', nextParams],
+            queryFn: () => apiFetch('/api/jobs?' + jobsQueryString(nextParams)),
+            staleTime: 60_000,
+        })
+        // nextKey captures nextParams by value.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [nextKey, queryClient])
 
     return { ...query, data: query.data || EMPTY }
 }
