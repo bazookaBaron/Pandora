@@ -4411,12 +4411,16 @@ async function sendCompanySubscriptionDigest() {
 
         const tpl = companyJobAlertEmail({
           companyName: sub.company_name,
-          newJobs: unsent.map((p) => ({
-            title: p.title,
-            url: p.url,
-            location: p.location,
-            seniority: p.seniority,
-          })),
+          // Newest first — the email lists only the first few.
+          newJobs: [...unsent]
+            .sort((a, b) => String(b.first_seen_at || "").localeCompare(String(a.first_seen_at || "")))
+            .map((p) => ({
+              title: p.title,
+              url: p.url,
+              location: p.location,
+              seniority: p.seniority,
+            })),
+          companyUrl: `${APP_BASE_URL}/jobs/company/${encodeURIComponent(sub.company_slug)}`,
           manageUrl: `${APP_BASE_URL}/profile`,
         });
         outgoing.push({
