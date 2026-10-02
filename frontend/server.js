@@ -65,6 +65,14 @@ const SOURCE_DIR = path.join(__dirname, "resume-source");
 
 const app = express();
 
+// Plan-gated GETs (catalog / jobs list) return different payloads for the same
+// URL depending on the caller's plan, but the browser HTTP cache keys only on
+// the URL. With `max-age` a tab that cached the free (locked) view kept
+// serving it after an upgrade until it expired. `no-cache` still lets the
+// browser keep the body but forces a revalidation each time; Express's
+// default ETag turns an unchanged payload into a cheap 304.
+const PLAN_GATED_CACHE = "private, no-cache";
+
 // Behind Railway's proxy: trust the first hop so express-rate-limit sees the
 // real client IP from X-Forwarded-For.
 app.set("trust proxy", 1);
@@ -896,9 +904,10 @@ ${input}
 // `&`. Array values (repeated params) are comma-joined. Identical query strings
 // always produce the same fragment; values are left as-is so case-significant
 // filters (e.g. company names) never collide.
-function qsKey(req) {
+function qsKey(req, omit = []) {
   const q = req.query || {};
   return Object.keys(q)
+    .filter((k) => !omit.includes(k))
     .sort()
     .map((k) => {
       const v = q[k];
@@ -1052,12 +1061,17 @@ async function buildDsaCatalogPayload({ plan, search, companies, difficulties, s
     (!unlimited && companies.length > 0) || (unlimited && !fastPath);
 
   if (needsFullSet) {
-    const rowsAll = normalizeDsa(
-      await fetchAllRows(
-        "leetcode_company_problems",
-        "id, title, difficulty, link, company, topics",
-        "id",
-        true,
+    // The whole table is the same for every filter combo, so it's cached
+    // once (10 min) under its own key instead of being re-paged out of
+    // Supabase in 1000-row round trips for each new company/sort/search key.
+    const rowsAll = await cached("dsa:all-rows", 600000, async () =>
+      normalizeDsa(
+        await fetchAllRows(
+          "leetcode_company_problems",
+          "id, title, difficulty, link, company, topics",
+          "id",
+          true,
+        ),
       ),
     );
     const total = rowsAll.length;
@@ -1119,15 +1133,17 @@ async function buildDsaCatalogPayload({ plan, search, companies, difficulties, s
   // Only the first `cap` rows are ever visible, so fetch just those
   // instead of the whole table.
   const capN = Math.min(limit, 500);
-  const { data: capRows, error: capErr } = await supabaseAdmin
-    .from("leetcode_company_problems")
-    .select("id, title, difficulty, link, company, topics")
-    .order("id", { ascending: true })
-    .range(0, capN - 1);
+  const [{ data: capRows, error: capErr }, { count: totalCount }] = await Promise.all([
+    supabaseAdmin
+      .from("leetcode_company_problems")
+      .select("id, title, difficulty, link, company, topics")
+      .order("id", { ascending: true })
+      .range(0, capN - 1),
+    supabaseAdmin
+      .from("leetcode_company_problems")
+      .select("id", { count: "estimated", head: true }),
+  ]);
   if (capErr) throw capErr;
-  const { count: totalCount } = await supabaseAdmin
-    .from("leetcode_company_problems")
-    .select("id", { count: "estimated", head: true });
   const rowsAll = normalizeDsa(capRows || []);
   const total = totalCount ?? rowsAll.length;
 
@@ -1175,7 +1191,7 @@ app.get("/api/catalog/dsa", catalogLimiter, optionalAuth, async (req, res) => {
       }),
     );
 
-    res.set("Cache-Control", "private, max-age=120");
+    res.set("Cache-Control", PLAN_GATED_CACHE);
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
     res.json(payload);
   } catch (err) {
@@ -1296,7 +1312,7 @@ app.get("/api/catalog/lld", catalogLimiter, optionalAuth, async (req, res) => {
       }),
     );
 
-    res.set("Cache-Control", "private, max-age=120");
+    res.set("Cache-Control", PLAN_GATED_CACHE);
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
     res.json(payload);
   } catch (err) {
@@ -1348,7 +1364,7 @@ app.get("/api/catalog/lld/:slug", catalogLimiter, optionalAuth, async (req, res)
     const key = `lld-detail:${plan}:${slug}`;
     const wasHit = hasFresh(key);
     const payload = await cached(key, 300000, () => ({ item: row }));
-    res.set("Cache-Control", "private, max-age=300");
+    res.set("Cache-Control", PLAN_GATED_CACHE);
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
     res.json(payload);
   } catch (err) {
@@ -1407,7 +1423,7 @@ app.get("/api/catalog/hld", catalogLimiter, optionalAuth, async (req, res) => {
     const wasHit = hasFresh(key);
     const payload = await cached(key, 120000, () => buildHldCatalogPayload({ plan }));
 
-    res.set("Cache-Control", "private, max-age=120");
+    res.set("Cache-Control", PLAN_GATED_CACHE);
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
     res.json(payload);
   } catch (err) {
@@ -1466,7 +1482,7 @@ app.get("/api/catalog/hld/:id", catalogLimiter, optionalAuth, async (req, res) =
 
     if (notFound) return res.status(404).json({ error: "not_found" });
 
-    res.set("Cache-Control", "private, max-age=300");
+    res.set("Cache-Control", PLAN_GATED_CACHE);
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
     res.json(payload);
   } catch (err) {
@@ -1531,7 +1547,7 @@ app.get(
         return { items, total, locked, limit: serializeLimit(limit) };
       });
 
-      res.set("Cache-Control", "private, max-age=300");
+      res.set("Cache-Control", PLAN_GATED_CACHE);
       res.set("X-Cache", wasHit ? "HIT" : "MISS");
       res.json(payload);
     } catch (err) {
@@ -1593,7 +1609,7 @@ app.get(
       if (payload.status === "locked") {
         return res.status(403).json({ error: "upgrade_required", feature: "interview_q", limit: payload.limit });
       }
-      res.set("Cache-Control", "private, max-age=300");
+      res.set("Cache-Control", PLAN_GATED_CACHE);
       res.set("X-Cache", wasHit ? "HIT" : "MISS");
       res.json({ answer: payload.answer, answer_status: payload.answer_status, chart_config: payload.chart_config });
     } catch (err) {
@@ -1659,7 +1675,7 @@ app.get("/api/catalog/search", catalogLimiter, optionalAuth, async (req, res) =>
       return { dsa, lld };
     });
 
-    res.set("Cache-Control", "private, max-age=120");
+    res.set("Cache-Control", PLAN_GATED_CACHE);
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
     res.json(payload);
   } catch (err) {
@@ -2305,19 +2321,36 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
         return q;
       };
 
-      let resp = await build(true);
-      if (resp.error && /seniority/i.test(String(resp.error.message || resp.error))) {
-        resp = await build(false);
-      }
-      const { data, error, count } = resp;
-      if (error) throw error;
+      const runQuery = async () => {
+        let resp = await build(true);
+        if (resp.error && /seniority/i.test(String(resp.error.message || resp.error))) {
+          resp = await build(false);
+        }
+        if (resp.error) throw resp.error;
+        return { data: resp.data || [], count: resp.count };
+      };
 
-      let rows = data || [];
+      let rows;
+      let count;
       if (canSpread) {
-        const pool = willWeight ? weightedStrataMerge(rows, (row) => jobStratumOf(row, companyTypeMap)) : rows;
-        rows = spaceByCompany(pool).slice(from, cappedTo + 1);
-      } else if (pastCap) {
-        rows = []; // dummy range(0,0) fetch above was only for `count`
+        // The spread pool is always rows 0..POOL-1 for a given filter set —
+        // independent of `page` and of the plan (the free cap is applied by
+        // the slice below). Cache it under a page-less key so paging through
+        // the feed slices an already-built pool instead of re-fetching and
+        // re-spacing 600 rows for every page.
+        const poolKey = `jobs-pool:${qsKey(req, ["page"])}`;
+        const pooled = await cached(poolKey, 90000, async () => {
+          const r = await runQuery();
+          const pool = willWeight ? weightedStrataMerge(r.data, (row) => jobStratumOf(row, companyTypeMap)) : r.data;
+          return { spaced: spaceByCompany(pool), count: r.count };
+        });
+        rows = pooled.spaced.slice(from, cappedTo + 1);
+        count = pooled.count;
+      } else {
+        const r = await runQuery();
+        // pastCap: the dummy range(0,0) fetch above was only for `count`.
+        rows = pastCap ? [] : r.data;
+        count = r.count;
       }
 
       // Resolve company display names for just this page's slugs.
@@ -2371,7 +2404,7 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
     });
 
     // Payload now varies by plan (free-tier cap) — browser cache only.
-    res.set("Cache-Control", "private, max-age=60");
+    res.set("Cache-Control", PLAN_GATED_CACHE);
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
     res.json(payload);
   } catch (err) {
@@ -4308,8 +4341,7 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 // ── Company subscription job-alert digest ─────────────────────────
-// Runs daily at 05:30 server time (off-peak, doesn't collide with the 03:15
-// referral sweep above). For every company with at least one subscriber,
+// Runs hourly (at :05) and once ~1 min after boot. For every company with at least one subscriber,
 // finds postings first seen in roughly the last 24h (via the
 // company_subscription_new_postings() SQL join — see sql/18), fans out one
 // email per (subscriber, company-with-new-postings) pair via resend.sendMany,
@@ -4317,8 +4349,15 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
 // retried/overlapping run never double-sends, then prunes dedup rows older
 // than 3 days (job_posting rows themselves only live ~24h, so nothing older
 // than a few days is ever useful there). No-op without a service-role key.
+let digestRunning = false;
 async function sendCompanySubscriptionDigest() {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return;
+  if (!resend.isEnabled()) {
+    console.error("[company-subs] digest skipped: RESEND_API_KEY is not set, no job alerts can be emailed");
+    return;
+  }
+  if (digestRunning) return; // a slow run must not overlap the next tick
+  digestRunning = true;
   try {
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
 
@@ -4356,8 +4395,9 @@ async function sendCompanySubscriptionDigest() {
         (alreadySent || []).map((r) => `${r.user_id}:${r.job_posting_id}`),
       );
 
-      const emails = [];
-      const toRecord = [];
+      // One entry per email, carrying the dedup rows it covers — a row is
+      // only recorded once its email was actually accepted by Resend.
+      const outgoing = [];
 
       for (const sub of subs || []) {
         const postings = postingsByCompany.get(sub.company_slug) || [];
@@ -4379,16 +4419,31 @@ async function sendCompanySubscriptionDigest() {
           })),
           manageUrl: `${APP_BASE_URL}/profile`,
         });
-        emails.push({ to: authUser.email, tag: "company_job_alert", ...tpl });
-
-        for (const p of unsent) {
-          toRecord.push({ user_id: sub.user_id, job_posting_id: p.id });
-        }
+        outgoing.push({
+          email: { to: authUser.email, tag: "company_job_alert", ...tpl },
+          rows: unsent.map((p) => ({ user_id: sub.user_id, job_posting_id: p.id })),
+        });
       }
 
-      if (emails.length) {
-        const summary = await resend.sendMany(emails);
-        console.log("[company-subs] digest fan-out:", summary);
+      // Previously every alert was written to the dedup log whether or not
+      // the email went out, so a skipped send (no RESEND_API_KEY) or a
+      // rejected one (unverified sender) silently and permanently swallowed
+      // those jobs. Only successful sends are recorded now; failures retry
+      // on the next run.
+      const toRecord = [];
+      let sent = 0;
+      let failed = 0;
+      for (const { email, rows } of outgoing) {
+        const result = await resend.sendEmail(email);
+        if (result && result.id) {
+          sent += 1;
+          toRecord.push(...rows);
+        } else {
+          failed += 1;
+        }
+      }
+      if (outgoing.length) {
+        console.log("[company-subs] digest fan-out:", { sent, failed });
       }
 
       if (toRecord.length) {
@@ -4423,11 +4478,18 @@ async function sendCompanySubscriptionDigest() {
       "[company-subs] digest failed",
       redact((e && e.message) || String(e)),
     );
+  } finally {
+    digestRunning = false;
   }
 }
 
 if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  cron.schedule("30 5 * * *", sendCompanySubscriptionDigest);
+  // Hourly so a new posting is emailed within the hour rather than up to a
+  // day later; the dedup log keeps each (user, posting) pair to one email.
+  // Plus one run shortly after boot so a redeploy doesn't skip a window.
+  cron.schedule("5 * * * *", sendCompanySubscriptionDigest);
+  const bootDigest = setTimeout(sendCompanySubscriptionDigest, 60_000);
+  if (typeof bootDigest.unref === "function") bootDigest.unref();
 } else {
   console.warn(
     "[company-subs] job-alert digest disabled (no SUPABASE_SERVICE_ROLE_KEY)",

@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
 import { planLimits, deserializeLimit } from '../../config/tiers.js'
 import { apiFetch } from './apiClient'
@@ -81,4 +82,23 @@ export function useEntitlements() {
 // Cheap plan-only check (still subscribes to the same query).
 export function usePlan() {
     return useEntitlements().plan
+}
+
+// Catalog / jobs payloads are plan-dependent (locked rows, caps) but their
+// query keys don't include the plan, so anything fetched while the viewer was
+// on 'free' — before an upgrade, before logging in, or the SSR seed, which is
+// always the free view — kept rendering locked until it went stale. Mounted
+// once at the app root: whenever the effective plan changes, every query
+// except entitlements itself is invalidated so on-screen data refetches
+// against the new plan.
+export function usePlanChangeRefetch() {
+    const { plan } = useEntitlements()
+    const queryClient = useQueryClient()
+    const prevRef = useRef(plan)
+
+    useEffect(() => {
+        if (prevRef.current === plan) return
+        prevRef.current = plan
+        queryClient.invalidateQueries({ predicate: q => q.queryKey[0] !== 'entitlements' })
+    }, [plan, queryClient])
 }

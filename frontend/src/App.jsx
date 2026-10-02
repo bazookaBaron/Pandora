@@ -7,6 +7,7 @@ import CommandPalette from './components/shared/CommandPalette'
 import Footer from './components/Footer'
 import { RouteErrorBoundary } from './components/shared/ErrorBoundary'
 import SessionExpiredBanner from './components/shared/SessionExpiredBanner'
+import { usePlanChangeRefetch } from './lib/useEntitlements'
 
 // Phase 1.5: every page component is code-split behind React.lazy so the
 // production entry chunk no longer ships reactflow / monaco / jszip /
@@ -72,6 +73,11 @@ function ScrollToTop() {
     return null
 }
 
+function PlanChangeRefetch() {
+    usePlanChangeRefetch()
+    return null
+}
+
 // Shown while a lazy route chunk is in flight. Matches ProtectedRoute's markup.
 function RouteFallback() {
     return (
@@ -87,6 +93,7 @@ export default function App() {
             <BrowserRouter>
                 <AuthProvider>
                     <ScrollToTop />
+                    <PlanChangeRefetch />
                     <CommandPalette />
                     <SessionExpiredBanner />
                     <RouteErrorBoundary>
