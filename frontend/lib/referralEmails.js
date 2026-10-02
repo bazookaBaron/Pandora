@@ -35,6 +35,13 @@ const C = {
   pop: "#22d3ee",
   popDim: "#0e3a42",
 };
+// Absolute base URL for images in emails (they're fetched by the mail
+// client, so relative paths don't work). Set once by server.js at boot.
+let assetBase = "";
+export function setEmailAssetBase(url) {
+  assetBase = String(url || "").replace(/\/+$/, "");
+}
+
 const FONT =
   "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
@@ -59,8 +66,10 @@ function layout({ preheader = "", body, footer = "" }) {
     // Header: wordmark
     '<tr><td style="padding:0 4px 20px;">' +
     '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>' +
-    `<td style="width:28px;height:28px;background:${C.pop};border-radius:8px;text-align:center;vertical-align:middle;` +
-    `font-size:16px;font-weight:900;color:${C.page};line-height:28px;">V</td>` +
+    // PNG, not the site's SVG: Gmail and Outlook don't render SVG images.
+    '<td style="width:32px;vertical-align:middle;">' +
+    `<img src="${esc(assetBase)}/email-logo.png" width="32" height="32" alt="Vloombox" ` +
+    'style="display:block;border:0;outline:none;width:32px;height:32px;"></td>' +
     `<td style="padding-left:10px;font-size:17px;font-weight:800;letter-spacing:-0.02em;color:${C.bright};">Vloombox</td>` +
     "</tr></table></td></tr>" +
     // Card

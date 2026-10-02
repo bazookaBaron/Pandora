@@ -34,6 +34,7 @@ import {
   referralRequestCreated,
   referralAccepted,
   companyJobAlertEmail,
+  setEmailAssetBase,
 } from "./lib/referralEmails.js";
 import { canAddCompanySubscription } from "./lib/entitlements.js";
 import {
@@ -92,6 +93,7 @@ const CORS_ALLOWLIST = process.env.CORS_ORIGINS?.split(",")
 // Base URL used when building links inside referral notification emails.
 const APP_BASE_URL =
   process.env.APP_BASE_URL || CORS_ALLOWLIST[0] || "http://localhost:5173";
+setEmailAssetBase(APP_BASE_URL);
 
 app.use(
   cors({
