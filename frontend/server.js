@@ -4343,10 +4343,11 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 // ── Company subscription job-alert digest ─────────────────────────
-// Runs hourly (at :05) and once ~1 min after boot. For every company with at least one subscriber,
-// finds postings first seen in roughly the last 24h (via the
+// Runs once a day at 09:00 Asia/Kolkata. For every company with at least one
+// subscriber, finds postings first seen in the last ~26h (24h + slack so a
+// late or slow run never leaves a gap; the dedup log prevents repeats) (via the
 // company_subscription_new_postings() SQL join — see sql/18), fans out one
-// email per (subscriber, company-with-new-postings) pair via resend.sendMany,
+// email per (subscriber, company-with-new-postings) pair via resend.sendEmail,
 // records each sent (user_id, job_posting_id) pair in the dedup log so a
 // retried/overlapping run never double-sends, then prunes dedup rows older
 // than 3 days (job_posting rows themselves only live ~24h, so nothing older
@@ -4361,7 +4362,7 @@ async function sendCompanySubscriptionDigest() {
   if (digestRunning) return; // a slow run must not overlap the next tick
   digestRunning = true;
   try {
-    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const since = new Date(Date.now() - 26 * 3600 * 1000).toISOString();
 
     // Restricted to subscribed companies via a real DB-level join (see the
     // SQL function) — never by pulling every subscription row into the app
@@ -4490,12 +4491,8 @@ async function sendCompanySubscriptionDigest() {
 }
 
 if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  // Hourly so a new posting is emailed within the hour rather than up to a
-  // day later; the dedup log keeps each (user, posting) pair to one email.
-  // Plus one run shortly after boot so a redeploy doesn't skip a window.
-  cron.schedule("5 * * * *", sendCompanySubscriptionDigest);
-  const bootDigest = setTimeout(sendCompanySubscriptionDigest, 60_000);
-  if (typeof bootDigest.unref === "function") bootDigest.unref();
+  // Once a day, 09:00 India time — a single morning digest per company.
+  cron.schedule("0 9 * * *", sendCompanySubscriptionDigest, { timezone: "Asia/Kolkata" });
 } else {
   console.warn(
     "[company-subs] job-alert digest disabled (no SUPABASE_SERVICE_ROLE_KEY)",
