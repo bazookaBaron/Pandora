@@ -337,7 +337,9 @@ function resolveApiKey(provider) {
 
 // ── Health check (no auth, no secrets) ──────────────────────────
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
+  res.set("Cache-Control", "no-store");
+  const sha = process.env.RAILWAY_GIT_COMMIT_SHA || "";
+  res.json({ ok: true, commitSha: /^[a-f0-9]{40}$/.test(sha) ? sha : null });
 });
 
 // ── Entitlements ───────────────────────────────────────────────
