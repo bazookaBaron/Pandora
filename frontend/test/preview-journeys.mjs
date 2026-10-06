@@ -85,7 +85,16 @@ try {
   assert.deepEqual(errors,[],'Unhandled browser exceptions');
   console.log('PASS: built pages, catalog APIs, metadata, sitemap, auth/payment guards and React rendering. Billing, email and AI use no live credentials.');
 } finally {
-  socket?.close(); chrome?.kill('SIGKILL'); server.kill('SIGTERM');
+  socket?.close();
+  const stop = async child => {
+    if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
+    await new Promise(resolve => {
+      const timer = setTimeout(() => { child.kill('SIGKILL'); resolve(); },3000);
+      child.once('exit',() => { clearTimeout(timer); resolve(); });
+      child.kill('SIGTERM');
+    });
+  };
+  await stop(chrome); await stop(server);
   await new Promise(resolve => fixtures.close(resolve));
-  await rm(scratch,{ recursive:true,force:true });
+  await rm(scratch,{ recursive:true,force:true,maxRetries:5,retryDelay:100 });
 }
