@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './contexts/AuthContext'
@@ -26,6 +26,8 @@ const InterviewPage = lazy(() => import('./pages/interview/InterviewPage'))
 const ReferralsPage = lazy(() => import('./pages/referrals/ReferralsPage'))
 const JobsPage = lazy(() => import('./pages/jobs/JobsPage'))
 const JobsCompanyPage = lazy(() => import('./pages/jobs/JobsCompanyPage'))
+const TrendsIndexPage = lazy(() => import('./pages/trends/TrendsPage').then(m => ({ default: m.TrendsIndexPage })))
+const TrendsDayPage = lazy(() => import('./pages/trends/TrendsPage').then(m => ({ default: m.TrendsDayPage })))
 
 const TermsPage = lazy(() => import('./pages/LegalPages').then(m => ({ default: m.TermsPage })))
 const PrivacyPage = lazy(() => import('./pages/LegalPages').then(m => ({ default: m.PrivacyPage })))
@@ -78,6 +80,38 @@ function PlanChangeRefetch() {
     return null
 }
 
+// Tab title on client-side navigation. The server sets the right <title> on a
+// full page load, but an in-app link would otherwise keep the previous page's
+// title. Pages with data-driven titles (company hubs, trend days) set their
+// own after this runs.
+const ROUTE_TITLES = [
+    ['/', 'Live Tech Jobs in the US & India | Vloombox'],
+    ['/jobs/analytics', 'Tech Job Market Analytics | Vloombox'],
+    ['/trends', 'Tech Hiring Trends — Daily Reports | Vloombox'],
+    ['/optimizer', 'AI Résumé Tailoring | Vloombox'],
+    ['/dsa', 'DSA Interview Questions by Company | Vloombox'],
+    ['/lld', 'Low-Level Design Problems | Vloombox'],
+    ['/hld', 'System Design Practice | Vloombox'],
+    ['/interview', 'Interview Question Bank | Vloombox'],
+    ['/referrals', 'Referrals | Vloombox'],
+    ['/profile', 'Your Profile | Vloombox'],
+    ['/pricing', 'Pricing | Vloombox'],
+    ['/blog', 'Blog | Vloombox'],
+    ['/auth', 'Sign in | Vloombox'],
+]
+function RouteTitle() {
+    const { pathname } = useLocation()
+    const firstRef = useRef(true)
+    useEffect(() => {
+        // First load: keep the server-rendered title (it can carry live
+        // numbers or a company name, and it's what crawlers index).
+        if (firstRef.current) { firstRef.current = false; return }
+        const hit = ROUTE_TITLES.find(([p]) => p === pathname)
+        document.title = hit ? hit[1] : 'Vloombox — Tech Jobs & Interview Prep'
+    }, [pathname])
+    return null
+}
+
 // Shown while a lazy route chunk is in flight. Matches ProtectedRoute's markup.
 function RouteFallback() {
     return (
@@ -93,6 +127,7 @@ export default function App() {
             <BrowserRouter>
                 <AuthProvider>
                     <ScrollToTop />
+                    <RouteTitle />
                     <PlanChangeRefetch />
                     <CommandPalette />
                     <SessionExpiredBanner />
@@ -106,7 +141,10 @@ export default function App() {
                         <Route path="/" element={<JobsPage />} />
                         <Route path="/optimizer" element={<HomePage />} />
                         <Route path="/jobs" element={<Navigate to="/" replace />} />
+                        <Route path="/jobs/analytics" element={<JobsPage />} />
                         <Route path="/jobs/company/:slug" element={<JobsCompanyPage />} />
+                        <Route path="/trends" element={<TrendsIndexPage />} />
+                        <Route path="/trends/:date" element={<TrendsDayPage />} />
                         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                         <Route path="/pricing" element={<ProtectedRoute><PricingPage /></ProtectedRoute>} />
                         <Route path="/terms" element={<TermsPage />} />

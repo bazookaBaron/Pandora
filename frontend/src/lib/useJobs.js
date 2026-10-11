@@ -124,3 +124,29 @@ export function useJobsTrend(granularity, enabled) {
     })
     return { ...query, data: query.data || EMPTY_TREND }
 }
+
+// ── Daily trend reports (/trends, /trends/:date) ───────────────────
+export function useTrendsIndex() {
+    const query = useQuery({
+        queryKey: ['trends-index'],
+        queryFn: () => apiFetch('/api/trends'),
+        staleTime: 10 * 60_000,
+        initialData: () => consumeInitialData('trendsIndex'),
+    })
+    return { ...query, data: query.data || { days: [] } }
+}
+
+export function useTrendsDay(date) {
+    return useQuery({
+        queryKey: ['trends-day', date],
+        queryFn: () => apiFetch(`/api/trends/${encodeURIComponent(date)}`),
+        enabled: !!date,
+        staleTime: 10 * 60_000,
+        // Server seeds one specific day — only use it for that day.
+        initialData: () => {
+            const seed = consumeInitialData('trendsDay')
+            return seed && seed.day?.date === date ? seed : undefined
+        },
+        retry: (count, err) => (err && err.status === 404 ? false : count < 1),
+    })
+}
