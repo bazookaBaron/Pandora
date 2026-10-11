@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import Navbar from '../../components/Navbar'
 import { useJobs, useJobsAnalytics, useJobsTrend, useJobFacet } from '../../lib/useJobs'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
@@ -8,6 +8,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useEntitlements } from '../../lib/useEntitlements'
 import { useCompanySubscriptions, useSubscribeToCompany, useUnsubscribeFromCompany } from '../../lib/useCompanySubscriptions'
+import { TRACKED_COMPANIES, JOBS_SCOPE_LABEL } from '../../../config/siteFacts.js'
 
 // ── helpers ────────────────────────────────────────────────────────
 function relTime(iso) {
@@ -631,17 +632,19 @@ function AnalyticsView() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                    <Metric label="Open postings" value={liveReady ? live.total.toLocaleString() : '—'} accent="#22d3ee" />
+                    {/* Same set as the Listings tab (and its job count). */}
+                    <Metric label="Live jobs on the board" value={liveReady ? live.total.toLocaleString() : '—'} accent="#22d3ee" />
+                    <Metric label="Companies hiring" value={liveReady && live.companiesWithJobs != null ? live.companiesWithJobs.toLocaleString() : '—'} accent="#4ade80" />
                     {latest && (
                         <div style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '12px 16px', flex: '1 1 150px' }}>
                             <div style={{ display: 'flex', alignItems: 'baseline', fontVariantNumeric: 'tabular-nums' }}>
                                 <span style={{ fontSize: '1.5rem', fontWeight: 900, color: '#a78bfa', letterSpacing: '-0.02em' }}>
-                                    {latest.newPostings.toLocaleString()}
+                                    {latest.newPerDay.toLocaleString()}
                                 </span>
-                                {prior && <DeltaTag curr={latest.newPostings} prev={prior.newPostings} />}
+                                {prior && <DeltaTag curr={latest.newPerDay} prev={prior.newPerDay} />}
                             </div>
                             <div style={{ fontSize: '0.66rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>
-                                New this {granularity === 'monthly' ? 'month' : 'week'}
+                                New per day, all regions (avg this {granularity === 'monthly' ? 'month' : 'week'})
                             </div>
                         </div>
                     )}
@@ -671,12 +674,16 @@ function AnalyticsView() {
                 )
             ) : (
                 <>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--muted)' }}>
+                        The trend below covers every region the crawler tracks, not just the board's US &amp; India window.{' '}
+                        <Link to="/trends" style={{ color: 'var(--pop)', fontWeight: 700 }}>Daily reports →</Link>
+                    </div>
                     <LineChart
                         title={`Hiring velocity — ${granularity}`}
                         points={points}
                         series={[
-                            { key: 'newPostings', label: 'New postings', color: '#22d3ee' },
-                            { key: 'totalOpen', label: 'Total open', color: '#a78bfa' },
+                            { key: 'newPerDay', label: 'New per day (avg)', color: '#22d3ee' },
+                            { key: 'totalOpen', label: 'Tracked openings', color: '#a78bfa' },
                         ]}
                     />
 
@@ -820,30 +827,34 @@ function pagerBtn(disabled) {
 }
 
 // ── page ───────────────────────────────────────────────────────────
-const TABS = [['listings', 'Listings'], ['analytics', 'Analytics']]
+// Each tab has its own URL so the analytics view can be linked and indexed.
+const TABS = [['listings', 'Listings', '/'], ['analytics', 'Analytics', '/jobs/analytics']]
 
 export default function JobsPage() {
-    const [tab, setTab] = useState('listings')
+    const { pathname } = useLocation()
+    const tab = pathname === '/jobs/analytics' ? 'analytics' : 'listings'
     return (
         <>
             <Navbar />
             <main className="wrap" style={{ maxWidth: 980, margin: '0 auto', padding: '72px 16px 48px' }}>
                 <header style={{ marginBottom: 16 }}>
-                    <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>Jobs</h1>
+                    <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>
+                        {tab === 'analytics' ? 'Job market analytics' : 'Jobs'}
+                    </h1>
                     <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: 6 }}>
-                        Tech openings crawled from ~500 companies, refreshed through the day. Only jobs from the last 24 hours — anything older is dropped.
+                        Tech openings from {TRACKED_COMPANIES} companies' career pages, refreshed through the day. The board shows {JOBS_SCOPE_LABEL}.
                     </p>
                 </header>
 
-                <div className="profile-segment" role="tablist" aria-label="Jobs views" style={{ maxWidth: 320, marginBottom: 18 }}>
-                    {TABS.map(([id, label]) => (
-                        <button key={id} type="button" role="tab" aria-selected={tab === id}
+                <nav className="profile-segment" aria-label="Jobs views" style={{ maxWidth: 320, marginBottom: 18 }}>
+                    {TABS.map(([id, label, to]) => (
+                        <Link key={id} to={to} aria-current={tab === id ? 'page' : undefined}
                             className={'profile-segment-btn' + (tab === id ? ' is-active' : '')}
-                            onClick={() => setTab(id)}>
+                            style={{ textAlign: 'center', textDecoration: 'none' }}>
                             {label}
-                        </button>
+                        </Link>
                     ))}
-                </div>
+                </nav>
 
                 {tab === 'listings' ? <ListingsView /> : <AnalyticsView />}
             </main>

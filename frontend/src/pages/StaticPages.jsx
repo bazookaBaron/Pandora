@@ -105,7 +105,12 @@ export function BlogPage() {
             ) : error ? (
                 <ErrorState err={error} onRetry={refetch} />
             ) : posts.length === 0 ? (
-                <EmptyState icon="📝" title="No posts yet" message="Check back soon." />
+                <EmptyState
+                    icon="📝"
+                    title="No articles yet"
+                    message="In the meantime, the daily tech hiring reports are updated every day."
+                    action={<Link to="/trends" style={{ color: 'var(--pop)', fontWeight: 700, fontSize: '0.85rem' }}>Read the daily reports →</Link>}
+                />
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                     {posts.map((p) => (

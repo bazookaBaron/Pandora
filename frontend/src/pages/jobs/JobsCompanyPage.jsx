@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import Navbar from '../../components/Navbar'
 import { useJobsCompany } from '../../lib/useJobs'
@@ -98,6 +98,11 @@ export default function JobsCompanyPage() {
     const { slug } = useParams()
     const { data, isLoading, error, refetch } = useJobsCompany(slug)
     const { company, postings, eligible } = data
+
+    // Tab title on in-app navigation (a full load gets it from the server).
+    useEffect(() => {
+        if (company?.name) document.title = `${company.name} Jobs — ${postings.length} Open Roles | Vloombox`
+    }, [company?.name, postings.length])
 
     return (
         <>

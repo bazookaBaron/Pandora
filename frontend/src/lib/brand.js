@@ -1,3 +1,5 @@
+import { TRACKED_COMPANIES } from '../../config/siteFacts.js'
+
 // Single source of truth for "what Vloombox is" copy. Imported by the About,
 // Contact, FAQ, legal and footer pages so the description stays consistent.
 
@@ -21,7 +23,7 @@ export const VLOOMBOX_ABOUT = [
     'Inside you get structured practice for data structures & algorithms, low-level (class) design ' +
     'and high-level (system) design, a growing bank of real interview questions grouped by topic, and ' +
     'an AI résumé optimiser that rewrites and scores your résumé against a specific job description. ' +
-    'A jobs board aggregates fresh openings from hundreds of companies, and a referral board lets you ' +
+    `A jobs board aggregates fresh openings from ${TRACKED_COMPANIES} companies, and a referral board lets you ` +
     'ask people already inside a company to refer you — or refer others when you are the one on the inside.',
 ]
 
@@ -32,6 +34,6 @@ export const VLOOMBOX_FEATURES = [
     ['High-level design', 'System-design problems on a canvas, with an AI review of your design.'],
     ['Interview questions', 'Curated questions grouped by topic and difficulty.'],
     ['Résumé optimiser', 'AI tailoring and scoring of your résumé against a job description.'],
-    ['Jobs board', 'Fresh tech openings aggregated from ~500 companies, refreshed through the day.'],
+    ['Jobs board', `Fresh tech openings from ${TRACKED_COMPANIES} companies' career pages, refreshed through the day.`],
     ['Referral board', 'Request a referral for a target company, or give one when people target yours.'],
 ]

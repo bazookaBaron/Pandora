@@ -12,13 +12,15 @@
  * gets crawled.
  */
 
+import { TRACKED_COMPANIES, JOBS_SCOPE_LABEL, roundedCountLabel } from "../config/siteFacts.js";
+
 export const SITE = {
   name: "Vloombox",
   author: "Vloombox", // used for Article author
   twitter: "", // "@handle" if you have one, else "" (tag omitted when empty)
   defaultOgImage: "/og-default.png", // 1200x630, user adds to frontend/public/
   defaultDescription:
-    "Vloombox — AI resume optimizer plus DSA, LLD, HLD and interview prep. Paste a job description and get a tailored, ATS-optimized PDF.",
+    "Vloombox — live tech jobs, DSA, LLD and system-design interview prep, referrals, and AI résumé tailoring in one place.",
 };
 
 // process.env.APP_BASE_URL (trailing slashes stripped) — else the request's
@@ -40,6 +42,13 @@ export function escapeHtml(s) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+// "2026-10-11" -> "Oct 11, 2026" (UTC, so the label never shifts a day).
+export function formatTrendDate(date) {
+  const t = Date.parse(`${date}T00:00:00Z`);
+  if (Number.isNaN(t)) return String(date || "");
+  return new Date(t).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
 }
 
 // Serialize an object as a <script type="application/ld+json"> block, with "<"
@@ -159,6 +168,16 @@ const NOINDEX_EXACT = new Set(["/auth", "/profile", "/dashboard"]);
 const NOINDEX_PREFIXES = ["/referrals", "/hld/"];
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,199}$/;
 
+// Tab titles for noindex (private / workspace) routes.
+function noindexTitle(path) {
+  const p = String(path || "");
+  if (p.startsWith("/referrals")) return "Referrals | Vloombox";
+  if (p === "/profile") return "Your Profile | Vloombox";
+  if (p === "/auth") return "Sign in | Vloombox";
+  if (p.startsWith("/hld/")) return "System Design Practice | Vloombox";
+  return "";
+}
+
 // classifyRoute(pathname) -> { kind, key?, slug? }
 //   kind: "public"  — a crawlable marketing/content route (key: home|pricing|blog|blogPost|...)
 //         "noindex" — a private app route or non-canonical detail view; robots=noindex + self canonical
@@ -170,6 +189,14 @@ export function classifyRoute(pathname) {
   // auth check; free + anonymous visitors see live listings).
   if (p === "/") return { kind: "public", key: "jobs" };
   if (p === "/optimizer") return { kind: "public", key: "home" };
+  if (p === "/jobs/analytics") return { kind: "public", key: "jobsAnalytics" };
+  if (p === "/trends" || p === "/trends/") return { kind: "public", key: "trends" };
+  if (p.startsWith("/trends/")) {
+    const date = p.slice("/trends/".length);
+    // Shape only; server.js 404s a well-formed date with no snapshot.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return { kind: "public", key: "trendsDay", date };
+    return { kind: "passthrough" };
+  }
   if (p === "/dsa") return { kind: "public", key: "dsaList" };
   if (p.startsWith("/dsa/company/")) {
     let slug = p.slice("/dsa/company/".length);
@@ -249,7 +276,7 @@ function metaTag(attr, key, value) {
 // Resolve the human-facing <title> + description + canonical + OG basics for a
 // public route. Shared by buildHeadTags (OG/Twitter/JSON-LD) and renderIndex
 // (the in-place <title> / <meta name="description"> replacement).
-function routeMeta({ key, base, path, post, jobsCompany }) {
+function routeMeta({ key, base, path, post, jobsCompany, live, trend }) {
   if (key === "home") {
     return {
       title: "Vloombox — Tailor Your Resume to Any Job with AI",
@@ -324,13 +351,54 @@ function routeMeta({ key, base, path, post, jobsCompany }) {
     };
   }
   if (key === "jobs") {
+    // `live` = server.js getLiveJobsStats(): the same set the list shows, so
+    // the title can never promise more jobs than the page has.
+    const n = roundedCountLabel(live && live.total);
     return {
-      title: "14,000+ Live Tech Jobs, Refreshed All Day | Vloombox",
+      title: `${n ? `${n} ` : ""}Live Tech Jobs in the US & India, Refreshed Daily | Vloombox`,
       description:
-        "Tech openings crawled from ~500 companies and refreshed through the day — filter by role, seniority, location and source. Only postings from the last 24 hours.",
+        `Tech openings from ${TRACKED_COMPANIES} companies' career pages (${JOBS_SCOPE_LABEL}). ` +
+        "Filter by role, seniority, location and work type.",
       canonical: `${base}/`,
       ogType: "website",
       ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "jobsAnalytics") {
+    return {
+      title: "Tech Job Market Analytics — US & India | Vloombox",
+      description:
+        `Live breakdown of tech hiring across ${TRACKED_COMPANIES} companies: seniority, work type, top hiring companies and the daily trend.`,
+      canonical: `${base}/jobs/analytics`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "trends") {
+    return {
+      title: "Tech Hiring Trends — Daily Reports | Vloombox",
+      description:
+        `A report for every day: new tech postings, open roles, seniority and the companies hiring most, tracked across ${TRACKED_COMPANIES} companies.`,
+      canonical: `${base}/trends`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "trendsDay") {
+    const date = path ? path.split("/").pop() : "";
+    const label = formatTrendDate(date);
+    const d = (trend && trend.day) || {};
+    const top = (d.topCompanies || []).slice(0, 3).map((c) => c.company);
+    return {
+      title: `Tech Hiring on ${label}${d.newPostings ? `: ${d.newPostings.toLocaleString("en-US")} New Postings` : ""} | Vloombox`,
+      description:
+        `${d.newPostings ? `${d.newPostings.toLocaleString("en-US")} new tech postings` : "New tech postings"} on ${label}` +
+        `${d.totalOpen ? ` across ${d.totalOpen.toLocaleString("en-US")} open roles` : ""}` +
+        `${top.length ? `. Most active: ${top.join(", ")}` : ""}.`,
+      canonical: `${base}/trends/${date}`,
+      ogType: "article",
+      ogImage: base + SITE.defaultOgImage,
+      date,
     };
   }
   if (key === "dsaList") {
@@ -448,8 +516,8 @@ function routeMeta({ key, base, path, post, jobsCompany }) {
 
 // Build the newline-joined block of <link>/<meta>/<script> lines injected before
 // </head> for a resolved public route. `post` is only used for key "blogPost".
-export function buildHeadTags({ key, base, path, post, jobsCompany }) {
-  const m = routeMeta({ key, base, path, post, jobsCompany });
+export function buildHeadTags({ key, base, path, post, jobsCompany, live, trend }) {
+  const m = routeMeta({ key, base, path, post, jobsCompany, live, trend });
   const lines = [];
 
   lines.push(`<link rel="canonical" href="${escapeHtml(m.canonical)}" />`);
@@ -495,7 +563,32 @@ export function buildHeadTags({ key, base, path, post, jobsCompany }) {
         mainEntityOfPage: m.canonical,
       }),
     );
-  } else if (["jobs", "dsaList", "lldList", "hldList", "interview", "jobsCompany"].includes(key)) {
+  } else if (key === "trendsDay") {
+    lines.push(
+      jsonLdScript({
+        "@context": "https://schema.org",
+        "@type": "Article",
+        headline: m.title,
+        description: m.description,
+        datePublished: m.date,
+        dateModified: m.date,
+        author: { "@type": "Organization", name: SITE.author },
+        publisher: { "@type": "Organization", name: SITE.name },
+        mainEntityOfPage: m.canonical,
+      }),
+    );
+    lines.push(
+      jsonLdScript({
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Home", item: `${base}/` },
+          { "@type": "ListItem", position: 2, name: "Trends", item: `${base}/trends` },
+          { "@type": "ListItem", position: 3, name: formatTrendDate(m.date), item: m.canonical },
+        ],
+      }),
+    );
+  } else if (["jobs", "jobsAnalytics", "trends", "dsaList", "lldList", "hldList", "interview", "jobsCompany"].includes(key)) {
     lines.push(
       jsonLdScript({
         "@context": "https://schema.org",
@@ -568,7 +661,7 @@ export function buildHeadTags({ key, base, path, post, jobsCompany }) {
 // treatment differs by kind). Passing it in is entirely the caller's
 // choice — server.js decides which routes fetch it and never lets that
 // fetch's failure block the response (see the catch-all route).
-export function renderIndex(template, { classify, base, path, post, jobsCompany, initialData }) {
+export function renderIndex(template, { classify, base, path, post, jobsCompany, live, trend, initialData }) {
   const c = classify || { kind: "passthrough" };
   const withInitialData = (html) =>
     initialData !== undefined ? html.replace("</body>", () => `${initialDataScript(initialData)}\n</body>`) : html;
@@ -580,12 +673,17 @@ export function renderIndex(template, { classify, base, path, post, jobsCompany,
     const inject =
       '<meta name="robots" content="noindex, follow" />\n' +
       `<link rel="canonical" href="${canonical}" />\n</head>`;
-    return withInitialData(template.replace("</head>", () => inject));
+    // Private pages still get a tab title of their own instead of the
+    // template's generic one.
+    const title = noindexTitle(path);
+    let html = template.replace("</head>", () => inject);
+    if (title) html = html.replace(/<title>[\s\S]*?<\/title>/, () => `<title>${escapeHtml(title)}</title>`);
+    return withInitialData(html);
   }
 
   // public
-  const m = routeMeta({ key: c.key, base, path, post, jobsCompany });
-  const headTags = buildHeadTags({ key: c.key, base, path, post, jobsCompany });
+  const m = routeMeta({ key: c.key, base, path, post, jobsCompany, live, trend });
+  const headTags = buildHeadTags({ key: c.key, base, path, post, jobsCompany, live, trend });
   const titleTag = `<title>${escapeHtml(m.title)}</title>`;
   const descTag = metaTag("name", "description", m.description);
 

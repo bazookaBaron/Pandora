@@ -18,6 +18,8 @@ const COLUMNS = [
     {
         title: 'Product',
         links: [
+            ['Hiring Trends', '/trends'],
+            ['Job Market Analytics', '/jobs/analytics'],
             ['Blog', '/blog'],
             ['Question Bank', '/interview'], // the existing Interview Questions page
             ['Referral Marketplace', '/referrals'],

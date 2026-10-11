@@ -2280,11 +2280,13 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
         const cols =
           "id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, posted_at, status, country" +
           (withSeniority ? ", seniority" : "");
-        // count=estimated → PostgREST `Prefer: count=estimated`. pageCount is
-        // now approximate (fast planner estimate, not an exact scan).
         let q = jobsDb()
           .from(JOBS_TABLE)
-          .select(cols, { count: "estimated" })
+          // exact, not estimated: the planner estimate was off by ~20%
+          // (list said ~2,796 while the real set was ~2,280), and the count
+          // must match the analytics headline + SEO title. A few thousand
+          // filtered rows make an exact count cheap.
+          .select(cols, { count: "exact" })
           .eq("status", "open")
           .gte("posted_at", jobsMaxAgeISO()) // board only serves jobs actually posted ≤ N days ago
           .range(rangeFrom, rangeTo);
@@ -2524,69 +2526,73 @@ app.get("/api/jobs/facets", catalogLimiter, optionalAuth, async (req, res) => {
 // GET /api/jobs/analytics → aggregate metrics for the Jobs → Analytics tab.
 // Prefers the crawler.jobs_analytics() SQL function; falls back to a handful
 // of head-only COUNT queries if that function isn't there yet.
+// Live board stats: computed over EXACTLY the set the jobs list shows (open,
+// posted within JOBS_MAX_AGE_DAYS, country in COUNTRIES), so the analytics
+// headline, the list's job count and the SEO title all agree. The crawler's
+// jobs_analytics() RPC counts every open row in any country and of any age
+// (~6x the board), which is where "14,370 open postings" next to a list of
+// ~2,300 came from. The board set is a few thousand rows, so it is fetched
+// and aggregated here rather than via a new SQL function.
+async function getLiveJobsStats() {
+  return cached("jobs-live-stats", 120000, async () => {
+    const rows = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await jobsDb()
+        .from(JOBS_TABLE)
+        .select("company_slug, seniority, location_type, source")
+        .eq("status", "open")
+        .gte("posted_at", jobsMaxAgeISO())
+        .in("country", COUNTRIES)
+        .order("id", { ascending: true })
+        .range(from, from + 999);
+      if (error) throw error;
+      rows.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+
+    const tally = (key, fallback) => {
+      const m = new Map();
+      for (const r of rows) {
+        const k = r[key] || fallback;
+        m.set(k, (m.get(k) || 0) + 1);
+      }
+      return m;
+    };
+    const total = rows.length;
+    const sen = tally("seniority", "unknown");
+    const wt = tally("location_type", "unspecified");
+    const src = tally("source", "unknown");
+    const co = tally("company_slug", "");
+    co.delete("");
+
+    const topSlugs = [...co.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 12);
+    const names = {};
+    if (topSlugs.length) {
+      const { data: cRows } = await jobsDb()
+        .from("company")
+        .select("slug, name")
+        .in("slug", topSlugs.map(([slug]) => slug));
+      for (const c of cRows || []) names[c.slug] = c.name;
+    }
+
+    return {
+      total,
+      companiesWithJobs: co.size,
+      bySeniority: SENIORITY_ORDER.map((bucket) => ({ bucket, count: sen.get(bucket) || 0 })),
+      byWorkType: ["remote", "hybrid", "onsite", "unspecified"].map((type) => ({ type, count: wt.get(type) || 0 })),
+      bySource: [...src.entries()].sort((a, b) => b[1] - a[1]).map(([source, count]) => ({ source, count })),
+      topCompanies: topSlugs.map(([slug, count]) => ({ company: names[slug] || slug, slug, count })),
+      postedByDay: [],
+      midSharePct: total ? Math.round(((sen.get("mid") || 0) / total) * 1000) / 10 : null,
+      scope: { countries: COUNTRIES, maxAgeDays: JOBS_MAX_AGE_DAYS },
+    };
+  });
+}
+
 app.get("/api/jobs/analytics", catalogLimiter, optionalAuth, async (_req, res) => {
   try {
-    const wasHit = hasFresh("jobs-analytics");
-    const payload = await cached("jobs-analytics", 300000, async () => {
-      const rpc = await jobsDb().rpc("jobs_analytics");
-      if (!rpc.error && rpc.data) {
-        const d = rpc.data;
-        return {
-          total: d.total ?? 0,
-          companiesWithJobs: d.companies_with_jobs ?? 0,
-          bySeniority: d.by_seniority ?? [],
-          byWorkType: d.by_work_type ?? [],
-          bySource: d.by_source ?? [],
-          topCompanies: (d.top_companies ?? []).map((c) => ({
-            company: c.name || c.slug,
-            count: c.count,
-          })),
-          postedByDay: d.posted_by_day ?? [],
-          midSharePct: d.mid_share_pct ?? null,
-        };
-      }
-
-      // Fallback: COUNT-only queries (no row transfer).
-      const countWhere = async (apply) => {
-        let q = jobsDb().from(JOBS_TABLE).select("id", { count: "exact", head: true }).eq("status", "open");
-        if (apply) q = apply(q);
-        const { count } = await q;
-        return count || 0;
-      };
-      const total = await countWhere();
-      const workTypes = ["remote", "hybrid", "onsite"];
-      const byWorkType = [];
-      let typed = 0;
-      for (const t of workTypes) {
-        const c = await countWhere((q) => q.eq("location_type", t));
-        typed += c;
-        byWorkType.push({ type: t, count: c });
-      }
-      byWorkType.push({ type: "unspecified", count: Math.max(0, total - typed) });
-
-      let bySeniority = [];
-      let midCount = 0;
-      try {
-        for (const b of SENIORITY_ORDER) {
-          const c = await countWhere((q) => q.eq("seniority", b));
-          if (b === "mid") midCount = c;
-          bySeniority.push({ bucket: b, count: c });
-        }
-      } catch {
-        bySeniority = [];
-      }
-
-      return {
-        total,
-        companiesWithJobs: null,
-        bySeniority,
-        byWorkType,
-        bySource: [],
-        topCompanies: [],
-        postedByDay: [],
-        midSharePct: total ? Math.round((midCount / total) * 1000) / 10 : null,
-      };
-    });
+    const wasHit = hasFresh("jobs-live-stats");
+    const payload = await getLiveJobsStats();
 
     res.set("Cache-Control", "public, max-age=120, s-maxage=300");
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
@@ -2657,6 +2663,7 @@ function resampleJobsSnapshots(rowsAsc, granularity) {
     if (!b) {
       b = {
         period,
+        days: 0,
         totalOpen: 0,
         newPostings: 0,
         closedPostings: 0,
@@ -2668,6 +2675,7 @@ function resampleJobsSnapshots(rowsAsc, granularity) {
       };
       buckets.set(period, b);
     }
+    b.days += 1;
     b.newPostings += Number(row.new_postings) || 0;
     b.closedPostings += Number(row.closed_postings) || 0;
     b.totalOpen = Number(row.total_open) || 0; // rowsAsc is date-ascending → last write wins = latest day
@@ -2683,6 +2691,11 @@ function resampleJobsSnapshots(rowsAsc, granularity) {
       period: b.period,
       totalOpen: b.totalOpen,
       newPostings: b.newPostings,
+      // Each snapshot's new_postings is "posted in the last 24h" across all
+      // regions, so a bucket's sum (~29k/week) reads like a contradiction next
+      // to ~14k open. The per-day average is what the UI shows.
+      days: b.days,
+      newPerDay: b.days ? Math.round(b.newPostings / b.days) : 0,
       closedPostings: b.closedPostings,
       bySeniority: b.bySeniority,
       byWorkType: b.byWorkType,
@@ -2725,6 +2738,90 @@ app.get("/api/jobs/analytics/trend", catalogLimiter, optionalAuth, async (req, r
       return res.json({ granularity, points: [], notReady: true });
     }
     fail(res, err, "jobs/analytics/trend", "Failed to load job trend.");
+  }
+});
+
+// ── Daily trend reports (/trends, /trends/:date) ─────────────────
+// One public page per crawler market snapshot (public.jobs_market_snapshot_daily,
+// one row per day), so each day has a stable, linkable URL. Numbers are the
+// crawler's: openings across every tracked region, and postings with a
+// posting date in the 24h before the snapshot.
+const TREND_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function normalizeTrendRow(r) {
+  const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
+  return {
+    date: String(r.snapshot_date).slice(0, 10),
+    totalOpen: Number(r.total_open) || 0,
+    newPostings: Number(r.new_postings) || 0,
+    closedPostings: Number(r.closed_postings) || 0,
+    bySeniority: obj(r.by_seniority),
+    byWorkType: obj(r.by_work_type),
+    byCountry: obj(r.by_country),
+    byCompanyType: obj(r.by_company_type),
+    topCompanies: (Array.isArray(r.top_companies) ? r.top_companies : [])
+      .map((c) => ({ company: String(c.company || ""), newPostings: Number(c.new_postings) || 0 }))
+      .filter((c) => c.company),
+  };
+}
+
+// All snapshot days, newest first. ~1 row/day, so the whole table is small.
+async function getTrendDays() {
+  return cached("trend-days", 600000, async () => {
+    const { data, error } = await supabaseAdmin
+      .from(JOBS_SNAPSHOT_TABLE)
+      .select(
+        "snapshot_date, total_open, new_postings, closed_postings, by_seniority, by_work_type, by_country, by_company_type, top_companies",
+      )
+      .order("snapshot_date", { ascending: false })
+      .limit(1000);
+    if (error) throw error;
+    return (data || []).map(normalizeTrendRow);
+  });
+}
+
+function trendsIndexPayload(days) {
+  return {
+    days: days.map((d, i) => ({
+      date: d.date,
+      totalOpen: d.totalOpen,
+      newPostings: d.newPostings,
+      prevNewPostings: days[i + 1] ? days[i + 1].newPostings : null,
+    })),
+  };
+}
+
+// null when there's no snapshot for `date`.
+function trendDayPayload(days, date) {
+  const i = days.findIndex((d) => d.date === date);
+  if (i === -1) return null;
+  return {
+    day: days[i],
+    prev: days[i + 1] || null, // older
+    nextDate: i > 0 ? days[i - 1].date : null, // newer
+  };
+}
+
+app.get("/api/trends", catalogLimiter, async (_req, res) => {
+  try {
+    const payload = trendsIndexPayload(await getTrendDays());
+    res.set("Cache-Control", "public, max-age=300, s-maxage=600");
+    res.json(payload);
+  } catch (err) {
+    fail(res, err, "trends", "Failed to load trends.");
+  }
+});
+
+app.get("/api/trends/:date", catalogLimiter, async (req, res) => {
+  try {
+    const date = String(req.params.date || "");
+    if (!TREND_DATE_RE.test(date)) return res.status(404).json({ error: "not_found" });
+    const payload = trendDayPayload(await getTrendDays(), date);
+    if (!payload) return res.status(404).json({ error: "not_found" });
+    res.set("Cache-Control", "public, max-age=300, s-maxage=600");
+    res.json(payload);
+  } catch (err) {
+    fail(res, err, "trends/day", "Failed to load trend report.");
   }
 });
 
@@ -4025,6 +4122,8 @@ app.get("/robots.txt", (req, res) => {
       "User-agent: *",
       "Allow: /",
       "Allow: /jobs/company/",
+      "Allow: /jobs/analytics",
+      "Allow: /trends",
       "Allow: /optimizer",
       "Allow: /pricing",
       "Allow: /terms",
@@ -4065,7 +4164,8 @@ app.get("/sitemap.xml", async (req, res) => {
     { loc: `${base}/hld`, priority: "0.8", changefreq: "weekly" },
     { loc: `${base}/interview`, priority: "0.8", changefreq: "weekly" },
     { loc: `${base}/pricing`, priority: "0.8", changefreq: "monthly" },
-    { loc: `${base}/blog`, priority: "0.7", changefreq: "weekly" },
+    { loc: `${base}/jobs/analytics`, priority: "0.8", changefreq: "daily" },
+    { loc: `${base}/trends`, priority: "0.8", changefreq: "daily" },
     { loc: `${base}/terms`, priority: "0.3", changefreq: "yearly" },
     { loc: `${base}/privacy`, priority: "0.3", changefreq: "yearly" },
     { loc: `${base}/refunds`, priority: "0.3", changefreq: "yearly" },
@@ -4082,6 +4182,8 @@ app.get("/sitemap.xml", async (req, res) => {
       .select("slug,updated_at,published_at")
       .eq("published", true)
       .order("published_at", { ascending: false });
+    // /blog itself is only worth submitting once it has a real post.
+    if ((data || []).length) urls.push({ loc: `${base}/blog`, priority: "0.7", changefreq: "weekly" });
     for (const b of data || []) {
       urls.push({
         loc: `${base}/blog/${encodeURIComponent(b.slug)}`,
@@ -4092,6 +4194,13 @@ app.get("/sitemap.xml", async (req, res) => {
     }
   } catch (e) {
     console.warn("[seo] sitemap blog query failed", redact(String(e && e.message)));
+  }
+  try {
+    for (const d of await getTrendDays()) {
+      urls.push({ loc: `${base}/trends/${d.date}`, lastmod: d.date, priority: "0.6", changefreq: "yearly" });
+    }
+  } catch (e) {
+    console.warn("[seo] sitemap trends query failed", redact(String(e && e.message)));
   }
   try {
     // Only the curated, evidence-eligible companies go in the sitemap — a
@@ -4209,6 +4318,39 @@ app.get(/^(?!\/api).*/, async (req, res, next) => {
       console.warn("[seo] hld initial-data fetch failed", redact(String(e && e.message)));
     }
   }
+  // Live board count for the jobs title. Bounded wait: a slow DB must not
+  // hold the page — the title just drops the number.
+  let live;
+  if (c.kind === "public" && c.key === "jobs") {
+    try {
+      live = await Promise.race([
+        getLiveJobsStats(),
+        new Promise((resolve) => setTimeout(() => resolve(undefined), 1500)),
+      ]);
+    } catch (e) {
+      console.warn("[seo] live jobs stats failed", redact(String(e && e.message)));
+    }
+  }
+  let trend;
+  if (c.kind === "public" && (c.key === "trends" || c.key === "trendsDay")) {
+    let days = null;
+    try {
+      days = await getTrendDays();
+    } catch (e) {
+      console.warn("[seo] trend days fetch failed", redact(String(e && e.message)));
+    }
+    if (c.key === "trends" && days) initialData = { trendsIndex: trendsIndexPayload(days) };
+    if (c.key === "trendsDay") {
+      trend = days ? trendDayPayload(days, c.date) : null;
+      if (!trend) {
+        res.status(404).send(
+          renderIndex(INDEX_TEMPLATE, { classify: { kind: "noindex" }, base: baseUrl(req), path: req.path }),
+        );
+        return;
+      }
+      initialData = { trendsDay: trend };
+    }
+  }
   if (c.kind === "public" && c.key === "jobsCompany") {
     let payload = null;
     try {
@@ -4271,6 +4413,8 @@ app.get(/^(?!\/api).*/, async (req, res, next) => {
     path: req.path,
     post,
     jobsCompany,
+    live,
+    trend,
     initialData,
   });
   res.set("Content-Type", "text/html; charset=utf-8");
