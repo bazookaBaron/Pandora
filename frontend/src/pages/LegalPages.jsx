@@ -7,8 +7,8 @@ import { VLOOMBOX_BLURB } from '../lib/brand'
 export const BIZ = {
     name: 'Vloombox',
     // Razorpay activation needs the registered legal name + address ON this page.
-    legalName: 'Vloombox (operated by Debopriyo Debnath)',
-    founder: 'Debopriyo Debnath',
+    legalName: 'Vloombox',
+    founder: 'Vloombox',
     address: 'India',            // ← replace with the full registered business address before Razorpay submission
     email: 'support.vloombox@gmail.com',
     site: 'https://www.vloombox.in',
@@ -50,7 +50,7 @@ export function TermsPage() {
             <P>These Terms govern your use of {BIZ.name} ({BIZ.site}), a web application for technical-interview preparation and AI-assisted résumé optimisation operated by {BIZ.legalName} (&ldquo;we&rdquo;, &ldquo;us&rdquo;). By creating an account or making a payment you agree to these Terms.</P>
 
             <H>1. The service</H>
-            <P>{BIZ.name} provides practice content and tools including data-structures &amp; algorithms, low-level and high-level design practice, interview questions, a résumé optimiser, a referral request board and a jobs listing. Features available on each plan are described on the <Link to="/pricing" style={{ color: 'var(--pop)' }}>Pricing</Link> page. We may add, change or remove features over time.</P>
+            <P>{BIZ.name} provides practice content and tools including data-structures & algorithms, low-level and high-level design practice, interview questions, a résumé optimiser, a referral request board and a jobs listing. Features available on each plan are described on the <Link to="/pricing" style={{ color: 'var(--pop)' }}>Pricing</Link> page. We may add, change or remove features over time.</P>
 
             <H>2. Accounts</H>
             <P>You must provide accurate information, keep your credentials secure, and are responsible for activity under your account. You must be at least 16 years old (or the age of digital consent in your country) to use {BIZ.name}. One account per person.</P>
@@ -60,7 +60,7 @@ export function TermsPage() {
                 <li>Paid plans (Pro, Max) are sold as a <strong>one-time payment for a fixed term</strong> — monthly (30 days) or yearly (365 days). Nothing renews automatically; access ends when the term expires unless you purchase again.</li>
                 <li>Prices are shown in Indian Rupees (INR) and are processed by our payment partner, Razorpay. Applicable taxes, if any, are included or added at checkout.</li>
                 <li>Access to a paid plan begins immediately after a successful payment is verified.</li>
-                <li>Refunds and cancellations are covered by our <Link to="/refunds" style={{ color: 'var(--pop)' }}>Refund &amp; Cancellation Policy</Link>.</li>
+                <li>Refunds and cancellations are covered by our <Link to="/refunds" style={{ color: 'var(--pop)' }}>Refund & Cancellation Policy</Link>.</li>
             </UL>
 
             <H>4. Acceptable use</H>
@@ -102,7 +102,7 @@ export function PrivacyPage() {
                 <li><strong>Profile data you add:</strong> current company, position, years of experience, notification preference, profile photo.</li>
                 <li><strong>Content you submit:</strong> résumé PDFs, résumé text, job descriptions, referral requests, feedback messages, and practice progress.</li>
                 <li><strong>Payment data:</strong> processed entirely by Razorpay. We receive a payment/order identifier and status; we do <strong>not</strong> receive or store your card, UPI or bank details.</li>
-                <li><strong>Usage &amp; device data:</strong> pages visited, feature usage and basic device/browser info, via product analytics (PostHog).</li>
+                <li><strong>Usage & device data:</strong> pages visited, feature usage and basic device/browser info, via product analytics (PostHog).</li>
             </UL>
 
             <H>2. How we use it</H>
@@ -124,7 +124,7 @@ export function PrivacyPage() {
             <H>5. Your rights</H>
             <P>You can access, correct or delete your personal data, and request a copy or export, by emailing <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a>. You can edit most profile fields in-app. You can turn off referral notification emails in your profile.</P>
 
-            <H>6. Cookies &amp; local storage</H>
+            <H>6. Cookies & local storage</H>
             <P>We use strictly-necessary storage for authentication and preferences (e.g. your light/dark theme), and analytics cookies from PostHog. We do not run third-party advertising trackers.</P>
 
             <H>7. Security</H>
@@ -177,14 +177,14 @@ export function ContactPage() {
         <LegalLayout title="Contact & About">
             <H>About Vloombox</H>
             <P>{VLOOMBOX_BLURB}</P>
-            <P>{BIZ.name} is an independent project operated by {BIZ.founder}. Learn more on the <Link to="/about" style={{ color: 'var(--pop)' }}>About</Link> page.</P>
+            <P>{BIZ.name} is an independent project. Learn more on the <Link to="/about" style={{ color: 'var(--pop)' }}>About</Link> page.</P>
 
             <H>Contact us</H>
             <P>The fastest way to reach us is email — we usually reply within 2 business days.</P>
             <UL>
-                <li><strong>Support &amp; general enquiries:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></li>
+                <li><strong>Support & general enquiries:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></li>
                 <li><strong>Billing questions:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a> — include your registered email and the Razorpay payment ID.</li>
-                <li><strong>Privacy &amp; data requests:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></li>
+                <li><strong>Privacy & data requests:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></li>
                 <li><strong>Website:</strong> <a href={BIZ.site} style={{ color: 'var(--pop)' }}>{BIZ.site}</a></li>
             </UL>
             <P>Registered address: {BIZ.address}</P>
@@ -194,9 +194,9 @@ export function ContactPage() {
 
             <H>Policies</H>
             <UL>
-                <li><Link to="/terms" style={{ color: 'var(--pop)' }}>Terms &amp; Conditions</Link></li>
+                <li><Link to="/terms" style={{ color: 'var(--pop)' }}>Terms & Conditions</Link></li>
                 <li><Link to="/privacy" style={{ color: 'var(--pop)' }}>Privacy Policy</Link></li>
-                <li><Link to="/refunds" style={{ color: 'var(--pop)' }}>Refund &amp; Cancellation Policy</Link></li>
+                <li><Link to="/refunds" style={{ color: 'var(--pop)' }}>Refund & Cancellation Policy</Link></li>
                 <li><Link to="/pricing" style={{ color: 'var(--pop)' }}>Pricing</Link></li>
             </UL>
         </LegalLayout>
