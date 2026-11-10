@@ -1,0 +1,18 @@
+# Vloombox
+> AI resume optimizer, live tech jobs board (refreshed through the day from ~500 companies), DSA/LLD/HLD interview prep, and referrals.
+
+## Primary pages
+- https://www.vloombox.in/ : Live tech jobs board (last 24 hours only)
+- https://www.vloombox.in/optimizer : AI resume tailoring for a specific job description
+- https://www.vloombox.in/dsa : DSA interview questions by company
+- https://www.vloombox.in/lld : Low-level design interview problems
+- https://www.vloombox.in/hld : High-level system design practice
+- https://www.vloombox.in/interview : Interview question bank
+- https://www.vloombox.in/pricing : Free, Pro, and Max plans
+- https://www.vloombox.in/about : About Vloombox
+- https://www.vloombox.in/faq : FAQ
+- https://www.vloombox.in/blog : Blog
+
+## Optional
+- Contact: support.vloombox@gmail.com
+- Sitemap: https://www.vloombox.in/sitemap.xml
