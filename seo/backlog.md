@@ -3,15 +3,17 @@
 Never merge this file via `seo/tracker` → main. Implementation PRs go to `main` separately.
 
 ## P0 — Indexation & trust
-- [ ] Verify production robots/sitemap/llms after Phase 1 deploy
-- [ ] JobPosting `hiringOrganization` = real employer (not Vloombox)
-- [ ] CollectionPage + ItemList patterns for jobs list
-- [ ] FAQPage schema on `/faq`
+- [x] Verify production robots/sitemap/llms after Phase 1 deploy
+- [ ] Explicit AI search bot allows in robots.txt (in PR: seo/ai-bots-and-homepage-schema)
+- [ ] JobPosting `hiringOrganization` = real employer (not Vloombox) on job detail pages
+- [x] CollectionPage patterns for jobs list (present)
+- [x] FAQPage schema on `/faq` (present)
+- [ ] Homepage WebSite + Organization schema (in same PR)
 
 ## P1 — On-page & internal graph
-- [ ] Title/H1/meta alignment audit on top templates
+- [ ] Title/H1/meta alignment audit on top templates (jobs title still hardcodes 14,000+)
 - [ ] Internal links between jobs, trends, blog, FAQ, interview topics
-- [ ] BreadcrumbList on nested routes
+- [ ] BreadcrumbList on more nested routes
 
 ## P2 — Content clusters (GEO + classic)
 - [ ] Pillar: system design interview practice
@@ -21,9 +23,9 @@ Never merge this file via `seo/tracker` → main. Implementation PRs go to `main
 - [ ] Supporting posts per cluster; Article schema
 
 ## P3 — AI search / agentic
-- [ ] Keep llms.txt in sync with product surface area
-- [ ] Explicit entity definition blocks for "Vloombox"
-- [ ] Q&A blocks optimized for AI Overviews / citations
+- [x] Keep llms.txt in sync (refreshed in PR)
+- [x] Explicit entity definition blocks for "Vloombox" (in llms.txt + schema)
+- [ ] Q&A blocks optimized for AI Overviews / citations on key pages
 
 ## P4 — Performance & ops
 - [ ] `/jobs` LCP review
@@ -32,7 +34,7 @@ Never merge this file via `seo/tracker` → main. Implementation PRs go to `main
 
 ## Done
 - [x] Remove personal name from legal/about
-- [x] AI crawler allow rules
+- [x] Basic AI crawler allow (User-agent: *)
 - [x] llms.txt foundation
-- [x] Basic WebSite + Organization schema (jobs)
+- [x] Basic CollectionPage + FAQPage schema
 - [x] Daily automation + tracker branch
