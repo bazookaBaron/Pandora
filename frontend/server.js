@@ -4020,37 +4020,63 @@ const INDEX_TEMPLATE = existsSync(INDEX_HTML)
 // is crawlable).
 app.get("/robots.txt", (req, res) => {
   const base = baseUrl(req);
-  res.type("text/plain").send(
-    [
-      "User-agent: *",
-      "Allow: /",
-      "Allow: /jobs/company/",
-      "Allow: /optimizer",
-      "Allow: /pricing",
-      "Allow: /terms",
-      "Allow: /privacy",
-      "Allow: /refunds",
-      "Allow: /contact",
-      "Allow: /about",
-      "Allow: /faq",
-      "Allow: /questions",
-      "Allow: /legal/",
-      "Allow: /blog",
-      "Allow: /dsa",
-      "Allow: /lld",
-      "Allow: /hld",
-      "Allow: /interview",
-      "Disallow: /api/",
-      "Disallow: /auth",
-      "Disallow: /profile",
-      "Disallow: /dashboard",
-      "Disallow: /referrals",
-      "Disallow: /hld/",
-      "",
-      `Sitemap: ${base}/sitemap.xml`,
-      "",
-    ].join("\n"),
-  );
+  const publicAllows = [
+    "Allow: /",
+    "Allow: /jobs/company/",
+    "Allow: /optimizer",
+    "Allow: /pricing",
+    "Allow: /terms",
+    "Allow: /privacy",
+    "Allow: /refunds",
+    "Allow: /contact",
+    "Allow: /about",
+    "Allow: /faq",
+    "Allow: /questions",
+    "Allow: /legal/",
+    "Allow: /blog",
+    "Allow: /dsa",
+    "Allow: /lld",
+    "Allow: /hld",
+    "Allow: /interview",
+  ];
+  const disallows = [
+    "Disallow: /api/",
+    "Disallow: /auth",
+    "Disallow: /profile",
+    "Disallow: /dashboard",
+    "Disallow: /referrals",
+    "Disallow: /hld/",
+  ];
+  const aiBots = [
+    "OAI-SearchBot",
+    "ChatGPT-User",
+    "GPTBot",
+    "Claude-SearchBot",
+    "ClaudeBot",
+    "anthropic-ai",
+    "PerplexityBot",
+    "Perplexity-User",
+    "Google-Extended",
+    "GoogleOther",
+    "Bytespider",
+    "Applebot-Extended",
+    "CCBot",
+  ];
+  const lines = [
+    "User-agent: *",
+    ...publicAllows,
+    ...disallows,
+    "",
+  ];
+  for (const bot of aiBots) {
+    lines.push(`User-agent: ${bot}`);
+    lines.push(...publicAllows);
+    lines.push(...disallows);
+    lines.push("");
+  }
+  lines.push(`Sitemap: ${base}/sitemap.xml`);
+  lines.push("");
+  res.type("text/plain").send(lines.join("\n"));
 });
 
 // ── sitemap.xml (dynamic: static public pages + every published blog post,
@@ -4510,3 +4536,4 @@ app.listen(PORT, "0.0.0.0", () => {
   }
   console.log(`Reading baseline resume from: ${SOURCE_DIR}`);
 });
+
