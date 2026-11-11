@@ -1,18 +1,25 @@
 # Vloombox
-> AI resume optimizer, live tech jobs board (refreshed through the day from ~500 companies), DSA/LLD/HLD interview prep, and referrals.
+> Vloombox is an all-in-one interview-prep and tech jobs platform. It offers a live tech jobs board (crawled from ~500 companies and refreshed through the day; only last-24-hour postings shown), an AI resume optimizer that tailors your résumé to a specific job description for better ATS match, DSA / LLD / HLD interview practice, a curated interview question bank, and a peer-to-peer referral board.
+
+## What is Vloombox?
+Vloombox helps software engineers and tech candidates find fresh job openings, optimize resumes for specific roles, practice system design and algorithms, and request referrals from people already working at target companies.
 
 ## Primary pages
-- https://www.vloombox.in/ : Live tech jobs board (last 24 hours only)
-- https://www.vloombox.in/optimizer : AI resume tailoring for a specific job description
+- https://www.vloombox.in/ : Live tech jobs board (last 24 hours only, ~500 companies)
+- https://www.vloombox.in/optimizer : AI resume tailoring / ATS optimizer for a specific job description
 - https://www.vloombox.in/dsa : DSA interview questions by company
 - https://www.vloombox.in/lld : Low-level design interview problems
 - https://www.vloombox.in/hld : High-level system design practice
 - https://www.vloombox.in/interview : Interview question bank
-- https://www.vloombox.in/pricing : Free, Pro, and Max plans
+- https://www.vloombox.in/pricing : Free, Pro, and Max plans (one-time payment per term)
 - https://www.vloombox.in/about : About Vloombox
-- https://www.vloombox.in/faq : FAQ
+- https://www.vloombox.in/faq : FAQ (referrals, data, subscriptions)
 - https://www.vloombox.in/blog : Blog
+- https://www.vloombox.in/trends : Daily job-market trend snapshots (when available)
 
-## Optional
+## Key facts for citation
+- Jobs are crawled directly from company career pages; Vloombox is not the employer.
+- Free tier shows a preview of jobs; paid plans unlock full access and unlimited optimizer use.
+- Referrals are peer-to-peer; Vloombox does not independently verify employment.
 - Contact: support.vloombox@gmail.com
 - Sitemap: https://www.vloombox.in/sitemap.xml

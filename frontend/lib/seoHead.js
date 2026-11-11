@@ -506,6 +506,28 @@ export function buildHeadTags({ key, base, path, post, jobsCompany }) {
         isPartOf: { "@type": "WebSite", name: SITE.name, url: `${base}/` },
       }),
     );
+    if (key === "jobs") {
+      // Primary homepage is the jobs board — also emit site-wide entity schema.
+      lines.push(
+        jsonLdScript({
+          "@context": "https://schema.org",
+          "@type": "WebSite",
+          name: SITE.name,
+          url: `${base}/`,
+          description: m.description,
+        }),
+      );
+      lines.push(
+        jsonLdScript({
+          "@context": "https://schema.org",
+          "@type": "Organization",
+          name: SITE.name,
+          url: `${base}/`,
+          logo: base + SITE.defaultOgImage,
+          description: "Vloombox is an interview-prep and tech jobs platform: live jobs board refreshed daily from ~500 companies, AI resume optimizer, DSA/LLD/HLD practice, and a peer referral board.",
+        }),
+      );
+    }
   } else if (key === "dsaCompany" || key === "lldProblem") {
     lines.push(
       jsonLdScript({
@@ -595,3 +617,4 @@ export function renderIndex(template, { classify, base, path, post, jobsCompany,
     .replace("</head>", () => `${headTags}\n</head>`);
   return withInitialData(html);
 }
+
