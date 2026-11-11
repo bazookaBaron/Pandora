@@ -1,43 +1,43 @@
 # Vloombox SEO Status
 
-**Last updated:** 2026-11-11  
+**Last updated:** 2026-11-11 (daily run)  
 **Site:** https://www.vloombox.in  
 **Repo:** bazookaBaron/Pandora  
 **Rule:** This branch (`seo/tracker`) is tracking-only. Never merge into `main`.
 
 ## Phase
-- **Completed:** Phase 1 foundation (personal name removal from legal/about, AI search bots in robots.txt, `llms.txt`, WebSite+Organization schema on jobs route, H1/copy alignment, StaticPages restore).
-- **Current:** Daily automation active (`vloombox-seo-daily`, 08:30 Asia/Kolkata).
+- **Completed:** Phase 1 foundation (name removal, basic AI bots claim, llms.txt, CollectionPage + FAQPage schema, H1/copy).
+- **Current:** Daily automation active. Explicit AI-bot robots + homepage entity schema + richer llms.txt shipped to branch (PR form pending).
 
-## Live health (seed)
-| Check | Target |
+## Live health (2026-11-11)
+| Check | Status |
 |--------|--------|
-| robots.txt AI bots | Allow OAI-SearchBot, Claude-SearchBot, PerplexityBot |
-| /llms.txt | Present + accurate site description |
-| Personal name on legal/about | Absent |
-| Job hub indexability gate | Intact |
-| Schema | Expand JobPosting accuracy, FAQPage, Article |
+| robots.txt | Live matches code: User-agent: * Allow public / Disallow private. No explicit AI-bot blocks yet (PR addresses). |
+| /llms.txt | Present, basic. PR expands entity definition. |
+| Personal name on legal/about | Not detected in fetches (SPA; assume Phase 1 hold). |
+| Schema | CollectionPage on jobs/dsa/etc.; FAQPage on /faq; WebSite+Organization currently on /optimizer (home key). Jobs homepage PR adds them. |
+| Sitemap | Static + company pages, no lastmod. |
+| Brand pollution | Confirmed: third-party boards list jobs "at Vloombox". |
 
 ## Active priorities
-1. JobPosting + CollectionPage completeness for `/jobs`
-2. FAQPage JSON-LD on `/faq` (export `FAQPage` matches router)
-3. Blog/trends Article schema + topic cluster plan
-4. IndexNow + sitemap `lastmod` discipline
-5. Internal links: jobs ↔ blog ↔ FAQ ↔ trends ↔ interview
-6. GEO citability (definitions, Q&A blocks, entity clarity)
-7. `/jobs` LCP awareness
-8. Brand-SERP pollution monitoring
+1. Merge PR for AI bots + homepage schema + llms.txt
+2. JobPosting schema accuracy (hiringOrganization = real employer) on /jobs/:id
+3. Sitemap lastmod + IndexNow
+4. Internal link graph + topic clusters
+5. GEO Q&A blocks
+6. Brand-SERP pollution monitoring / disambiguation
 
 ## Last actions
-- Phase 1 PR merged to main.
-- Daily automation created.
-- Tracker branch bootstrapped.
+- Live state check completed.
+- Pushed branch `seo/ai-bots-and-homepage-schema` with 3 safe changes.
+- PR creation form rendered (awaiting submit).
+- PostHog: no recent events (project quiet or instrumentation gap).
+- SERP: brand pollution observed; no strong organic for priority non-brand terms in spot check.
 
-## Next actions (for next automation run)
-- Live fetch robots/sitemap/llms/homepage/jobs/faq/about
-- PostHog top pages (7d)
-- SERP spot-check priority keywords
-- Ship ≤3 safe PR actions or monitoring-only entry
+## Next actions
+- Confirm PR created and CI green; merge if safe.
+- Next run: JobPosting schema sketch + lastmod on sitemap.
 
 ## Blockers
-- GSC service-account private key not available to the agent (use PostHog + live site + public SERP instead).
+- GSC private key unavailable (use PostHog + live + public SERP).
+- PostHog shows zero events in last 30d — traffic signals limited.
