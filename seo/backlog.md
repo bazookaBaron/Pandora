@@ -5,7 +5,8 @@ Never merge this file via `seo/tracker` → main. Implementation PRs go to `main
 ## P0 — Indexation & trust
 - [x] Verify production robots/sitemap/llms after Phase 1 deploy
 - [x] Explicit AI search bot allows in robots.txt (confirmed live 2026-11-12)
-- [ ] JobPosting `hiringOrganization` = real employer (not Vloombox) on job detail pages — anti brand pollution
+- [ ] JobPosting `hiringOrganization` = real employer -- BLOCKED: no public job-detail route exists (/jobs -> /). Only relevant if per-job pages are added; otherwise handle pollution via disambiguation copy.
+- [ ] PR #12: PostHog SPA pageviews (open) -- prerequisite for any traffic-based decision
 - [x] CollectionPage patterns for jobs list (present)
 - [x] FAQPage schema on `/faq` (present)
 - [x] Homepage WebSite + Organization schema (live)
@@ -30,7 +31,7 @@ Never merge this file via `seo/tracker` → main. Implementation PRs go to `main
 ## P4 — Performance & ops
 - [ ] `/jobs` LCP review
 - [ ] IndexNow on meaningful URL changes
-- [ ] Sitemap lastmod accuracy
+- [ ] Sitemap lastmod accuracy: only blog + /lld/* carry it; /dsa/company/* (323) and /jobs/company/* lack it. Needs a real updated_at source before adding.
 
 ## Done
 - [x] Remove personal name from legal/about

@@ -1,6 +1,6 @@
 # Vloombox SEO Status
 
-**Last updated:** 2026-11-12 (daily run)  
+**Last updated:** 2026-11-13 (daily run)  
 **Site:** https://www.vloombox.in  
 **Repo:** bazookaBaron/Pandora  
 **Rule:** This branch (`seo/tracker`) is tracking-only. Never merge into `main`.
@@ -20,13 +20,18 @@
 | Brand pollution | Confirmed: weekday.works, foundit list jobs "at Vloombox" (employer misattribution). |
 
 ## Active priorities
-1. JobPosting schema with hiringOrganization = real employer on job details (anti-pollution).
+1. Merge PR #12 (pageviews), then read 7d of real traffic. JobPosting: no public job-detail pages exist; revisit only if per-job pages are added.
 2. Sitemap lastmod discipline + IndexNow consideration.
 3. Internal link graph + topic cluster outlines (DSA, system design, resume, referrals, trends).
 4. GEO Q&A blocks + entity clarity.
 5. Title/H1 alignment (dynamic job count).
 
-## Last actions
+## Last actions (2026-11-13)
+- Found PostHog `$pageview` = 0 for 30d (capture_pageview:false, helper unused). Opened PR #12 to fix. Awaiting review/merge; also confirm VITE_POSTHOG_KEY is set in Railway.
+- Reclassified JobPosting item: no public job-detail route exists.
+- No SERP visibility change; no personal-name leak.
+
+## Previous actions (2026-11-12)
 - Live state check: robots/llms/sitemap/about healthy.
 - SERP spot-checks: no strong organic for priority non-brand terms; brand pollution persists.
 - PostHog: prior quiet signal; no new traffic data this run.
@@ -39,5 +44,5 @@
 
 ## Blockers
 - No GSC private key (rely on live fetches + public SERP + PostHog).
-- PostHog traffic signals limited (quiet project).
+- PostHog traffic baseline unavailable until PR #12 ships (and VITE_POSTHOG_KEY is confirmed set).
 - Brand pollution requires accurate schema + possible content disambiguation; third-party control limited.
