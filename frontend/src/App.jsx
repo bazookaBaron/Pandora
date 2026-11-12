@@ -8,6 +8,7 @@ import Footer from './components/Footer'
 import { RouteErrorBoundary } from './components/shared/ErrorBoundary'
 import SessionExpiredBanner from './components/shared/SessionExpiredBanner'
 import { usePlanChangeRefetch } from './lib/useEntitlements'
+import { trackPageview } from './lib/analytics'
 
 // Phase 1.5: every page component is code-split behind React.lazy so the
 // production entry chunk no longer ships reactflow / monaco / jszip /
@@ -73,6 +74,17 @@ function ScrollToTop() {
     return null
 }
 
+// SPA pageviews: posthog-js is initialised with capture_pageview:false, and
+// nothing called trackPageview(), so PostHog recorded zero $pageview events
+// (verified 2026-11-13: none in 30 days). Fire one per client-side navigation.
+function PageviewTracker() {
+    const { pathname } = useLocation()
+    useEffect(() => {
+        trackPageview()
+    }, [pathname])
+    return null
+}
+
 function PlanChangeRefetch() {
     usePlanChangeRefetch()
     return null
@@ -93,6 +105,7 @@ export default function App() {
             <BrowserRouter>
                 <AuthProvider>
                     <ScrollToTop />
+                    <PageviewTracker />
                     <PlanChangeRefetch />
                     <CommandPalette />
                     <SessionExpiredBanner />
