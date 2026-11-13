@@ -27,7 +27,7 @@
 5. Title/H1 alignment (dynamic job count).
 
 ## Latest run (2026-11-13 run 2)
-- Merged PR #13 (homepage title no longer hardcodes 14,000+). GSC export tables not present yet; PostHog has no $pageview yet. Jobs snapshot dropped 13,930 -> 3,838 on 11-12 (investigate). Blog and outreach skipped (see history).
+- PR #13 open, CI green, merge blocked by permissions (homepage title no longer hardcodes 14,000+). GSC export tables not present yet; PostHog has no $pageview yet. Jobs snapshot dropped 13,930 -> 3,838 on 11-12 (investigate). Blog and outreach skipped (see history).
 
 ## Last actions (2026-11-13)
 - Found PostHog `$pageview` = 0 for 30d (capture_pageview:false, helper unused). Opened PR #12 to fix. Awaiting review/merge; also confirm VITE_POSTHOG_KEY is set in Railway.
