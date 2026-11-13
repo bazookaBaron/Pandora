@@ -6,13 +6,15 @@ Never merge this file via `seo/tracker` → main. Implementation PRs go to `main
 - [x] Verify production robots/sitemap/llms after Phase 1 deploy
 - [x] Explicit AI search bot allows in robots.txt (confirmed live 2026-11-12)
 - [ ] JobPosting `hiringOrganization` = real employer -- BLOCKED: no public job-detail route exists (/jobs -> /). Only relevant if per-job pages are added; otherwise handle pollution via disambiguation copy.
-- [ ] PR #12: PostHog SPA pageviews (open) -- prerequisite for any traffic-based decision
+- [x] PR #12: PostHog SPA pageviews (merged; verify events arrive) -- prerequisite for any traffic-based decision
 - [x] CollectionPage patterns for jobs list (present)
 - [x] FAQPage schema on `/faq` (present)
 - [x] Homepage WebSite + Organization schema (live)
 
 ## P1 — On-page & internal graph
-- [ ] Title/H1/meta alignment audit on top templates (jobs title still hardcodes 14,000+ in places)
+- [x] Homepage title no longer hardcodes job count (PR #13)
+- [ ] Investigate jobs snapshot drop 13,930 -> 3,838 (2026-11-12)
+- [ ] Title/H1/meta alignment audit on other templates
 - [ ] Internal links between jobs, trends, blog, FAQ, interview topics
 - [ ] BreadcrumbList on more nested routes
 

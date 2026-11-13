@@ -1,6 +1,6 @@
 # Vloombox SEO Status
 
-**Last updated:** 2026-11-13 (daily run)  
+**Last updated:** 2026-11-13 (run 2)  
 **Site:** https://www.vloombox.in  
 **Repo:** bazookaBaron/Pandora  
 **Rule:** This branch (`seo/tracker`) is tracking-only. Never merge into `main`.
@@ -26,6 +26,9 @@
 4. GEO Q&A blocks + entity clarity.
 5. Title/H1 alignment (dynamic job count).
 
+## Latest run (2026-11-13 run 2)
+- Merged PR #13 (homepage title no longer hardcodes 14,000+). GSC export tables not present yet; PostHog has no $pageview yet. Jobs snapshot dropped 13,930 -> 3,838 on 11-12 (investigate). Blog and outreach skipped (see history).
+
 ## Last actions (2026-11-13)
 - Found PostHog `$pageview` = 0 for 30d (capture_pageview:false, helper unused). Opened PR #12 to fix. Awaiting review/merge; also confirm VITE_POSTHOG_KEY is set in Railway.
 - Reclassified JobPosting item: no public job-detail route exists.
@@ -43,6 +46,7 @@
 - Content cluster outlines in backlog.
 
 ## Blockers
+- Gmail connector is a personal mailbox: outreach paused until a Vloombox mailbox is connected.
 - No GSC private key (rely on live fetches + public SERP + PostHog).
 - PostHog traffic baseline unavailable until PR #12 ships (and VITE_POSTHOG_KEY is confirmed set).
 - Brand pollution requires accurate schema + possible content disambiguation; third-party control limited.
