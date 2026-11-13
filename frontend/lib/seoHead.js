@@ -325,7 +325,7 @@ function routeMeta({ key, base, path, post, jobsCompany }) {
   }
   if (key === "jobs") {
     return {
-      title: "14,000+ Live Tech Jobs, Refreshed All Day | Vloombox",
+      title: "Live Tech Jobs from ~500 Companies, Refreshed Daily | Vloombox",
       description:
         "Tech openings crawled from ~500 companies and refreshed through the day — filter by role, seniority, location and source. Only postings from the last 24 hours.",
       canonical: `${base}/`,
