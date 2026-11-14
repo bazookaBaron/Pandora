@@ -12,7 +12,7 @@ Never merge this file via `seo/tracker` → main. Implementation PRs go to `main
 - [x] Homepage WebSite + Organization schema (live)
 
 ## P1 — On-page & internal graph
-- [ ] Merge PR #13 (title no hardcoded count; CI green)
+- [x] Merge PR #13 (merged 2026-11-14)
 - [ ] Investigate jobs snapshot drop 13,930 -> 3,838 (2026-11-12)
 - [ ] Title/H1/meta alignment audit on other templates
 - [ ] Internal links between jobs, trends, blog, FAQ, interview topics

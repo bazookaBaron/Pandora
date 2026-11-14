@@ -1,6 +1,6 @@
 # Vloombox SEO Status
 
-**Last updated:** 2026-11-13 (run 2)  
+**Last updated:** 2026-11-14  
 **Site:** https://www.vloombox.in  
 **Repo:** bazookaBaron/Pandora  
 **Rule:** This branch (`seo/tracker`) is tracking-only. Never merge into `main`.
@@ -26,7 +26,10 @@
 4. GEO Q&A blocks + entity clarity.
 5. Title/H1 alignment (dynamic job count).
 
-## Latest run (2026-11-13 run 2)
+## Latest run (2026-11-14)
+- PR #13 merged (squash, CI green): homepage title no longer hardcodes a job count. GSC export dataset still has zero tables (empty list). PostHog `$pageview` still not seen in 30d. Jobs snapshot is volatile: 5,117 (11-09) -> 13,988 (11-10) -> 13,930 (11-11) -> 3,838 (11-12) -> 13,534 (11-13); crawl/ingestion instability, so no stats in public content. Brand SERP check: vloombox.in not in top 10 for its own name. No blog, 0 outreach (personal mailbox; no replies/support mail).
+
+## Previous run (2026-11-13 run 2)
 - PR #13 open, CI green, merge blocked by permissions (homepage title no longer hardcodes 14,000+). GSC export tables not present yet; PostHog has no $pageview yet. Jobs snapshot dropped 13,930 -> 3,838 on 11-12 (investigate). Blog and outreach skipped (see history).
 
 ## Last actions (2026-11-13)
