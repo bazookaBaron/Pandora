@@ -14,11 +14,12 @@ workers_dev = false          # email-only worker: no public HTTP route
 [observability]
 enabled = true
 
-# Raw .eml storage: mail/YYYY/MM/DD/<uuid>.eml
-# create once: npx wrangler r2 bucket create aa-mail
-[[r2_buckets]]
-binding = "AA_MAIL"
-bucket_name = "aa-mail"
+# Optional raw .eml archive (mail/YYYY/MM/DD/<uuid>.eml). R2 asks for a card even on the free tier, so it is
+# off: the worker runs fine without it. To turn it on later: npx wrangler r2 bucket create aa-mail, then
+# uncomment these three lines and deploy again.
+# [[r2_buckets]]
+# binding = "AA_MAIL"
+# bucket_name = "aa-mail"
 
 [vars]
 # Base URL of the Pandora API (Railway). The worker POSTs to {AA_API_BASE}/api/inbound/email.

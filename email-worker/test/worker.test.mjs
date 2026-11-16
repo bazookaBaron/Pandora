@@ -130,3 +130,24 @@ test('email(): R2 failure still delivers with raw_key null', async (t) => {
   await Promise.all(pending);
   assert.equal(body.raw_key, null);
 });
+
+test('works with no R2 bucket bound: posts with raw_key null', async () => {
+  const { default: worker } = await import('../src/index.js');
+  const posted = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => { posted.push(JSON.parse(init.body)); return new Response('{"ok":true}', { status: 200 }); };
+  try {
+    const raw = 'From: Acme Careers <no-reply@myworkday.com>\r\nTo: first.k7q2@apply.vloombox.in\r\nSubject: Your verification code\r\nContent-Type: text/plain\r\n\r\nYour verification code is 482913\r\n';
+    const message = {
+      from: 'no-reply@myworkday.com', to: 'first.k7q2@apply.vloombox.in', rawSize: raw.length,
+      raw: new Response(raw).body, headers: new Headers({ subject: 'Your verification code' }),
+      setReject() { throw new Error('should not reject'); },
+    };
+    const waits = [];
+    await worker.email(message, { AA_API_BASE: 'https://api.test', AA_INBOUND_SECRET: 's' }, { waitUntil: (p) => waits.push(p) });
+    await Promise.all(waits);
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].raw_key, null);
+    assert.ok(posted[0].codes.includes('482913'));
+  } finally { globalThis.fetch = realFetch; }
+});

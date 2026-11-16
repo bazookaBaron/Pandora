@@ -73,8 +73,10 @@ export default {
     }
 
     const now = new Date();
-    let rawKey = rawKeyFor(now, crypto.randomUUID());
-    try {
+    // Raw copies are optional: without an R2 bucket bound (R2 needs a card on file) the codes, links and text
+    // excerpt still reach the API; only the full .eml archive is skipped.
+    let rawKey = env.AA_MAIL ? rawKeyFor(now, crypto.randomUUID()) : null;
+    if (rawKey) try {
       await env.AA_MAIL.put(rawKey, raw, {
         httpMetadata: { contentType: 'message/rfc822' },
         customMetadata: { to, envelope_from: String(message.from || '').slice(0, 256) },
