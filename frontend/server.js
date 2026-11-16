@@ -65,6 +65,8 @@ import {
   createInboundHandler,
   handleAutoApplyWebhook,
   runAutoApplyRefunds,
+  runMailCleanup,
+  runDailyMailAlerts,
 } from "./routes/autoapply.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -4574,6 +4576,17 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY && razorpay.isEnabled()) {
   cron.schedule("*/15 * * * *", () => runAutoApplyRefunds(), { timezone: "Asia/Kolkata" });
 } else {
   console.warn("[autoapply] refunds cron disabled (no SUPABASE_SERVICE_ROLE_KEY or Razorpay keys)");
+}
+
+// AutoApply mail (mail lives only inside Vloombox; see docs/autoapply-contract.md).
+// Daily cleanup deletes expired rows from the mail db (it also keeps a free Supabase mail project from
+// pausing); the daily alert sends ONE short email per user with new important mail (Resend free tier: max
+// 100 sends per run, leftovers go to the next run).
+if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.AUTOAPPLY_ENABLED === "1") {
+  cron.schedule("40 3 * * *", () => runMailCleanup().then((r) => console.log("[autoapply] mail cleanup", r), (e) => console.error("[autoapply] mail cleanup failed:", (e && e.message) || e)), { timezone: "Asia/Kolkata" });
+  cron.schedule("0 19 * * *", () => runDailyMailAlerts({ baseUrl: APP_BASE_URL }).then((r) => console.log("[autoapply] daily mail alerts", r), (e) => console.error("[autoapply] daily mail alerts failed:", (e && e.message) || e)), { timezone: "Asia/Kolkata" });
+} else {
+  console.warn("[autoapply] mail cleanup + alert crons disabled (AUTOAPPLY_ENABLED!=1 or no SUPABASE_SERVICE_ROLE_KEY)");
 }
 
 const PORT = process.env.PORT || 3000;

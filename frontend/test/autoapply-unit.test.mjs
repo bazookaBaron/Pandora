@@ -15,7 +15,6 @@ import { verifyInbound, signInbound, parseAlias } from "../lib/autoapply/inbound
 import { refundAmount } from "../lib/autoapply/refunds.js";
 import { istMonthStart, istDayStart, packPrice } from "../lib/autoapply/limits.js";
 import { draftFromText, extractText } from "../lib/autoapply/resumeParse.js";
-import { buildForward } from "../lib/autoapply/forward.js";
 import { matchesPrefs, slugFirstName } from "../routes/autoapply.js";
 import { AUTO_APPLY } from "../config/tiers.js";
 
@@ -149,18 +148,6 @@ test("resume: docx text extraction (jszip)", async () => {
   const buf = await zip.generateAsync({ type: "nodebuffer" });
   const text = await extractText(buf, "docx");
   assert.match(text, /Ravi Kumar\nravi@example.com & more/);
-});
-
-test("forward: headers are sanitised", () => {
-  const m = buildForward({
-    payload: { from: "jane@acme.com", from_name: 'Jane "HR"\r\nBcc: x@y', subject: "Interview\r\nBcc: z", text_excerpt: "<b>Hi</b>", to: "a.b@apply.vloombox.in" },
-    contactEmail: "me@gmail.com",
-    domain: "apply.vloombox.in",
-  });
-  assert.equal(m.from, '"Jane HR Bcc: x@y via Vloombox" <relay@apply.vloombox.in>');
-  assert.equal(m.replyTo, "jane@acme.com");
-  assert.equal(m.subject, "Interview Bcc: z");
-  assert.match(m.html, /&lt;b&gt;Hi&lt;\/b&gt;/);
 });
 
 test("supply: prefs matching + alias slug", () => {

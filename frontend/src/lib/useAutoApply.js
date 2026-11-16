@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
 import { ApiError, apiFetch } from './apiClient'
 import { supabase } from './supabase'
@@ -36,7 +36,8 @@ export const aaKeys = {
     batches: ['aa', 'batches'],
     batch: (id) => ['aa', 'batch', id],
     needsYou: ['aa', 'needs-you'],
-    inbox: (limit) => ['aa', 'inbox', limit],
+    inbox: (tab, q, limit) => ['aa', 'inbox', tab, q, limit],
+    inboxMail: (id) => ['aa', 'inbox-mail', id],
     accounts: ['aa', 'accounts'],
 }
 
@@ -104,15 +105,37 @@ export function useNeedsYou() {
     })
 }
 
-export function useInbox(limit = 50, { refetchInterval = 30_000 } = {}) {
+/** Inbox list (tab: 'important' | 'all' | 'codes', q: search text), paginated with ?before=. */
+export function useInbox({ tab = 'all', q = '', limit = 30, refetchInterval = 30_000 } = {}) {
     const uid = useUid()
-    return useQuery({
-        queryKey: [...aaKeys.inbox(limit), uid],
-        queryFn: () => aa(`/inbox?limit=${Number(limit)}`),
+    return useInfiniteQuery({
+        queryKey: [...aaKeys.inbox(tab, q, limit), uid],
+        queryFn: ({ pageParam }) => {
+            const p = new URLSearchParams({ tab, limit: String(limit) })
+            if (q) p.set('q', q)
+            if (pageParam) p.set('before', pageParam)
+            return aa('/inbox?' + p.toString())
+        },
+        initialPageParam: null,
+        getNextPageParam: (last) => last?.next_before || undefined,
         enabled: !!uid,
         refetchInterval,
     })
 }
+
+export function useInboxMail(id) {
+    const uid = useUid()
+    return useQuery({
+        queryKey: [...aaKeys.inboxMail(id), uid],
+        queryFn: () => aa('/inbox/' + encodeURIComponent(id)),
+        enabled: !!uid && !!id,
+    })
+}
+
+// Web push endpoints (see usePush.js)
+export const fetchPushKey = () => aa('/push/key')
+export const pushSubscribe = (sub) => aa('/push/subscribe', { method: 'POST', json: sub })
+export const pushUnsubscribe = (endpoint) => aa('/push/unsubscribe', { method: 'POST', json: { endpoint } })
 
 export function useAccounts() {
     const uid = useUid()

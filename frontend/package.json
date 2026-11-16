@@ -15,7 +15,7 @@
         "start": "node server.js",
         "test:resume": "node test/resume-isolation.test.mjs",
         "test:seo": "node test/seo-routes.test.mjs",
-        "test:autoapply": "node --test test/autoapply-unit.test.mjs test/autoapply-api.test.mjs"
+        "test:autoapply": "node --test test/autoapply-unit.test.mjs test/autoapply-mail.test.mjs test/autoapply-api.test.mjs"
     },
     "dependencies": {
         "@monaco-editor/react": "^4.7.0",
@@ -46,7 +46,8 @@
         "react-router-dom": "^7.6.3",
         "react-zoom-pan-pinch": "^4.0.4",
         "reactflow": "^11.11.4",
-        "remark-gfm": "^4.0.1"
+        "remark-gfm": "^4.0.1",
+        "web-push": "3.6.7"
     },
     "devDependencies": {
         "@types/react": "^19.2.18",

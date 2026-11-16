@@ -23,6 +23,8 @@ const USERS = { [PRO]: "pro", [FREE]: "free", [CAPPED]: "max" };
 const VAULT_KEY = crypto.randomBytes(32).toString("base64");
 const INBOUND_SECRET = "test-inbound-secret";
 
+const mailDb = createFakeDb();
+const pushes = [];
 const db = createFakeDb({
   aa_batches: [
     { user_id: CAPPED, pack_kind: "service", pack_size: 100, price_paise: 99900, credits_total: 960, status: "running", purchased_at: new Date().toISOString() },
@@ -69,12 +71,14 @@ let server;
 let base;
 before(async () => {
   const app = express();
-  app.post("/api/inbound/email", express.raw({ type: () => true }), createInboundHandler({ db, resend, getSecret: () => INBOUND_SECRET, onForward: (p) => (lastForward = p) }));
+  app.post("/api/inbound/email", express.raw({ type: () => true }), createInboundHandler({ db, mailDb, getSecret: () => INBOUND_SECRET, sendPush: async (a) => { pushes.push(a); return { sent: 1, removed: 0 }; }, onAfter: (p) => (lastAfter = p) }));
   app.use(express.json());
   app.use(
     "/api/autoapply",
     createAutoApplyRouter({
       db,
+      mailDb,
+      env: { VAPID_PUBLIC_KEY: "BPUBLICKEY", VAPID_PRIVATE_KEY: "x" },
       razorpay,
       getUserPlan: async (uid) => USERS[uid] || "free",
       authenticate: (req, res, next) => {
@@ -91,7 +95,7 @@ before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
 });
 after(() => server && server.close());
-let lastForward = null;
+let lastAfter = null;
 
 async function call(method, path, { user = PRO, body, headers = {}, raw } = {}) {
   const res = await fetch(base + path, {
@@ -364,41 +368,116 @@ function signed(body, ts = Math.floor(Date.now() / 1000)) {
   return { raw, headers: { "Content-Type": "application/json", "X-AA-Timestamp": String(ts), "X-AA-Signature": signInbound(INBOUND_SECRET, String(ts), raw) } };
 }
 
-test("inbound email: HMAC, alias -> user, notify, forward human mail, inbox", async () => {
+test("inbound email: HMAC, alias -> user, mail db row with category, never forwarded, push only for important", async () => {
   const mail = { to: `${alias}.acme@apply.vloombox.in`, from: "no-reply@myworkday.com", from_name: "Acme Careers", subject: "Verify your account", received_at: new Date().toISOString(), codes: ["482913"], links: ["https://acme.wd3.myworkdayjobs.com/verify"], is_human: false, text_excerpt: "code 482913", raw_key: "mail/x.eml", reply_to: null, message_id: "<m1>" };
   const s = signed(mail);
   const r = await call("POST", "/api/inbound/email", { user: null, raw: s.raw, headers: s.headers });
   assert.equal(r.status, 200);
   assert.deepEqual(r.json, { ok: true });
-  const ev = db.rows("aa_mail_events").at(-1);
+  assert.equal(db.rows("aa_mail_events").length, 0, "mail never lands in the main db when a separate mail db is configured");
+  const ev = mailDb.rows("aa_mail_events").at(-1);
   assert.equal(ev.user_id, PRO);
   assert.equal(ev.alias, `${alias}.acme`);
   assert.deepEqual(ev.codes, ["482913"]);
-  assert.deepEqual(db.rpcCalls.at(-1), { name: "aa_notify_mail", args: { p_user: PRO, p_event: ev.id } });
-  await lastForward;
-  assert.equal(sent.length, 0, "machine mail is not forwarded");
+  assert.equal(ev.category, "code");
+  assert.equal(ev.has_attachments, false);
+  assert.ok(Math.abs(Date.parse(ev.expires_at) - Date.now() - 86400000) < 60000, "code mail expires in 1 day");
+  assert.deepEqual(mailDb.rpcCalls.at(-1), { name: "aa_notify_mail", args: { p_user: PRO, p_event: ev.id } });
+  assert.equal(db.rpcCalls.filter((c) => c.name === "aa_notify_mail").length, 0);
+  await lastAfter;
+  assert.equal(pushes.length, 0, "a code mail does not push");
+  assert.equal(sent.length, 0, "nothing is ever sent through Resend for inbound mail");
 
-  const human = signed({ ...mail, from: "jane@acme.com", from_name: "Jane at Acme", subject: "Interview", is_human: true, codes: [] });
+  const human = signed({ ...mail, from: "jane@acme.com", from_name: "Jane at Acme", subject: "Interview", is_human: true, codes: [], has_attachments: true });
   await call("POST", "/api/inbound/email", { user: null, raw: human.raw, headers: human.headers });
-  await lastForward;
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].to, "real@gmail.com");
-  assert.equal(sent[0].from, '"Jane at Acme via Vloombox" <relay@apply.vloombox.in>');
-  assert.equal(sent[0].replyTo, "jane@acme.com");
-  assert.ok(db.rows("aa_mail_events").at(-1).forwarded_at);
+  await lastAfter;
+  assert.equal(sent.length, 0, "recruiter mail is not forwarded");
+  const hev = mailDb.rows("aa_mail_events").at(-1);
+  assert.equal(hev.category, "important");
+  assert.equal(hev.has_attachments, true);
+  assert.equal(hev.forwarded_at ?? null, null);
+  assert.ok(Math.abs(Date.parse(hev.expires_at) - Date.now() - 180 * 86400000) < 60000);
+  assert.equal(pushes.length, 1);
+  assert.equal(pushes[0].userId, PRO);
+  assert.equal(pushes[0].event.id, hev.id);
 
   const unknown = signed({ ...mail, to: "ghost.zzzz@apply.vloombox.in" });
   await call("POST", "/api/inbound/email", { user: null, raw: unknown.raw, headers: unknown.headers });
-  assert.equal(db.rows("aa_mail_events").at(-1).user_id, null);
+  assert.equal(mailDb.rows("aa_mail_events").at(-1).user_id, null);
 
   const stale = signed(mail, Math.floor(Date.now() / 1000) - 120);
   assert.equal((await call("POST", "/api/inbound/email", { user: null, raw: stale.raw, headers: stale.headers })).status, 401);
   const tampered = signed(mail);
   assert.equal((await call("POST", "/api/inbound/email", { user: null, raw: Buffer.from(JSON.stringify({ ...mail, to: "x" })), headers: tampered.headers })).status, 401);
+});
 
-  const inbox = await call("GET", "/api/autoapply/inbox?limit=5");
-  assert.equal(inbox.json.mails.length, 2);
-  assert.deepEqual(Object.keys(inbox.json.mails[0]).sort(), ["codes", "id", "is_human", "received_at", "sender", "subject", "text_excerpt"]);
+test("inbox: tabs, search, pagination, detail, ownership", async () => {
+  const day = 86400000;
+  const base = Date.now();
+  const extra = [
+    { category: "other", subject: "Newsletter from Globex", sender: "news@globex.com" },
+    { category: "received", subject: "Thank you for applying", sender: "careers@initech.com" },
+  ];
+  extra.forEach((m, i) => {
+    mailDb.rows("aa_mail_events").push({ id: 900 + i, user_id: PRO, alias, codes: [], links: [], is_human: false, text_excerpt: "x", received_at: new Date(base - (i + 1) * day).toISOString(), has_attachments: false, expires_at: new Date(base + day).toISOString(), ...m });
+  });
+  mailDb.rows("aa_mail_events").push({ id: 950, user_id: FREE, alias: "z.z", sender: "other@user.com", subject: "Someone else", codes: [], links: [], is_human: false, text_excerpt: "", category: "important", received_at: new Date().toISOString(), expires_at: new Date(base + day).toISOString() });
+
+  const all = await call("GET", "/api/autoapply/inbox");
+  assert.equal(all.status, 200);
+  assert.ok(all.json.mails.length >= 4);
+  assert.ok(all.json.mails.every((m) => m.id !== 950), "never shows another user's mail");
+  assert.deepEqual(Object.keys(all.json.mails[0]).sort(), ["category", "codes", "has_attachments", "id", "is_human", "received_at", "sender", "subject", "text_excerpt"]);
+  const imp = await call("GET", "/api/autoapply/inbox?tab=important");
+  assert.ok(imp.json.mails.length >= 1 && imp.json.mails.every((m) => m.category === "important"));
+  const codes = await call("GET", "/api/autoapply/inbox?tab=codes");
+  assert.ok(codes.json.mails.length >= 1 && codes.json.mails.every((m) => m.category === "code"));
+  assert.equal((await call("GET", "/api/autoapply/inbox?tab=bogus")).status, 400);
+
+  const found = await call("GET", "/api/autoapply/inbox?q=globex");
+  assert.deepEqual(found.json.mails.map((m) => m.id), [900]);
+  assert.equal((await call("GET", "/api/autoapply/inbox?q=" + encodeURIComponent("zz,(nothing)"))).json.mails.length, 0);
+
+  const page1 = await call("GET", "/api/autoapply/inbox?limit=2");
+  assert.equal(page1.json.mails.length, 2);
+  assert.ok(page1.json.next_before);
+  const page2 = await call("GET", "/api/autoapply/inbox?limit=2&before=" + encodeURIComponent(page1.json.next_before));
+  assert.ok(page2.json.mails.length >= 1);
+  assert.ok(page2.json.mails.every((m) => m.received_at < page1.json.next_before));
+  assert.equal((await call("GET", "/api/autoapply/inbox?before=nope")).status, 400);
+
+  const one = await call("GET", "/api/autoapply/inbox/900");
+  assert.equal(one.status, 200);
+  assert.equal(one.json.mail.subject, "Newsletter from Globex");
+  assert.ok(Array.isArray(one.json.mail.links));
+  assert.equal((await call("GET", "/api/autoapply/inbox/950")).status, 404);
+  assert.equal((await call("GET", "/api/autoapply/inbox/abc")).status, 404);
+});
+
+test("push: key, subscribe (validated, per-user), unsubscribe", async () => {
+  const k = await call("GET", "/api/autoapply/push/key");
+  assert.deepEqual(k.json, { enabled: true, key: "BPUBLICKEY" });
+  const sub = { endpoint: "https://push.example.test/abc", keys: { p256dh: "p256", auth: "authsecret" } };
+  assert.equal((await call("POST", "/api/autoapply/push/subscribe", { body: sub })).status, 200);
+  assert.equal((await call("POST", "/api/autoapply/push/subscribe", { body: sub })).status, 200, "idempotent on endpoint");
+  assert.equal(db.rows("aa_push_subscriptions").length, 1);
+  assert.equal(db.rows("aa_push_subscriptions")[0].user_id, PRO);
+  assert.equal((await call("POST", "/api/autoapply/push/subscribe", { body: { ...sub, endpoint: "http://insecure.test/x" } })).status, 400);
+  assert.equal((await call("POST", "/api/autoapply/push/subscribe", { body: { endpoint: sub.endpoint, keys: {} } })).status, 400);
+  assert.equal((await call("POST", "/api/autoapply/push/subscribe", { user: null, body: sub })).status, 401);
+  // another user cannot remove it
+  assert.equal((await call("POST", "/api/autoapply/push/unsubscribe", { user: CAPPED, body: { endpoint: sub.endpoint } })).status, 200);
+  assert.equal(db.rows("aa_push_subscriptions").length, 1);
+  assert.equal((await call("POST", "/api/autoapply/push/unsubscribe", { body: { endpoint: sub.endpoint } })).status, 200);
+  assert.equal(db.rows("aa_push_subscriptions").length, 0);
+});
+
+test("alert_prefs: saved and returned by /me", async () => {
+  assert.deepEqual((await call("GET", "/api/autoapply/me")).json.alert_prefs, { email: true, push: true });
+  assert.equal((await call("PUT", "/api/autoapply/profile", { body: { alert_prefs: { push: false } } })).status, 200);
+  assert.deepEqual((await call("GET", "/api/autoapply/me")).json.alert_prefs, { email: true, push: false });
+  assert.equal((await call("PUT", "/api/autoapply/profile", { body: { alert_prefs: { email: "no" } } })).status, 400);
+  await call("PUT", "/api/autoapply/profile", { body: { alert_prefs: { push: true } } });
 });
 
 test("unknown autoapply path -> JSON 404", async () => {

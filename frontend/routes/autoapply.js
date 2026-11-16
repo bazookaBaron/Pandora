@@ -27,7 +27,9 @@ import { decryptSecret } from "../lib/autoapply/vault.js";
 import { isEligiblePlan, usageFor } from "../lib/autoapply/limits.js";
 import { AAError, createAutoApplyOrder, verifyAutoApplyPayment, handleAutoApplyWebhook } from "../lib/autoapply/orders.js";
 import { verifyInbound, storeInbound } from "../lib/autoapply/inbound.js";
-import { forwardHumanMail } from "../lib/autoapply/forward.js";
+import { mailDb as realMailDb } from "../lib/autoapply/mailDb.js";
+import { sendPushForMail, vapidConfig } from "../lib/autoapply/push.js";
+import { cleanupExpiredMail, sendDailyAlerts } from "../lib/autoapply/mailJobs.js";
 import { processRefunds } from "../lib/autoapply/refunds.js";
 import { extractText, draftFromText, maybeEnrichWithAi } from "../lib/autoapply/resumeParse.js";
 
@@ -115,6 +117,18 @@ function firstNameFor({ bodyProfile, existing, email }) {
   return String(email || "").split("@")[0].split(/[._+-]/)[0];
 }
 
+export function normAlertPrefs(v) {
+  const o = v && typeof v === "object" ? v : {};
+  return { email: o.email !== false, push: o.push !== false };
+}
+
+const INBOX_TABS = { important: "important", codes: "code" };
+const INBOX_LIST_FIELDS = "id, sender, subject, codes, is_human, received_at, text_excerpt, category, has_attachments";
+const INBOX_DETAIL_FIELDS = `${INBOX_LIST_FIELDS}, links`;
+
+/** PostgREST-safe ilike term: drop the characters that are syntax in .or() filters. */
+const searchTerm = (q) => String(q || "").replace(/[%_,()*\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+
 // ── prefs normalisation ─────────────────────────────────────────────────────
 function normPrefs(prefs) {
   if (!isPlainObject(prefs)) throw bad("prefs must be an object.");
@@ -160,6 +174,8 @@ export function matchesPrefs(job, prefs) {
 // ── router ──────────────────────────────────────────────────────────────────
 export function createAutoApplyRouter(deps = {}) {
   const db = deps.db || supabaseAdmin;
+  const mailDb = deps.mailDb || (deps.db ? deps.db : realMailDb);
+  const getEnv = deps.env || process.env;
   const razorpay = deps.razorpay || realRazorpay;
   const getUserPlan = deps.getUserPlan || realGetUserPlan;
   const authenticate = deps.authenticate || defaultAuthenticate;
@@ -235,6 +251,7 @@ export function createAutoApplyRouter(deps = {}) {
           address: alias ? `${alias}@${mailDomain()}` : null,
           contact_email: (prof && prof.contact_email) || req.user.email || null,
         },
+        alert_prefs: normAlertPrefs(prof && prof.alert_prefs),
         review_before_apply: prof ? prof.review_before_apply !== false : true,
         usage,
         config: AUTO_APPLY,
@@ -263,6 +280,14 @@ export function createAutoApplyRouter(deps = {}) {
       if (b.email_mode !== undefined) {
         if (!["inbox", "gmail_forward"].includes(b.email_mode)) throw bad("email_mode must be 'inbox' or 'gmail_forward'.");
         patch.email_mode = b.email_mode;
+      }
+      if (b.alert_prefs !== undefined) {
+        if (!isPlainObject(b.alert_prefs)) throw bad("alert_prefs must be an object.");
+        const cur = normAlertPrefs(existing && existing.alert_prefs);
+        for (const k of ["email", "push"]) {
+          if (b.alert_prefs[k] !== undefined && typeof b.alert_prefs[k] !== "boolean") throw bad(`alert_prefs.${k} must be a boolean.`);
+        }
+        patch.alert_prefs = { email: b.alert_prefs.email ?? cur.email, push: b.alert_prefs.push ?? cur.push };
       }
       if (b.contact_email !== undefined) {
         if (b.contact_email === null || b.contact_email === "") patch.contact_email = null;
@@ -673,22 +698,90 @@ export function createAutoApplyRouter(deps = {}) {
     }),
   );
 
-  // Inbox / accounts
+  // Inbox (mail db). ?tab=important|all|codes &q= &before=<received_at ISO> &limit=
   router.get(
     "/inbox",
     wrap("inbox", async (req, res) => {
       const limit = Math.min(200, Math.max(1, Number.parseInt(req.query.limit, 10) || 50));
-      const { data, error } = await db
-        .from("aa_mail_events")
-        .select("id, sender, subject, codes, is_human, received_at, text_excerpt")
-        .eq("user_id", req.user.id)
-        .order("received_at", { ascending: false })
-        .limit(limit);
+      const tab = String(req.query.tab || "all");
+      if (!["important", "all", "codes"].includes(tab)) throw bad("tab must be important, all or codes.");
+      let qb = mailDb.from("aa_mail_events").select(INBOX_LIST_FIELDS).eq("user_id", req.user.id);
+      if (INBOX_TABS[tab]) qb = qb.eq("category", INBOX_TABS[tab]);
+      const term = searchTerm(req.query.q);
+      if (term) qb = qb.or(`subject.ilike.%${term}%,sender.ilike.%${term}%,text_excerpt.ilike.%${term}%`);
+      if (req.query.before !== undefined && req.query.before !== "") {
+        if (Number.isNaN(Date.parse(String(req.query.before)))) throw bad("before must be an ISO timestamp.");
+        qb = qb.lt("received_at", new Date(String(req.query.before)).toISOString());
+      }
+      const { data, error } = await qb.order("received_at", { ascending: false }).limit(limit + 1);
       if (error) throw error;
-      res.json({ mails: data || [] });
+      const rows = data || [];
+      const mails = rows.slice(0, limit);
+      res.json({ mails, next_before: rows.length > limit ? mails[mails.length - 1].received_at : null });
     }),
   );
 
+  router.get(
+    "/inbox/:id",
+    wrap("inbox/detail", async (req, res) => {
+      if (!/^\d{1,18}$/.test(String(req.params.id))) throw notFound("Message not found.");
+      const { data, error } = await mailDb
+        .from("aa_mail_events")
+        .select(INBOX_DETAIL_FIELDS)
+        .eq("id", Number(req.params.id))
+        .eq("user_id", req.user.id)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw notFound("Message not found.");
+      res.json({ mail: data });
+    }),
+  );
+
+  // Web push subscriptions (main db). Disabled (key: null) when VAPID env is unset.
+  router.get("/push/key", (_req, res) => {
+    const cfg = vapidConfig(getEnv);
+    res.json({ enabled: !!cfg, key: cfg ? cfg.publicKey : null });
+  });
+
+  router.post(
+    "/push/subscribe",
+    writeLimiter,
+    wrap("push/subscribe", async (req, res) => {
+      const b = req.body || {};
+      const endpoint = b.endpoint;
+      const keys = b.keys || {};
+      const p256dh = keys.p256dh || b.p256dh;
+      const auth = keys.auth || b.auth;
+      let okUrl = false;
+      try { okUrl = typeof endpoint === "string" && new URL(endpoint).protocol === "https:"; } catch { okUrl = false; }
+      if (!okUrl || endpoint.length > 2000) throw bad("endpoint must be an https URL.");
+      if (typeof p256dh !== "string" || typeof auth !== "string" || !p256dh || !auth || p256dh.length > 200 || auth.length > 100) {
+        throw bad("keys.p256dh and keys.auth are required.");
+      }
+      const { count, error: cErr } = await db.from("aa_push_subscriptions").select("id", { count: "exact", head: true }).eq("user_id", req.user.id);
+      if (cErr) throw cErr;
+      if ((count || 0) >= 20) throw new AAError(409, "too_many_subscriptions", "Too many devices subscribed; turn off notifications on one first.");
+      const { error } = await db
+        .from("aa_push_subscriptions")
+        .upsert({ user_id: req.user.id, endpoint, p256dh, auth }, { onConflict: "endpoint" });
+      if (error) throw error;
+      res.json({ ok: true });
+    }),
+  );
+
+  router.post(
+    "/push/unsubscribe",
+    writeLimiter,
+    wrap("push/unsubscribe", async (req, res) => {
+      const endpoint = req.body && req.body.endpoint;
+      if (typeof endpoint !== "string" || !endpoint || endpoint.length > 2000) throw bad("endpoint is required.");
+      const { error } = await db.from("aa_push_subscriptions").delete().eq("user_id", req.user.id).eq("endpoint", endpoint);
+      if (error) throw error;
+      res.json({ ok: true });
+    }),
+  );
+
+  // Accounts
   router.get(
     "/accounts",
     wrap("accounts", async (req, res) => {
@@ -737,9 +830,10 @@ export function createAutoApplyRouter(deps = {}) {
 // ── inbound mail ────────────────────────────────────────────────────────────
 export function createInboundHandler(deps = {}) {
   const db = deps.db || supabaseAdmin;
-  const resend = deps.resend || realResend;
+  const mailDb = deps.mailDb || (deps.db ? deps.db : realMailDb);
   const getSecret = deps.getSecret || (() => process.env.AA_INBOUND_SECRET);
   const nowS = deps.nowS || (() => Math.floor(Date.now() / 1000));
+  const sendPush = deps.sendPush || sendPushForMail;
 
   return async function inboundEmail(req, res) {
     const raw = Buffer.isBuffer(req.body) ? req.body : req.rawBody;
@@ -761,11 +855,13 @@ export function createInboundHandler(deps = {}) {
       return res.status(400).json({ error: { code: "invalid_json", message: "Body must be JSON." } });
     }
     try {
-      const { event, profile } = await storeInbound({ db, payload });
+      const { event, profile, category } = await storeInbound({ db, mailDb, payload });
       res.status(200).json({ ok: true });
-      // After the response: forward recruiter mail (never blocks the worker).
-      const p = forwardHumanMail({ db, resend, payload, event, profile, domain: mailDomain() });
-      if (deps.onForward) deps.onForward(p);
+      // After the response: push an alert for important mail. Mail is never forwarded anywhere.
+      if (category === "important" && profile) {
+        const p = sendPush({ db, event, userId: profile.user_id, prefs: normAlertPrefs(profile.alert_prefs) });
+        if (deps.onAfter) deps.onAfter(p);
+      }
     } catch (err) {
       if (!res.headersSent) sendError(res, err, "inbound");
     }
@@ -774,4 +870,28 @@ export function createInboundHandler(deps = {}) {
 
 export function runAutoApplyRefunds(deps = {}) {
   return processRefunds({ db: deps.db || supabaseAdmin, razorpay: deps.razorpay || realRazorpay, limit: deps.limit });
+}
+
+/** Daily: delete expired mail from the mail db. */
+export function runMailCleanup(deps = {}) {
+  return cleanupExpiredMail({ mailDb: deps.mailDb || realMailDb, now: deps.now });
+}
+
+/** Daily ~7 PM IST: one short alert email per user with new important mail. */
+export function runDailyMailAlerts(deps = {}) {
+  const db = deps.db || supabaseAdmin;
+  return sendDailyAlerts({
+    db,
+    mailDb: deps.mailDb || realMailDb,
+    resend: deps.resend || realResend,
+    getAuthEmail:
+      deps.getAuthEmail ||
+      (async (uid) => {
+        const { data } = await supabaseAdmin.auth.admin.getUserById(uid);
+        return (data && data.user && data.user.email) || null;
+      }),
+    baseUrl: deps.baseUrl,
+    now: deps.now,
+    maxSends: deps.maxSends,
+  });
 }

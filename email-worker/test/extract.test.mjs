@@ -81,7 +81,7 @@ test('newsletter with prices, phones, dates, promo code yields no codes', async 
 
 test('payload has exactly the contract keys', async () => {
   const p = await load('workday_code.eml');
-  assert.deepEqual(Object.keys(p).sort(), ['codes', 'from', 'from_name', 'is_human', 'links', 'message_id', 'raw_key',
+  assert.deepEqual(Object.keys(p).sort(), ['codes', 'from', 'from_name', 'has_attachments', 'is_human', 'links', 'message_id', 'raw_key',
     'received_at', 'reply_to', 'subject', 'text_excerpt', 'to']);
   assert.ok(p.text_excerpt.length <= 2000);
 });

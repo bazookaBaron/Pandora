@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import {
-    useAnswers, useAutoApplyMe, useInbox, useSaveAnswers, useSaveProfile, useUploadResume,
+    useAnswers, useAutoApplyMe, useSaveAnswers, useSaveProfile, useUploadResume,
 } from '../../lib/useAutoApply'
-import { AALayout, CopyButton, PageHeader, fmtAgo } from './ui'
+import { AALayout, CopyButton, PageHeader } from './ui'
+import NotifyButton from './NotifyButton'
 
 const STEPS = [
     { id: 'resume', label: 'Resume' },
@@ -14,7 +15,6 @@ const STEPS = [
     { id: 'consent', label: 'Confirm' },
 ]
 
-export const GMAIL_FILTER = 'from:(myworkdayjobs.com OR greenhouse.io OR greenhouse-mail.io OR ashbyhq.com OR lever.co OR icims.com OR oraclecloud.com OR successfactors.com OR smartrecruiters.com) OR subject:("verification code" OR "verify your email" OR "one-time" OR "security code")'
 
 const MAX_RESUME_BYTES = 5 * 1024 * 1024
 
@@ -355,33 +355,20 @@ function PrefsStep({ me, onNext }) {
 }
 
 // ── Step 4: email ─────────────────────────────────────────────────
-function LatestCode() {
-    const inbox = useInbox(5, { refetchInterval: 10_000 })
-    if (inbox.isLoading) return <LoadingState compact label="Checking your apply inbox…" />
-    if (inbox.isError) return <ErrorState compact err={inbox.error} onRetry={() => inbox.refetch()} />
-    const withCode = (inbox.data?.mails || []).find((m) => m.codes?.length)
-    if (!withCode) return <p className="aa-faint" style={{ margin: 0 }} role="status">No code received yet. This checks every 10 seconds.</p>
-    return (
-        <div className="aa-note is-ok" role="status">
-            Latest code <span className="aa-otp">{withCode.codes[0]}</span>{' '}
-            from {withCode.sender}, {fmtAgo(withCode.received_at)}. <CopyButton text={withCode.codes[0]} label="Copy code" />
-        </div>
-    )
-}
-
 function EmailStep({ me, onNext }) {
     const save = useSaveProfile()
     const email = me?.email || {}
-    const [mode, setMode] = useState(email.mode || 'inbox')
+    const prefs = me?.alert_prefs || { email: true, push: true }
     const [contact, setContact] = useState(email.contact_email || '')
+    const [alertEmail, setAlertEmail] = useState(prefs.email !== false)
     const [note, setNote] = useState(null)
     const address = email.address || (email.alias ? `${email.alias}@apply.vloombox.in` : '')
 
     function submit(e) {
         e.preventDefault()
         setNote(null)
-        if (mode === 'inbox' && contact && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) { setNote({ error: new Error('Enter a valid email address.') }); return }
-        save.mutate({ email_mode: mode, contact_email: contact.trim() || null }, {
+        if (contact && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) { setNote({ error: new Error('Enter a valid email address.') }); return }
+        save.mutate({ email_mode: 'inbox', contact_email: contact.trim() || null, alert_prefs: { email: alertEmail } }, {
             onSuccess: () => { setNote({ ok: 'Email settings saved.' }); onNext() },
             onError: (error) => setNote({ error }),
         })
@@ -390,19 +377,14 @@ function EmailStep({ me, onNext }) {
     return (
         <form className="aa-card aa-stack" onSubmit={submit} aria-labelledby="st-email" noValidate>
             <h2 id="st-email" className="aa-h2">Email</h2>
-            <div className="aa-grid-2" role="radiogroup" aria-label="How we receive application email">
-                <button type="button" role="radio" aria-checked={mode === 'inbox'} className="aa-choice" onClick={() => setMode('inbox')}>
-                    <span className="aa-choice-title">Apply address (recommended)</span>
-                    <span className="aa-muted">Applications use a Vloombox address. Codes are read automatically; recruiter replies are forwarded to you.</span>
-                </button>
-                <button type="button" role="radio" aria-checked={mode === 'gmail_forward'} className="aa-choice" onClick={() => setMode('gmail_forward')}>
-                    <span className="aa-choice-title">My Gmail, with forwarding</span>
-                    <span className="aa-muted">Applications use your own Gmail. You forward only portal mail to us so we can read codes.</span>
-                </button>
-            </div>
+            <p className="aa-muted" style={{ margin: 0 }}>
+                Companies will email your Vloombox address{address ? <> <strong style={{ overflowWrap: 'anywhere' }}>{address}</strong></> : ''}.
+                Everything shows up in your Vloombox inbox, and we will alert you about assessments and interviews so you do not miss them.
+                We never forward your mail.
+            </p>
 
             <div className="aa-field">
-                <span className="field-label">Your apply address</span>
+                <span className="field-label">Your Vloombox address</span>
                 {address ? (
                     <div className="aa-row">
                         <code className="aa-code" style={{ flex: 1, minWidth: 200 }}>{address}</code>
@@ -413,31 +395,22 @@ function EmailStep({ me, onNext }) {
                 )}
             </div>
 
-            {mode === 'inbox' ? (
-                <div className="aa-field">
-                    <label className="field-label" htmlFor="em-contact">Forward recruiter mail to</label>
-                    <input id="em-contact" type="email" className="input-field" value={contact} onChange={(e) => setContact(e.target.value)} placeholder="you@example.com" autoComplete="email" />
-                    <div className="field-hint">Mail from a real person (interview invites, recruiter replies) sent to your apply address is forwarded here. Automated codes stay in your AutoApply inbox.</div>
-                </div>
-            ) : (
-                <div className="aa-stack">
-                    <ol className="aa-ol">
-                        <li>In Gmail, open Settings → See all settings → <strong>Forwarding and POP/IMAP</strong> → Add a forwarding address, and enter your apply address above.</li>
-                        <li>Gmail sends a confirmation code to that address. It appears below; enter it in Gmail to confirm.</li>
-                        <li>Go to <strong>Filters and Blocked Addresses</strong> → Create a new filter, paste the search below into <em>Has the words</em>, then choose <em>Forward it to</em> your apply address.</li>
-                        <li>Do not forward all mail; the filter sends only job-portal mail and verification codes.</li>
-                    </ol>
-                    <div className="aa-field">
-                        <span className="field-label">Gmail filter</span>
-                        <code className="aa-code">{GMAIL_FILTER}</code>
-                        <div style={{ marginTop: 8 }}><CopyButton text={GMAIL_FILTER} label="Copy filter" /></div>
-                    </div>
-                    <div className="aa-field">
-                        <span className="field-label">Gmail forwarding check</span>
-                        <LatestCode />
-                    </div>
-                </div>
-            )}
+            <div className="aa-field">
+                <label className="field-label" htmlFor="em-contact">Send alerts to</label>
+                <input id="em-contact" type="email" className="input-field" value={contact} onChange={(e) => setContact(e.target.value)} placeholder="you@example.com" autoComplete="email" />
+                <div className="field-hint">A short email once a day when you have new assessments or interviews. It never contains the message itself; it links to your Vloombox inbox.</div>
+                <label className="aa-row" style={{ gap: 8, marginTop: 8 }}>
+                    <input type="checkbox" checked={alertEmail} onChange={(e) => setAlertEmail(e.target.checked)} />
+                    <span className="aa-muted">Email me a daily alert</span>
+                </label>
+            </div>
+
+            <div className="aa-field">
+                <span className="field-label">Instant alerts</span>
+                <NotifyButton />
+                <div className="field-hint">Get a notification on this device the moment an important message arrives.</div>
+            </div>
+
             <StepNote state={note} />
             <div className="aa-row">
                 <button type="submit" className="aa-btn is-primary" disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save and continue'}</button>

@@ -276,6 +276,11 @@ export function isoSeconds(date) {
 }
 
 /** Contract body (docs/autoapply-contract.md, "Inbound mail") from a postal-mime result. */
+/** True when the mail carries a real attachment (inline/related images such as logos do not count). */
+export function hasRealAttachments(list) {
+  return (Array.isArray(list) ? list : []).some((a) => a && a.disposition !== 'inline' && a.related !== true);
+}
+
 export function buildPayload(parsed, { envelopeTo = '', envelopeFrom = '', receivedAt = new Date(), rawKey = null } = {}) {
   const p = parsed || {};
   const headers = headerMap(p.headers);
@@ -297,6 +302,7 @@ export function buildPayload(parsed, { envelopeTo = '', envelopeFrom = '', recei
     codes,
     links,
     is_human: isHuman,
+    has_attachments: hasRealAttachments(p.attachments),
     text_excerpt: plain.trim().slice(0, 2000),
     raw_key: rawKey,
     reply_to: replyTo ? replyTo.toLowerCase() : null,

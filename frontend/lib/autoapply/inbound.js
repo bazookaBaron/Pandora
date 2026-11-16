@@ -4,6 +4,7 @@
  *   X-AA-Signature: hex(HMAC_SHA256(AA_INBOUND_SECRET, `${ts}.${rawBody}`))
  */
 import crypto from "node:crypto";
+import { classifyMail, expiresAtFor } from "./classify.js";
 
 export const MAX_SKEW_S = 60;
 
@@ -41,11 +42,13 @@ export function parseAlias(to) {
 const strArr = (v, max, len) =>
   (Array.isArray(v) ? v : []).filter((x) => typeof x === "string" && x).slice(0, max).map((x) => x.slice(0, len));
 
+
 /**
- * Store one inbound mail. Returns { event, profile } (profile null for an
- * unknown alias). Does NOT forward — the caller does that after responding.
+ * Store one inbound mail. The alias is resolved against the MAIN db (aa_profiles); the mail row goes to the
+ * MAIL db (`mailDb`, defaults to `db`) with a category and expires_at. Returns { event, profile, category }
+ * (profile null for an unknown alias). Mail is never forwarded anywhere; alerts are the caller's job.
  */
-export async function storeInbound({ db, payload }) {
+export async function storeInbound({ db, mailDb = db, payload }) {
   const p = payload || {};
   const { local, alias } = parseAlias(p.to);
   if (!local) {
@@ -57,7 +60,7 @@ export async function storeInbound({ db, payload }) {
 
   const { data: profile, error: pErr } = await db
     .from("aa_profiles")
-    .select("user_id, contact_email, apply_alias")
+    .select("user_id, contact_email, apply_alias, alert_prefs")
     .eq("apply_alias", alias)
     .maybeSingle();
   if (pErr) throw pErr;
@@ -74,13 +77,18 @@ export async function storeInbound({ db, payload }) {
     text_excerpt: p.text_excerpt == null ? null : String(p.text_excerpt).slice(0, 2000),
     raw_ref: p.raw_key == null ? null : String(p.raw_key).slice(0, 500),
     received_at: receivedAt,
+    has_attachments: p.has_attachments === true,
   };
-  const { data: event, error } = await db.from("aa_mail_events").insert(row).select("*").single();
+  const { category } = classifyMail(row);
+  row.category = category;
+  // Retention counts from arrival at Vloombox, so a late retry from the worker is not deleted at once.
+  row.expires_at = expiresAtFor(category, new Date());
+  const { data: event, error } = await mailDb.from("aa_mail_events").insert(row).select("*").single();
   if (error) throw error;
 
   if (profile) {
-    const { error: nErr } = await db.rpc("aa_notify_mail", { p_user: profile.user_id, p_event: event.id });
+    const { error: nErr } = await mailDb.rpc("aa_notify_mail", { p_user: profile.user_id, p_event: event.id });
     if (nErr) console.warn("[autoapply/inbound] aa_notify_mail failed:", nErr.message || nErr);
   }
-  return { event, profile: profile || null };
+  return { event, profile: profile || null, category };
 }

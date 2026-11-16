@@ -21,6 +21,21 @@ enabled = true
 # binding = "AA_MAIL"
 # bucket_name = "aa-mail"
 
+# Durable retry for mail the API could not accept (it is down, or the secret is wrong): the payload (no raw .eml)
+# is parked in a D1 database and re-delivered by the cron below, for up to 3 days. D1 is on the Workers FREE plan
+# (5 GB, 100k row writes/day, 5M row reads/day, no card needed); see README "Durable retry". One-time setup:
+#   npx wrangler d1 create aa-pending          (prints a database_id)
+#   npx wrangler d1 migrations apply aa-pending --remote
+# then uncomment the next 4 lines, paste the database_id, and deploy. Without it the worker still runs (only the
+# 3 quick tries remain) and the cron is a no-op.
+# [[d1_databases]]
+# binding = "AA_PENDING"
+# database_name = "aa-pending"
+# database_id = "<paste the id printed by d1 create>"
+
+[triggers]
+crons = ["*/5 * * * *"]   # re-deliver parked mail every 5 minutes
+
 [vars]
 # Base URL of the Pandora API (Railway). The worker POSTs to {AA_API_BASE}/api/inbound/email.
 AA_API_BASE = "https://www.vloombox.in"
