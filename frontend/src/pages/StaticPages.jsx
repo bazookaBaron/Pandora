@@ -80,8 +80,8 @@ export function AboutPage() {
 
             <SectionHeader>Who runs it</SectionHeader>
             <p style={{ margin: '0 0 14px' }}>
-                Vloombox is a small, independent project, built and actively maintained by
-                {' '}{BIZ.founder}. Bugs, questions and feature requests are welcome at{' '}
+                Vloombox is a small, independent project, built and actively maintained.
+                Bugs, questions and feature requests are welcome at{' '}
                 <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a>, or from the
                 Feedback section of your profile once you&rsquo;re signed in.
             </p>
@@ -194,7 +194,7 @@ export function GuidelinesPage() {
                 The referral board only works if people trust it. These guidelines apply to referral
                 requests, the company and role details on your profile, feedback you send, and anything
                 else you post. They sit alongside our{' '}
-                <Link to="/terms" style={{ color: 'var(--pop)' }}>Terms &amp; Conditions</Link>.
+                <Link to="/terms" style={{ color: 'var(--pop)' }}>Terms & Conditions</Link>.
             </p>
 
             <SectionHeader>Be honest</SectionHeader>
@@ -254,7 +254,7 @@ export function LegalPrivacyScaffold() {
                 (PostHog), and prevent abuse. We don&rsquo;t sell your data or run advertising trackers.
             </p>
 
-            <SectionHeader>Résumé &amp; PII handling</SectionHeader>
+            <SectionHeader>Résumé & PII handling</SectionHeader>
             <p style={{ margin: '0 0 14px' }}>
                 Résumé files are stored in a private bucket and served only through short-lived signed
                 links. A résumé attached to a referral request is visible only to the member who accepts
@@ -302,7 +302,7 @@ export function LegalTermsScaffold() {
                 processed by Razorpay.
             </p>
 
-            <SectionHeader>Referrals &amp; jobs disclaimer</SectionHeader>
+            <SectionHeader>Referrals & jobs disclaimer</SectionHeader>
             <p style={{ margin: '0 0 14px' }}>
                 Referrers act independently — Vloombox does not guarantee that a referral will be given,
                 or that it leads to an interview or offer. Job listings are aggregated from public
@@ -316,7 +316,7 @@ export function LegalTermsScaffold() {
                 send to employers.
             </p>
 
-            <SectionHeader>Termination &amp; liability</SectionHeader>
+            <SectionHeader>Termination & liability</SectionHeader>
             <p style={{ margin: '0 0 14px' }}>
                 We may suspend or terminate accounts that break these terms. The service is provided
                 &ldquo;as is&rdquo; without warranties, and our liability is limited to the amount you
@@ -324,7 +324,7 @@ export function LegalTermsScaffold() {
             </p>
 
             <p style={{ marginTop: 18 }}>
-                <Link to="/terms" style={{ color: 'var(--pop)' }}>Read the full Terms &amp; Conditions →</Link>
+                <Link to="/terms" style={{ color: 'var(--pop)' }}>Read the full Terms & Conditions →</Link>
             </p>
         </PageShell>
     )
@@ -369,74 +369,78 @@ const FAQ_ITEMS = [
     },
     {
         q: 'Who can see my résumé?',
-        a: 'Only the member who accepts your referral request can open the résumé you attached to it, and only through a private, expiring link — it is never listed publicly. A résumé you upload to the optimiser is used to generate your suggestions and is not shared with other users.',
+        a: 'Only the member who accepts your referral request can see a résumé you attach to that request. Résumés stored for the optimiser are private and served only via short-lived signed links.',
     },
     {
-        q: 'Can I withdraw a referral request?',
-        a: 'Yes. You can cancel an open request from the referral board at any time, and every request also expires automatically on the date shown on its card.',
+        q: 'Do plans auto-renew?',
+        a: 'No. Pro and Max are a one-time payment for a fixed term (monthly or yearly). When the term ends you return to Free unless you buy again.',
     },
     {
-        q: 'Does my subscription auto-renew?',
-        a: 'No. Pro and Max are a one-time payment for a fixed term (monthly or yearly). Nothing renews automatically — when the term ends your account simply returns to the Free plan. You can cancel anytime by not renewing.',
+        q: 'How do I get a refund?',
+        a: 'Sales are final except for duplicate charges or a payment that did not activate the plan. Email support.vloombox@gmail.com with your registered email and Razorpay payment ID.',
     },
     {
-        q: 'How do I get help?',
-        a: `Email ${BIZ.email}, or use the Feedback section in your profile once you’re signed in. We usually reply within 2 business days.`,
+        q: 'Is the AI résumé output guaranteed?',
+        a: 'No. Suggestions and scores are generated by models and can contain errors. Always review and edit before you send anything to an employer.',
     },
 ]
 
-function FaqRow({ item, open, onToggle }) {
+export function FaqPage() {
+    const [open, setOpen] = useState(null)
     return (
-        <div style={{ borderBottom: '1px solid var(--subtle)' }}>
-            <button
-                type="button"
-                onClick={onToggle}
-                aria-expanded={open}
-                style={{
-                    width: '100%', display: 'flex', alignItems: 'center', gap: 12,
-                    padding: '14px 4px', background: 'none', border: 'none', cursor: 'pointer',
-                    color: 'var(--bright)', fontSize: '0.9rem', fontWeight: 700, textAlign: 'left',
-                    fontFamily: 'inherit',
-                }}
-            >
-                <span style={{ flex: 1 }}>{item.q}</span>
-                <ChevronDown
-                    size={18}
-                    style={{
-                        flexShrink: 0, color: 'var(--muted)',
-                        transform: open ? 'rotate(180deg)' : 'none',
-                        transition: 'transform var(--transition)',
-                    }}
-                />
-            </button>
-            {open && (
-                <div style={{ padding: '0 4px 16px', fontSize: '0.84rem', lineHeight: 1.7, color: 'var(--accent)' }}>
-                    {item.a
-                        ? item.a
-                        : <span style={{ color: 'var(--faint)', fontStyle: 'italic' }}>Answer coming soon.{/* TODO: fill in */}</span>}
-                </div>
-            )}
-        </div>
-    )
-}
-
-export function FAQPage() {
-    const [openIdx, setOpenIdx] = useState(0)
-    return (
-        <PageShell title="Frequently Asked Questions" subtitle="Common questions about Vloombox, referrals, your data and billing.">
-            <div>
-                {FAQ_ITEMS.map((item, i) => (
-                    <FaqRow
-                        key={item.q}
-                        item={item}
-                        open={openIdx === i}
-                        onToggle={() => setOpenIdx(openIdx === i ? -1 : i)}
-                    />
-                ))}
+        <PageShell title="FAQ" subtitle="Quick answers about Vloombox.">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {FAQ_ITEMS.map((item, i) => {
+                    const isOpen = open === i
+                    return (
+                        <div
+                            key={i}
+                            style={{
+                                border: '1px solid var(--subtle)',
+                                borderRadius: 10,
+                                background: 'var(--panel)',
+                                overflow: 'hidden',
+                            }}
+                        >
+                            <button
+                                type="button"
+                                onClick={() => setOpen(isOpen ? null : i)}
+                                style={{
+                                    width: '100%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 12,
+                                    padding: '14px 16px',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    textAlign: 'left',
+                                    color: 'var(--bright)',
+                                    fontWeight: 700,
+                                    fontSize: '0.9rem',
+                                }}
+                            >
+                                <span>{item.q}</span>
+                                <ChevronDown
+                                    size={18}
+                                    style={{
+                                        flexShrink: 0,
+                                        transition: 'transform 0.2s',
+                                        transform: isOpen ? 'rotate(180deg)' : 'none',
+                                        color: 'var(--muted)',
+                                    }}
+                                />
+                            </button>
+                            {isOpen && (
+                                <div style={{ padding: '0 16px 14px', color: 'var(--accent)', fontSize: '0.86rem', lineHeight: 1.7 }}>
+                                    {item.a}
+                                </div>
+                            )}
+                        </div>
+                    )
+                })}
             </div>
-            <p style={{ marginTop: 18, fontSize: '0.78rem', color: 'var(--faint)' }}>
-                Still stuck? <Link to="/contact" style={{ color: 'var(--pop)' }}>Contact us</Link>.
-            </p>
         </PageShell>
     )
 }

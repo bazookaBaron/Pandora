@@ -91,9 +91,11 @@ export function track(event, properties) {
 
 // Manual pageview helper for the router (only where a page-level event isn't
 // already firing something more specific).
-export function trackPageview(path) {
+export function trackPageview() {
     if (!isEnabled()) return
-    try { posthog.capture('$pageview', { $current_url: path || window.location.pathname }) } catch { /* ignore */ }
+    // No property override: posthog-js reads the full current URL itself, so
+    // $host / $pathname / referrer stay correct for web-analytics reports.
+    try { posthog.capture('$pageview') } catch { /* ignore */ }
 }
 
 // ── internal ────────────────────────────────────────────────────────

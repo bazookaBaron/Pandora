@@ -325,7 +325,7 @@ function routeMeta({ key, base, path, post, jobsCompany }) {
   }
   if (key === "jobs") {
     return {
-      title: "14,000+ Live Tech Jobs, Refreshed All Day | Vloombox",
+      title: "Live Tech Jobs from ~500 Companies, Refreshed Daily | Vloombox",
       description:
         "Tech openings crawled from ~500 companies and refreshed through the day — filter by role, seniority, location and source. Only postings from the last 24 hours.",
       canonical: `${base}/`,
@@ -506,6 +506,28 @@ export function buildHeadTags({ key, base, path, post, jobsCompany }) {
         isPartOf: { "@type": "WebSite", name: SITE.name, url: `${base}/` },
       }),
     );
+    if (key === "jobs") {
+      // Primary homepage is the jobs board — also emit site-wide entity schema.
+      lines.push(
+        jsonLdScript({
+          "@context": "https://schema.org",
+          "@type": "WebSite",
+          name: SITE.name,
+          url: `${base}/`,
+          description: m.description,
+        }),
+      );
+      lines.push(
+        jsonLdScript({
+          "@context": "https://schema.org",
+          "@type": "Organization",
+          name: SITE.name,
+          url: `${base}/`,
+          logo: base + SITE.defaultOgImage,
+          description: "Vloombox is an interview-prep and tech jobs platform: live jobs board refreshed daily from ~500 companies, AI resume optimizer, DSA/LLD/HLD practice, and a peer referral board.",
+        }),
+      );
+    }
   } else if (key === "dsaCompany" || key === "lldProblem") {
     lines.push(
       jsonLdScript({
@@ -595,3 +617,4 @@ export function renderIndex(template, { classify, base, path, post, jobsCompany,
     .replace("</head>", () => `${headTags}\n</head>`);
   return withInitialData(html);
 }
+
