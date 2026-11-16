@@ -73,3 +73,23 @@ export async function fetchResumeUrl(id) {
     const { url } = await apiFetch('/api/referrals/' + id + '/resume')
     if (url) window.open(url, '_blank', 'noopener')
 }
+
+// ── Optional work-email verification (badge + higher accept limit) ────
+export function useVerifyStart() {
+    return useMutation({
+        mutationFn: (workEmail) =>
+            apiFetch('/api/profile/company/verify-start', { json: { workEmail } }),
+    })
+}
+
+export function useVerifyConfirm() {
+    const qc = useQueryClient()
+    return useMutation({
+        mutationFn: (code) =>
+            apiFetch('/api/profile/company/verify-confirm', { json: { code } }),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ['referrals-open'] })
+            qc.invalidateQueries({ queryKey: ['referrals-mine'] })
+        },
+    })
+}

@@ -257,7 +257,7 @@ function cap(s) {
  *
  * @param {{ accepterName?: string|null, accepterEmail: string, company: string }} args
  */
-export function referralAccepted({ accepterName, accepterEmail, company }) {
+export function referralAccepted({ accepterName, accepterEmail, company, referrerVerified = false }) {
   const name = accepterName ? String(accepterName).trim() : "Someone";
   const subject = `${name} accepted your referral request`;
 
@@ -265,7 +265,11 @@ export function referralAccepted({ accepterName, accepterEmail, company }) {
     `${name} has accepted to help with your referral to ${company}. ` +
     `If you haven't received the referral yet, reach out directly: ${accepterEmail}.`;
 
-  const text = `${subject}\n\n${sentence}\n`;
+  const verifyLine = referrerVerified
+    ? `Verified: ${name} confirmed a ${company} work email.`
+    : `Not verified: ${name} has not confirmed a ${company} work email, so we can't vouch that they work there.`;
+
+  const text = `${subject}\n\n${sentence}\n\n${verifyLine}\n`;
 
   const html = layout({
     preheader: `Good news: your referral to ${company} has a taker`,
@@ -279,6 +283,13 @@ export function referralAccepted({ accepterName, accepterEmail, company }) {
           `<a href="mailto:${esc(accepterEmail)}" style="color:${C.pop};">${esc(
             accepterEmail,
           )}</a>.`,
+      ) +
+      p(
+        referrerVerified
+          ? `<span style="color:#4ade80;font-weight:700;">&#10003; Verified</span> ` +
+              `<span style="color:${C.muted};">${esc(name)} confirmed a ${esc(company)} work email.</span>`
+          : `<span style="color:#fbbf24;font-weight:700;">Not verified</span> ` +
+              `<span style="color:${C.muted};">${esc(name)} has not confirmed a ${esc(company)} work email, so we can't vouch that they work there.</span>`,
       ),
   });
 
