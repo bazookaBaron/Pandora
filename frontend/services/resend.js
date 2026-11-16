@@ -45,6 +45,7 @@ export async function sendEmail({ to, subject, html, text, tag }) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ from: fromAddress(), to, subject, html, text }),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!res.ok) {
