@@ -6,7 +6,6 @@ import { Panel, Group, Separator } from 'react-resizable-panels'
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import JSZip from 'jszip'
 import { supabase } from '../../lib/supabase'
 import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
@@ -326,6 +325,7 @@ export default function LLDProblemPage() {
     }
 
     const downloadZip = async () => {
+        const { default: JSZip } = await import('jszip')
         const zip = new JSZip()
         codeFiles.forEach(f => zip.file(f.filepath || f.filename, f.content || ''))
         const blob = await zip.generateAsync({ type: 'blob' })

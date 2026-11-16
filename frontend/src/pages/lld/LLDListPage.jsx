@@ -38,6 +38,9 @@ export default function LLDListPage() {
     // Debounce the search box → URL param (300ms) so it feeds the query key
     // without a request per keystroke.
     const searchDebounce = useRef(null)
+    // A pending debounced setSearchParams must not fire after leaving the page
+    // (it would navigate the user back to this list).
+    useEffect(() => () => clearTimeout(searchDebounce.current), [])
     const updateSearch = (v) => {
         setSearchInput(v)
         clearTimeout(searchDebounce.current)
