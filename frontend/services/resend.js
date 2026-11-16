@@ -28,10 +28,12 @@ function fromAddress() {
  * Send a single email. Never throws.
  *
  * @param {{ to: string|string[], subject: string, html: string, text?: string,
- *           tag?: string }} msg
+ *           tag?: string, from?: string, replyTo?: string }} msg
+ *   `from` overrides the default sender (must be on a Resend-verified domain);
+ *   `replyTo` sets the Reply-To header (AutoApply recruiter-mail forwarding).
  * @returns {Promise<{ id?: string } | { skipped: true } | { error: true, status: number }>}
  */
-export async function sendEmail({ to, subject, html, text, tag }) {
+export async function sendEmail({ to, subject, html, text, tag, from, replyTo }) {
   if (!isEnabled()) {
     console.warn("[resend] skipped (no RESEND_API_KEY):", tag, "->", to);
     return { skipped: true };
@@ -44,7 +46,14 @@ export async function sendEmail({ to, subject, html, text, tag }) {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ from: fromAddress(), to, subject, html, text }),
+      body: JSON.stringify({
+        from: from || fromAddress(),
+        to,
+        subject,
+        html,
+        text,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+      }),
       signal: AbortSignal.timeout(15_000),
     });
 

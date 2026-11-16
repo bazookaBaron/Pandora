@@ -57,6 +57,8 @@ const NAV_LINKS = [
     { to: '/hld', label: 'HLD' },
     { to: '/interview', label: 'Interview' },
     { to: '/referrals', label: 'Referrals' },
+    // Shown once VITE_AUTOAPPLY=1 at build time; the /autoapply pages still work by direct link for testing.
+    ...(import.meta.env.VITE_AUTOAPPLY === '1' ? [{ to: '/autoapply', label: 'AutoApply' }] : []),
 ]
 
 // Mobile: these move OUT of the hamburger menu into the tile bar below the nav.

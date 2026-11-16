@@ -1,0 +1,10 @@
+{
+  "description": "X-AA-Signature = hex(HMAC_SHA256(secret, ts + \".\" + body)); body is the exact raw request body (UTF-8 bytes), ts the X-AA-Timestamp header value",
+  "algorithm": "HMAC-SHA256",
+  "encoding": "lowercase hex",
+  "secret": "aa_test_inbound_secret_v1_do_not_use_in_prod",
+  "ts": "1763287200",
+  "body": "{\"to\":\"debopriyo.k7q2.acme@apply.vloombox.com\",\"from\":\"no-reply@myworkday.com\",\"from_name\":\"Acme Careers\",\"subject\":\"Verify your account\",\"received_at\":\"2026-11-16T10:00:00Z\",\"codes\":[\"482913\"],\"links\":[\"https://acme.wd3.myworkdayjobs.com/en-US/External/activate/abc?x=1&y=2\"],\"is_human\":false,\"text_excerpt\":\"Your code is 482913 — café ₹\",\"raw_key\":\"mail/2026/11/16/0f8b6c1e-2d3a-4b5c-9d7e-112233445566.eml\",\"reply_to\":null,\"message_id\":\"<wd-1@myworkday.com>\"}",
+  "signed_string_prefix": "1763287200.",
+  "expected_signature": "a0b70949172da7c09a051e5161092f095b5ad7f9297b280a3c8c80379220cb87"
+}

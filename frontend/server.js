@@ -88,6 +88,12 @@ import {
   getJobsCompanyPayload,
 } from "./routes/jobs.js";
 import { scheduleCompanyDigest } from "./lib/jobsDigest.js";
+import {
+  createAutoApplyRouter,
+  createInboundHandler,
+  handleAutoApplyWebhook,
+  runAutoApplyRefunds,
+} from "./routes/autoapply.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE_DIR = path.join(__dirname, "resume-source");
@@ -205,6 +211,23 @@ app.use(
     },
     credentials: false,
   }),
+);
+
+// AutoApply inbound mail from the Email Worker (docs/autoapply-contract.md).
+// The HMAC covers the exact raw bytes, so this one route gets its own raw
+// parser and is registered BEFORE the global JSON parser and generalLimiter
+// (the worker is a single client relaying every mail). No auth: HMAC is the check.
+const inboundLimiter = makeLimiter({
+  windowMs: 60 * 1000,
+  max: 600,
+  keyGenerator: (req) => req.ip,
+  message: { error: { code: "rate_limited", message: "Too many requests." } },
+});
+app.post(
+  "/api/inbound/email",
+  inboundLimiter,
+  express.raw({ type: () => true, limit: "1mb" }),
+  createInboundHandler(),
 );
 
 // Capture the raw request bytes on `req.rawBody` (needed by the Razorpay
@@ -3226,6 +3249,11 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
       eventClaimed = true;
     }
 
+    // AutoApply packs (order notes.kind === 'autoapply'): payment.captured /
+    // order.paid -> idempotent batch 'paid' + ledger 'purchase'. null = not ours.
+    const aa = await handleAutoApplyWebhook({ db: supabaseAdmin, body: req.body });
+    if (aa) return res.status(200).json(aa);
+
     // One-time term payments: safety net for a lost browser callback (tab
     // closed right after paying). Grant the plan straight from order.notes —
     // idempotent with /api/payments/razorpay/verify via processed_payments.
@@ -3361,6 +3389,18 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
     res.status(500).json({ error: "processing_failed" }); // Razorpay retries
   }
 });
+
+// ── AutoApply API (routes/autoapply.js) ─────────────────────────────
+// Off until AUTOAPPLY_ENABLED=1 on Railway (workers, mail and keys must be set up first).
+app.use("/api/autoapply", (_req, res, next) =>
+  process.env.AUTOAPPLY_ENABLED === "1"
+    ? next()
+    : res.status(404).json({ error: { code: "not_enabled", message: "AutoApply is not available yet." } }),
+);
+app.use(
+  "/api/autoapply",
+  createAutoApplyRouter({ limiters: { checkout: checkoutLimiter, write: catalogLimiter } }),
+);
 
 // ── Blog (public) ──────────────────────────────────────────────────
 // The `blogs` table (sql/13) is RLS-readable for published rows; these routes
@@ -3826,6 +3866,14 @@ scheduleCompanyDigest(cron, {
   appBaseUrl: APP_BASE_URL,
   redact,
 });
+
+// AutoApply refunds: 'refund_due' batches -> Razorpay refund of the unused
+// share -> ledger 'refund' -> 'refunded'. Every 15 min.
+if (process.env.SUPABASE_SERVICE_ROLE_KEY && razorpay.isEnabled()) {
+  cron.schedule("*/15 * * * *", () => runAutoApplyRefunds(), { timezone: "Asia/Kolkata" });
+} else {
+  console.warn("[autoapply] refunds cron disabled (no SUPABASE_SERVICE_ROLE_KEY or Razorpay keys)");
+}
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {

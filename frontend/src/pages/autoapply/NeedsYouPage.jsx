@@ -1,0 +1,127 @@
+import { useState } from 'react'
+import { ExternalLink } from 'lucide-react'
+import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
+import { useNeedsYou, useResolveNeedsYou } from '../../lib/useAutoApply'
+import { AALayout, InlineConfirm, PageHeader, fmtAgo } from './ui'
+
+const KIND = {
+    captcha: { title: 'Captcha', help: 'The site asked for a captcha we can’t solve. Open the job, apply yourself, then tell us.' },
+    sso: { title: 'Social sign-in', help: 'This site only allows Google / LinkedIn sign-in. Open the job, apply yourself, then tell us.' },
+    account: { title: 'Account problem', help: 'We could not create or open your account on this site. Open the job and apply yourself.' },
+    question: { title: 'Question', help: 'The form asked something we don’t have an answer for. Your answer is saved and reused next time.' },
+    other: { title: 'Needs a human', help: 'Something on this site needs you. Open the job and apply yourself.' },
+}
+const ORDER = ['question', 'captcha', 'sso', 'account', 'other']
+
+function Item({ item }) {
+    const resolve = useResolveNeedsYou()
+    const p = item.payload || {}
+    const meta = KIND[item.kind] || KIND.other
+    const link = p.apply_url || item.task?.apply_url
+    const [answer, setAnswer] = useState(p.suggestion ?? '')
+    const [confirmDismiss, setConfirmDismiss] = useState(false)
+    const [err, setErr] = useState(null)
+    const id = `ny-${item.id}`
+    const options = Array.isArray(p.options) ? p.options : null
+
+    function act(action, extra) {
+        setErr(null)
+        resolve.mutate({ id: item.id, action, ...extra }, { onError: (e) => { setErr(e); setConfirmDismiss(false) } })
+    }
+
+    return (
+        <li className="aa-card aa-stack" aria-labelledby={`${id}-h`}>
+            <div className="aa-spread">
+                <div>
+                    <div id={`${id}-h`} style={{ color: 'var(--bright)', fontWeight: 900, fontSize: '0.86rem' }}>
+                        {item.task?.company || 'Unknown company'}{item.task?.title ? ` · ${item.task.title}` : ''}
+                    </div>
+                    <div className="aa-faint">{meta.title} · {fmtAgo(item.created_at)}</div>
+                </div>
+                <span className={`aa-pill ${item.kind === 'question' ? 't-pop' : 't-warm'}`}>{meta.title}</span>
+            </div>
+            <p className="aa-muted" style={{ margin: 0 }}>{p.note || meta.help}</p>
+
+            {item.kind === 'question' ? (
+                <form className="aa-stack" onSubmit={(e) => { e.preventDefault(); if (String(answer).trim()) act('answer', { answer: String(answer).trim() }) }}>
+                    <div className="aa-field">
+                        <label className="field-label" htmlFor={`${id}-a`} style={{ textTransform: 'none', letterSpacing: 0, fontSize: '0.8rem', color: 'var(--bright)' }}>
+                            {p.question || p.label || 'Question'}
+                        </label>
+                        {options ? (
+                            <select id={`${id}-a`} className="input-field provider-select" value={answer} onChange={(e) => setAnswer(e.target.value)}>
+                                <option value="">Choose…</option>
+                                {options.map((o) => {
+                                    const v = typeof o === 'object' ? o.value : o
+                                    const l = typeof o === 'object' ? (o.label ?? o.value) : o
+                                    return <option key={v} value={v}>{l}</option>
+                                })}
+                            </select>
+                        ) : (
+                            <input id={`${id}-a`} className="input-field" value={answer} onChange={(e) => setAnswer(e.target.value)} />
+                        )}
+                        {p.suggestion && <div className="field-hint">Suggested from your profile: {p.suggestion}</div>}
+                    </div>
+                    <div className="aa-row">
+                        <button type="submit" className="aa-btn is-primary" disabled={resolve.isPending || !String(answer).trim()}>
+                            {resolve.isPending ? 'Saving…' : 'Save answer and retry'}
+                        </button>
+                        {link && <a className="aa-btn" href={link} target="_blank" rel="noopener noreferrer"><ExternalLink size={12} aria-hidden /> Open job</a>}
+                        {!confirmDismiss && <button type="button" className="aa-btn" onClick={() => setConfirmDismiss(true)} disabled={resolve.isPending}>Dismiss</button>}
+                    </div>
+                </form>
+            ) : (
+                <div className="aa-row">
+                    {link ? (
+                        <a className="aa-btn is-primary" href={link} target="_blank" rel="noopener noreferrer"><ExternalLink size={12} aria-hidden /> Open job</a>
+                    ) : (
+                        <span className="aa-faint">No link for this job.</span>
+                    )}
+                    <button type="button" className="aa-btn" onClick={() => act('done')} disabled={resolve.isPending}>
+                        {resolve.isPending ? 'Saving…' : 'I applied myself'}
+                    </button>
+                    {!confirmDismiss && <button type="button" className="aa-btn" onClick={() => setConfirmDismiss(true)} disabled={resolve.isPending}>Dismiss</button>}
+                </div>
+            )}
+
+            {confirmDismiss && (
+                <InlineConfirm
+                    message="Skip this job? No credit is used."
+                    confirmLabel="Skip job"
+                    busy={resolve.isPending}
+                    onConfirm={() => act('dismiss')}
+                    onCancel={() => setConfirmDismiss(false)}
+                />
+            )}
+            {err && <ErrorState compact message={errorText(err)} />}
+        </li>
+    )
+}
+
+export default function NeedsYouPage() {
+    const q = useNeedsYou()
+    const items = q.data?.items || []
+    const groups = ORDER.map((k) => [k, items.filter((i) => (KIND[i.kind] ? i.kind : 'other') === k)]).filter(([, l]) => l.length)
+
+    return (
+        <AALayout gate>
+            <PageHeader eyebrow="Needs you" title="Applications waiting on you" lead="A few sites need a human. Nothing here uses a credit unless we submit the application." />
+            {q.isLoading ? (
+                <LoadingState label="Loading…" />
+            ) : q.isError ? (
+                <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load" />
+            ) : items.length === 0 ? (
+                <EmptyState icon="✅" title="Nothing needs you right now" message="We’ll list captchas, social sign-ins and unanswered questions here." />
+            ) : (
+                <div className="aa-stack">
+                    {groups.map(([k, list]) => (
+                        <section key={k} aria-labelledby={`grp-${k}`}>
+                            <h2 id={`grp-${k}`} className="aa-h2">{KIND[k].title} ({list.length})</h2>
+                            <ul className="aa-list">{list.map((i) => <Item key={i.id} item={i} />)}</ul>
+                        </section>
+                    ))}
+                </div>
+            )}
+        </AALayout>
+    )
+}

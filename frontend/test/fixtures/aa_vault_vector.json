@@ -1,0 +1,9 @@
+{
+  "description": "AutoApply vault test vector (AES-256-GCM, AAD=user_id|tenant_host, blob=base64(nonce||ct||tag)). Fixed key/nonce for cross-language tests only.",
+  "key_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  "nonce_hex": "000102030405060708090a0b",
+  "user_id": "11111111-2222-3333-4444-555555555555",
+  "tenant_host": "acme.wd3.myworkdayjobs.com",
+  "plaintext": "S3cret-pässword!#1",
+  "secret_ciphertext": "AAECAwQFBgcICQoLFDG1aaCR72tO5eT4xoYKCaL1toDWY023XTTbJZQVVl3D2ZQ="
+}
