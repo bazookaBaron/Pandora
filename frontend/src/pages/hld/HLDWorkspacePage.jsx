@@ -7,7 +7,6 @@ import ReactFlow, {
     Handle, Position, BaseEdge, EdgeLabelRenderer, getBezierPath,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
-import { toPng } from 'html-to-image'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useProgress } from '../../lib/useProgress'
@@ -403,9 +402,12 @@ function HLDWorkspaceInner() {
         }
     }, [rfInstance, prog?.id])
 
-    // Auto-generate FR/NFR on first visit
+    // Auto-generate FR/NFR on first visit — only after saved progress has loaded
+    // and been applied (otherwise we'd burn a metered AI call and overwrite a
+    // saved FR/NFR). The route is keyed by problem id (App.jsx) so hydratedRef /
+    // viewportAppliedRef reset on every problem change via remount.
     useEffect(() => {
-        if (!problem || tierLocked || frNfr.fr || frNfrLoading) return
+        if (!problem || tierLocked || !progressLoaded || !hydrated || frNfr.fr || frNfrLoading) return
         if (prog?.state?.frNfr?.fr) return
         setFrNfrLoading(true)
         apiFetch('/api/hld/generate', { json: { description: problem.description || problem.title } })
@@ -414,7 +416,7 @@ function HLDWorkspaceInner() {
                 if (isUsageLimit(err)) setUsageLimitInfo({ used: err.used, limit: err.limit, resetsAt: err.resetsAt })
             })
             .finally(() => setFrNfrLoading(false))
-    }, [problem?.id])
+    }, [problem?.id, progressLoaded, hydrated, tierLocked])
 
     // Persist state (debounced)
     const persistState = useCallback(() => {
@@ -525,7 +527,7 @@ function HLDWorkspaceInner() {
         }
         try {
             const bg = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#09090b'
-            const imgData = await toPng(canvasRef.current, { backgroundColor: bg, pixelRatio: 1.5 })
+            const imgData = await (await import('html-to-image')).toPng(canvasRef.current, { backgroundColor: bg, pixelRatio: 1.5 })
             const result = await apiFetch('/api/hld/judge', {
                 json: { image_base64: imgData.split(',')[1], frNfr, apiEndpoints: endpoints, title: problem?.title || '' },
             })

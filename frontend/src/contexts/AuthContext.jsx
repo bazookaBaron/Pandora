@@ -1,10 +1,10 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { ssClearPrefix } from '../lib/sessionStore'
 import { identifyUser, resetAnalytics } from '../lib/analytics'
-import { apiFetch } from '../lib/apiClient'
+import { apiFetch, isProtectedPath } from '../lib/apiClient'
 
 const AuthContext = createContext(null)
 
@@ -41,6 +41,9 @@ export function AuthProvider({ children }) {
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
             setSession(session)
+        }).catch(() => {
+            // Storage/lock failure: treat as signed out rather than spinning forever.
+            setSession(prev => (prev === undefined ? null : prev))
         })
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -56,12 +59,17 @@ export function AuthProvider({ children }) {
 
             if (session?.user?.id && lastCountryCheckRef.current !== session.user.id) {
                 lastCountryCheckRef.current = session.user.id
-                apiFetch('/api/profile/detect-country', { method: 'POST' }).catch(() => {
-                    // Best-effort — a failed detection just leaves country
-                    // null, which currencyForCountry() already treats as
-                    // India (the safe default), so there's nothing to
-                    // recover from here.
-                })
+                // Supabase guidance: never await other supabase calls (apiFetch
+                // reads the session) inside the onAuthStateChange callback — it
+                // can deadlock on the auth lock. Defer to the next tick.
+                setTimeout(() => {
+                    apiFetch('/api/profile/detect-country', { method: 'POST' }).catch(() => {
+                        // Best-effort — a failed detection just leaves country
+                        // null, which currencyForCountry() already treats as
+                        // India (the safe default), so there's nothing to
+                        // recover from here.
+                    })
+                }, 0)
             }
 
             // Only a real sign-out should wipe cached data + per-user UI state.
@@ -70,7 +78,9 @@ export function AuthProvider({ children }) {
             // normal session — none of those should clear anything.
             if (event === 'SIGNED_OUT') {
                 clearUserState()
-                navigate('/auth', { replace: true })
+                // Only protected routes bounce to /auth; public pages stay put
+                // (an explicit logout() navigates on its own).
+                if (isProtectedPath(window.location.pathname)) navigate('/auth', { replace: true })
             }
         })
 
@@ -83,6 +93,7 @@ export function AuthProvider({ children }) {
 
     const clearUserState = () => {
         lastIdentifiedRef.current = null
+        lastCountryCheckRef.current = null
         queryClient.clear()
         ssClearPrefix('iq:')
         resetAnalytics()
@@ -119,8 +130,13 @@ export function AuthProvider({ children }) {
         window.location.replace('/auth')
     }
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const value = useMemo(() => ({
+        session, user: session?.user ?? null, loading: session === undefined, logout,
+    }), [session])
+
     return (
-        <AuthContext.Provider value={{ session, user: session?.user ?? null, loading: session === undefined, logout }}>
+        <AuthContext.Provider value={value}>
             {children}
         </AuthContext.Provider>
     )

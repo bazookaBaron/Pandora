@@ -15,6 +15,8 @@ import {
     useMyReferrals,
     useOpenReferrals,
     usePostReferral,
+    useVerifyConfirm,
+    useVerifyStart,
 } from '../../lib/useReferrals'
 
 // ── Small helpers ──────────────────────────────────────────────────
@@ -338,6 +340,123 @@ function PostTab({ limits, onPosted }) {
     )
 }
 
+// ── Verified badge + optional verify hint ─────────────────────────
+function VerifiedBadge({ company }) {
+    return (
+        <span
+            title="This person confirmed a work email at this company."
+            style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
+                color: '#4ade80', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.35)',
+                padding: '2px 8px', borderRadius: 999, fontSize: '0.68rem', fontWeight: 800,
+            }}
+        >
+            ✓ Verified{company ? ` at ${company}` : ''}
+        </span>
+    )
+}
+
+const HINT_KEY = 'referrals:verifyHintDismissed'
+function readDismissed() {
+    try { return localStorage.getItem(HINT_KEY) === '1' } catch { return false }
+}
+
+const VERIFY_ERRORS = {
+    domain_mismatch: "That email's domain doesn't look like this company's. Use your work address.",
+    invalid_email: 'Enter a valid work email.',
+    set_company_first: 'Add your company in your profile first.',
+    email_in_use: 'That work email is already linked to another account.',
+    email_unconfigured: 'Email sending is unavailable right now. Try again later.',
+    wait_before_resending: 'Please wait a minute before requesting another code.',
+    too_many_codes: 'Too many codes requested. Try again in an hour.',
+    wrong_code: "That code isn't right.",
+    code_expired: 'That code expired. Request a new one.',
+    no_pending_code: 'Request a code first.',
+    too_many_attempts: 'Too many attempts. Request a new code.',
+    company_changed: 'Your company changed since the code was sent. Request a new code.',
+}
+function verifyErrText(err) {
+    return (err && VERIFY_ERRORS[err.code]) || errorText(err)
+}
+
+// Optional and dismissible: nothing in the referral flow is blocked by it.
+function VerifyHint({ company }) {
+    const [dismissed, setDismissed] = useState(readDismissed)
+    const [step, setStep] = useState('hint') // hint | email | code | done
+    const [email, setEmail] = useState('')
+    const [code, setCode] = useState('')
+    const [err, setErr] = useState('')
+    const start = useVerifyStart()
+    const confirm = useVerifyConfirm()
+
+    if (dismissed) return null
+    const dismiss = () => {
+        try { localStorage.setItem(HINT_KEY, '1') } catch { /* private mode */ }
+        setDismissed(true)
+    }
+
+    const sendCode = async (e) => {
+        e.preventDefault()
+        setErr('')
+        try {
+            await start.mutateAsync(email.trim())
+            setStep('code')
+        } catch (ex) { setErr(verifyErrText(ex)) }
+    }
+    const confirmCode = async (e) => {
+        e.preventDefault()
+        setErr('')
+        try {
+            await confirm.mutateAsync(code.trim())
+            setStep('done')
+        } catch (ex) { setErr(verifyErrText(ex)) }
+    }
+
+    const box = {
+        background: 'rgba(34,211,238,0.06)', border: '1px solid rgba(34,211,238,0.25)',
+        borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: '0.78rem',
+        color: 'var(--accent)', display: 'flex', flexDirection: 'column', gap: 8,
+    }
+
+    if (step === 'done') {
+        return <div style={{ ...box, color: '#4ade80' }}>✓ Verified{company ? ` at ${company}` : ''} — your badge and higher daily limit are active.</div>
+    }
+
+    return (
+        <div style={box}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                <span style={{ flex: 1 }}>
+                    Verify your work email to get a <strong style={{ color: 'var(--bright)' }}>Verified</strong> badge and higher limits.
+                    You can accept requests without it.
+                </span>
+                {step === 'hint' && (
+                    <button type="button" onClick={() => setStep('email')} style={btnStyle}>Verify</button>
+                )}
+                <button type="button" onClick={dismiss} aria-label="Dismiss" style={{ ...btnStyle, color: 'var(--faint)' }}>×</button>
+            </div>
+            {step === 'email' && (
+                <form onSubmit={sendCode} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <input
+                        className="input-field" type="email" required placeholder="you@yourcompany.com"
+                        value={email} onChange={(e) => setEmail(e.target.value)} style={{ flex: 1, minWidth: 200 }}
+                    />
+                    <button type="submit" disabled={start.isPending} style={btnStyle}>{start.isPending ? 'Sending…' : 'Send code'}</button>
+                </form>
+            )}
+            {step === 'code' && (
+                <form onSubmit={confirmCode} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <input
+                        className="input-field" inputMode="numeric" maxLength={6} required placeholder="6-digit code"
+                        value={code} onChange={(e) => setCode(e.target.value)} style={{ flex: 1, minWidth: 140 }}
+                    />
+                    <button type="submit" disabled={confirm.isPending} style={btnStyle}>{confirm.isPending ? 'Checking…' : 'Confirm'}</button>
+                </form>
+            )}
+            {err && <span style={{ color: '#f87171', fontSize: '0.72rem' }}>{err}</span>}
+        </div>
+    )
+}
+
 // ── Tab: Open for my company ──────────────────────────────────────
 function OpenCard({ r }) {
     const accept = useAcceptReferral()
@@ -353,7 +472,7 @@ function OpenCard({ r }) {
         try {
             await fetchResumeUrl(r.id)
         } catch (err) {
-            if (err instanceof ApiError && err.status === 403) setViewErr('Access to this resume is restricted.')
+            if (err instanceof ApiError && err.status === 403) setViewErr('The resume is available only to the person who accepted this request.')
             else setViewErr(errorText(err))
         } finally {
             setViewing(false)
@@ -369,6 +488,8 @@ function OpenCard({ r }) {
             if (err instanceof ApiError && err.code === 'already_accepted') {
                 setAcceptErr('This request was just accepted by someone else.')
                 setGone(true)
+            } else if (err instanceof ApiError && err.code === 'accept_limit') {
+                setAcceptErr(err.body?.message || "You've reached today's accept limit. Try again later.")
             } else if (err instanceof ApiError && err.code === 'no_company') {
                 setAcceptErr('Add your current company in your profile before accepting.')
             } else {
@@ -383,6 +504,12 @@ function OpenCard({ r }) {
                 <span style={{ fontSize: '0.82rem', color: '#4ade80', fontWeight: 700 }}>
                     You accepted this — the candidate has been emailed your contact info.
                 </span>
+                <div>
+                    <button type="button" onClick={viewResume} disabled={viewing} style={btnStyle}>
+                        {viewing ? 'Opening…' : 'View resume'}
+                    </button>
+                </div>
+                {viewErr && <span style={{ fontSize: '0.72rem', color: '#f87171' }}>{viewErr}</span>}
             </div>
         )
     }
@@ -403,10 +530,6 @@ function OpenCard({ r }) {
                 )}
                 <span style={{ flex: 1 }} />
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    <button type="button" onClick={viewResume} disabled={viewing} style={btnStyle}>
-                        {viewing ? 'Opening…' : 'View resume'}
-                        {viewing && <span className="spinner" style={{ marginLeft: 6, verticalAlign: 'middle' }} />}
-                    </button>
                     {!gone && (
                         <button
                             type="button"
@@ -423,7 +546,6 @@ function OpenCard({ r }) {
                 Posted {relTime(r.created_at)} · expires {relTime(r.expires_at)}
             </span>
 
-            {viewErr && <span style={{ fontSize: '0.72rem', color: '#f87171' }}>{viewErr}</span>}
             {acceptErr && <span style={{ fontSize: '0.72rem', color: '#f87171' }}>{acceptErr}</span>}
         </div>
     )
@@ -447,20 +569,27 @@ function OpenTab() {
     }
 
     const requests = data?.requests || []
+    const hint = data?.viewerVerified === false ? <VerifyHint company={data?.company} /> : null
     if (requests.length === 0) {
-        const company = requests[0]?.target_company || data?.company
+        const company = data?.company
         return (
-            <EmptyState
-                icon="📭"
-                title={`No open referral requests${company ? ` for ${company}` : ''} right now`}
-            />
+            <>
+                {hint}
+                <EmptyState
+                    icon="📭"
+                    title={`No open referral requests${company ? ` for ${company}` : ''} right now`}
+                />
+            </>
         )
     }
 
     return (
-        <div style={{ display: 'grid', gap: 12 }}>
-            {requests.map((r) => <OpenCard key={r.id} r={r} />)}
-        </div>
+        <>
+            {hint}
+            <div style={{ display: 'grid', gap: 12 }}>
+                {requests.map((r) => <OpenCard key={r.id} r={r} />)}
+            </div>
+        </>
     )
 }
 
@@ -504,6 +633,9 @@ function MineCard({ r }) {
                 }}>
                     <strong style={{ color: 'var(--bright)' }}>{r.accepter.name}</strong> accepted — reach out:{' '}
                     <a href={`mailto:${r.accepter.email}`} style={{ color: '#22d3ee' }}>{r.accepter.email}</a>
+                    {r.referrerVerified && (
+                        <span style={{ marginLeft: 8 }}><VerifiedBadge company={r.target_company} /></span>
+                    )}
                 </div>
             )}
 

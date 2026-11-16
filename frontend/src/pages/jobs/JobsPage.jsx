@@ -7,20 +7,10 @@ import { LockedSlice } from '../../components/shared/PaywallGate'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useEntitlements } from '../../lib/useEntitlements'
+import { relTime, postedTime, isFreshJob, jobLinks, sourceLabel } from '../../lib/jobUtils'
 import { useCompanySubscriptions, useSubscribeToCompany, useUnsubscribeFromCompany } from '../../lib/useCompanySubscriptions'
 
 // ── helpers ────────────────────────────────────────────────────────
-function relTime(iso) {
-    if (!iso) return ''
-    const t = new Date(iso).getTime()
-    if (Number.isNaN(t)) return ''
-    const s = (Date.now() - t) / 1000
-    if (s < 90) return 'just now'
-    if (s < 3600) return Math.round(s / 60) + 'm ago'
-    if (s < 86400) return Math.round(s / 3600) + 'h ago'
-    return Math.round(s / 86400) + 'd ago'
-}
-
 const LOC_TONE = { remote: '#4ade80', hybrid: '#22d3ee', onsite: '#f472b6' }
 const SEN_LABEL = {
     intern: 'Intern', junior: 'Junior (0–2y)', mid: 'Mid (2–4y)',
@@ -119,7 +109,9 @@ function SubscribeBell({ slug, companyName }) {
 // (company · location · work-type · level · age), and a small Apply button
 // pinned right. No pills — colour is carried by the text itself.
 function JobCard({ j }) {
-    const fresh = j.firstSeen && (Date.now() - new Date(j.firstSeen).getTime()) < 48 * 3600 * 1000
+    const fresh = isFreshJob(j)
+    const { primary, alts } = jobLinks(j)
+    const srcLabel = sourceLabel(j.source)
     const locTone = LOC_TONE[j.locationType]
     const sen = j.seniority && j.seniority !== 'unknown' ? j.seniority : ''
 
@@ -129,7 +121,9 @@ function JobCard({ j }) {
     if (j.locationType) meta.push(<span style={{ color: locTone || 'inherit' }}>{j.locationType}</span>)
     if (j.companyType && j.companyType !== 'unknown') meta.push(COMPANY_TYPE_LABEL[j.companyType] || j.companyType)
     if (sen) meta.push(SEN_LABEL[sen] || sen)
-    if (j.firstSeen) meta.push(relTime(j.firstSeen))
+    const when = relTime(postedTime(j))
+    if (when) meta.push(when)
+    if (srcLabel) meta.push(srcLabel)
 
     return (
         <div className="job-card" style={{
@@ -139,7 +133,7 @@ function JobCard({ j }) {
         }}>
             <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, minWidth: 0, overflow: 'hidden' }}>
-                    <a href={j.url} target="_blank" rel="noopener noreferrer" style={{
+                    <a href={primary || undefined} target="_blank" rel="noopener noreferrer" style={{
                         flex: '1 1 auto', minWidth: 0, display: 'block',
                         fontWeight: 750, fontSize: '0.85rem', color: 'var(--bright)', letterSpacing: '-0.01em',
                         textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
@@ -151,6 +145,12 @@ function JobCard({ j }) {
                             flexShrink: 0, fontSize: '0.55rem', fontWeight: 900,
                             letterSpacing: '0.09em', color: '#fbbf24',
                         }}>NEW</span>
+                    )}
+                    {j.isReposted && (
+                        <span style={{
+                            flexShrink: 0, fontSize: '0.55rem', fontWeight: 900,
+                            letterSpacing: '0.09em', color: '#a78bfa',
+                        }}>REPOSTED</span>
                     )}
                 </div>
                 <div style={{
@@ -168,13 +168,24 @@ function JobCard({ j }) {
 
             <SubscribeBell slug={j.companySlug} companyName={j.company} />
 
-            <a href={j.url} target="_blank" rel="noopener noreferrer" className="job-apply" style={{
-                flexShrink: 0, padding: '4px 11px', borderRadius: 6,
-                border: '1px solid var(--subtle)', color: 'var(--pop)',
-                fontSize: '0.7rem', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap',
-            }}>
-                Apply ↗
-            </a>
+            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                {primary && (
+                    <a href={primary} target="_blank" rel="noopener noreferrer" className="job-apply" style={{
+                        padding: '4px 11px', borderRadius: 6,
+                        border: '1px solid var(--subtle)', color: 'var(--pop)',
+                        fontSize: '0.7rem', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap',
+                    }}>
+                        Apply ↗
+                    </a>
+                )}
+                {alts.slice(0, 1).map((a) => (
+                    <a key={a.href} href={a.href} target="_blank" rel="noopener noreferrer" style={{
+                        fontSize: '0.62rem', color: 'var(--muted)', textDecoration: 'none', whiteSpace: 'nowrap',
+                    }}>
+                        also on {a.label}
+                    </a>
+                ))}
+            </div>
         </div>
     )
 }
@@ -718,11 +729,18 @@ function ListingsView() {
     const [seniority, setSeniority] = useState('')
     const [postedWithin, setPostedWithin] = useState('')
     const [sort, setSort] = useState('newest')
-    const [page, setPage] = useState(1)
-
     const locationParam = locations.join(',')
 
-    useEffect(() => { setPage(1) }, [search, company, locationParam, locationType, companyType, source, seniority, postedWithin, sort])
+    // Page is tagged with the filter set it was chosen under; when any filter
+    // changes the stored page no longer matches and we fall back to page 1 in the
+    // same render — no reset effect, so no wasted fetch for (new filters, old page).
+    const filterKey = JSON.stringify([search, company, locationParam, locationType, companyType, source, seniority, postedWithin, sort])
+    const [pageState, setPageState] = useState({ key: filterKey, page: 1 })
+    const page = pageState.key === filterKey ? pageState.page : 1
+    const setPage = (p) => setPageState({
+        key: filterKey,
+        page: typeof p === 'function' ? p(page) : p,
+    })
 
     const { data, isLoading, isFetching, error, refetch } =
         useJobs({ search, company, location: locationParam, locationType, companyType, source, seniority, postedWithin, sort, page })

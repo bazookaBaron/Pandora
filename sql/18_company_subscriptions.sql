@@ -4,9 +4,10 @@
 --
 -- FEATURE
 --  Logged-in Pro/Max users subscribe to a company from its /jobs/company/:slug
---  hub page. A daily cron digest (server.js: sendCompanySubscriptionDigest,
---  "30 5 * * *") emails each subscriber one batched summary of new postings
---  for their subscribed companies in the last 24h. Free users: 0 slots (locked
+--  hub page. A daily cron digest (frontend/lib/jobsDigest.js, 09:00
+--  Asia/Kolkata) emails each subscriber one batched summary of new postings
+--  for their subscribed companies in the last ~26h (one instance per day, see
+--  sql/29_jobs_feed_reader.sql: digest_runs). Free users: 0 slots (locked
 --  out). Pro: 4. Max: 10 (a deliberately finite ceiling — see config/tiers.js).
 --
 -- SECURITY MODEL (mirrors sql/11_referral.sql's referral_requests shape)
@@ -90,14 +91,20 @@ RETURNS TABLE (
   first_seen_at  timestamptz
 )
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, crawler AS $$
+  -- Requires the crawler fix that keeps job_posting ids stable across crawls
+  -- (first_seen_at is now only set when a posting is first inserted), and the
+  -- duplicate_of column from the cross-source dedupe. Cross-posted duplicates
+  -- (duplicate_of IS NOT NULL) and closed rows are never alerted on.
   SELECT jp.id, jp.company_slug, jp.title, jp.location, jp.seniority, jp.url, jp.first_seen_at
   FROM crawler.job_posting jp
   WHERE jp.status = 'open'
+    AND jp.duplicate_of IS NULL
     AND jp.first_seen_at >= since
     AND EXISTS (
       SELECT 1 FROM public.company_subscriptions cs
       WHERE cs.company_slug = jp.company_slug
     )
+  ORDER BY jp.id
 $$;
 
 REVOKE ALL ON FUNCTION public.company_subscription_new_postings(timestamptz) FROM public;

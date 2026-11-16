@@ -1,6 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import compression from "compression";
+import helmet from "helmet";
+import expressStaticGzip from "express-static-gzip";
 import cors from "cors";
 import multer from "multer";
 import { rateLimit } from "express-rate-limit";
@@ -21,14 +23,15 @@ import { buildFilename } from "./lib/filename.js";
 import { requireAuth, optionalAuth } from "./lib/requireAuth.js";
 import {
   canAccess,
-  incrementUsage,
+  reserveUsage,
+  refundUsage,
   getRemainingUsage,
   getUserPlan,
   getUserCountry,
   getEntitlementsSummary,
   invalidateUser,
 } from "./lib/entitlements.js";
-import { countryFromIp, currencyForCountry } from "./lib/geo.js";
+import { countryFromRequest, currencyForCountry } from "./lib/geo.js";
 import * as resend from "./services/resend.js";
 import {
   referralRequestCreated,
@@ -36,7 +39,14 @@ import {
   companyJobAlertEmail,
   setEmailAssetBase,
 } from "./lib/referralEmails.js";
-import { canAddCompanySubscription } from "./lib/entitlements.js";
+import {
+  acceptLimitMessage,
+  acceptWindowStart,
+  canViewResume,
+  evaluateAcceptLimit,
+  selectRecipients,
+} from "./lib/referralAccess.js";
+import { canAddCompanySubscription, effectivePlanFromRow } from "./lib/entitlements.js";
 import {
   getLimit,
   isUnlimited,
@@ -60,6 +70,24 @@ import { classifyRoute, renderIndex, baseUrl, escapeHtml, evaluateJobHubIndexabi
 import { cached, invalidate, hasFresh } from "./lib/microCache.js";
 import * as pdfPool from "./lib/pdfPool.js";
 import { makeSemaphore } from "./lib/semaphore.js";
+import { makeLimiter, tokenOrIpKey } from "./lib/rateKeys.js";
+import { registerProfileCompanyRoutes, getVerifiedCompany } from "./routes/profileCompany.js";
+import {
+  computePeriodEnd,
+  claimPayment,
+  releasePayment,
+  recordPaymentPeriodEnd,
+  claimWebhookEvent,
+  releaseWebhookEvent,
+} from "./lib/paymentsStore.js";
+import {
+  createJobsRouter,
+  jobsDb,
+  JOBS_COMPANY_SLUG_RE,
+  getCuratedJobsCompanySlugs,
+  getJobsCompanyPayload,
+} from "./routes/jobs.js";
+import { scheduleCompanyDigest } from "./lib/jobsDigest.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE_DIR = path.join(__dirname, "resume-source");
@@ -74,9 +102,82 @@ const app = express();
 // default ETag turns an unchanged payload into a cheap 304.
 const PLAN_GATED_CACHE = "private, no-cache";
 
-// Behind Railway's proxy: trust the first hop so express-rate-limit sees the
-// real client IP from X-Forwarded-For.
-app.set("trust proxy", 1);
+// Behind Railway's proxy: trust exactly one hop so req.ip is the real client
+// (the right-most X-Forwarded-For entry Railway appended). If you put another
+// proxy/CDN (e.g. Cloudflare) in front, set TRUST_PROXY_HOPS=2.
+app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
+app.disable("x-powered-by");
+
+// Per-request CSP nonce for the few inline <script>s we emit (theme bootstrap,
+// window.__INITIAL_DATA__). Added to the HTML at send time in the SPA handler.
+app.use((_req, res, next) => {
+  res.locals.cspNonce = crypto.randomBytes(16).toString("base64");
+  next();
+});
+
+function originOf(u) {
+  try {
+    return u ? new URL(u).origin : null;
+  } catch {
+    return null;
+  }
+}
+const SUPABASE_ORIGIN = originOf(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
+const POSTHOG_HOST = originOf(process.env.VITE_POSTHOG_HOST) || "https://us.i.posthog.com";
+const POSTHOG_ASSETS = POSTHOG_HOST.replace("//us.i.", "//us-assets.i.").replace("//eu.i.", "//eu-assets.i.");
+const CSP_CONNECT = [
+  "'self'",
+  SUPABASE_ORIGIN,
+  SUPABASE_ORIGIN && SUPABASE_ORIGIN.replace(/^https/, "wss"),
+  "https://*.supabase.co",
+  "wss://*.supabase.co",
+  POSTHOG_HOST,
+  POSTHOG_ASSETS,
+  "https://api.razorpay.com",
+  "https://lumberjack.razorpay.com",
+  "https://cdn.jsdelivr.net",
+].filter(Boolean);
+
+// Security headers. CSP is enforced; set CSP_REPORT_ONLY=true to downgrade it to
+// report-only while debugging a blocked resource in production.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: false,
+      reportOnly: /^(1|true|yes|on)$/i.test(process.env.CSP_REPORT_ONLY || ""),
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        scriptSrc: [
+          "'self'",
+          (_req, res) => `'nonce-${res.locals.cspNonce}'`,
+          "https://checkout.razorpay.com",
+          "https://cdn.jsdelivr.net",
+          POSTHOG_HOST,
+          POSTHOG_ASSETS,
+        ],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"],
+        fontSrc: ["'self'", "data:", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        connectSrc: CSP_CONNECT,
+        frameSrc: ["https://api.razorpay.com", "https://checkout.razorpay.com"],
+        workerSrc: ["'self'", "blob:"],
+        childSrc: ["'self'", "blob:", "https://api.razorpay.com"],
+        mediaSrc: ["'self'", "blob:", "data:"],
+        manifestSrc: ["'self'"],
+      },
+    },
+    strictTransportSecurity: { maxAge: 15552000, includeSubDomains: true },
+    frameguard: { action: "deny" },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    // Razorpay / OAuth open popups that postMessage back to us.
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginEmbedderPolicy: false,
+  }),
+);
 
 // gzip every compressible response (JSON API payloads + the SPA HTML). Placed
 // before any route or static handler so it wraps them all.
@@ -106,51 +207,43 @@ app.use(
   }),
 );
 
-// Capture the raw request bytes on `req.rawBody` (needed by the Lemon Squeezy
+// Capture the raw request bytes on `req.rawBody` (needed by the Razorpay
 // webhook for HMAC signature verification) while normal JSON parsing continues
-// everywhere. Single body parser — do NOT add a second one.
-app.use(
-  express.json({
-    limit: "12mb",
-    verify: (req, _res, buf) => {
-      req.rawBody = buf;
-    },
-  }),
-);
+// everywhere. Default body limit is 100kb; only routes that truly need more
+// get their own larger parser mounted BEFORE the global one (body-parser skips
+// a request that was already parsed).
+const rawBodyCapture = (req, _res, buf) => {
+  req.rawBody = buf;
+};
+// /api/hld/judge carries a base64 diagram screenshot (<= ~8MB decoded).
+app.use("/api/hld/judge", express.json({ limit: "12mb", verify: rawBodyCapture }));
+app.use(express.json({ limit: "100kb", verify: rawBodyCapture }));
 
 // ── Rate limiting ────────────────────────────────────────────────
-const generalLimiter = rateLimit({
+// All limiters bucket by user (JWT sub, mixed with IP) when a bearer token is
+// present, else by IP - see lib/rateKeys.js.
+const generalLimiter = makeLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 120,
-  standardHeaders: true,
-  legacyHeaders: false,
+  max: 600,
+  message: { error: "Too many requests - slow down." },
 });
-const aiLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests — slow down." },
-});
-const catalogLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests — slow down." },
-});
+const aiLimiter = makeLimiter({ windowMs: 60 * 1000, max: 20 });
+const catalogLimiter = makeLimiter({ windowMs: 60 * 1000, max: 60 });
+const referralLimiter = makeLimiter({ windowMs: 60 * 1000, max: 15 });
+const runLimiter = makeLimiter({ windowMs: 60 * 1000, max: 15 });
+const paymentsLimiter = makeLimiter({ windowMs: 60 * 1000, max: 30 });
+const profileWriteLimiter = makeLimiter({ windowMs: 60 * 1000, max: 20 });
 // The subscribe bell is optimistic client-side (instant toggle, no waiting on
 // this request) — cheap to spam-click by design. This caps the actual writes
 // so on/off/on/off doesn't turn into an unbounded insert/delete loop.
-const subscribeLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests — slow down." },
-});
+const subscribeLimiter = makeLimiter({ windowMs: 60 * 1000, max: 20 });
 
 app.use("/api", generalLimiter);
+// Cheap blanket caps on route families that had none.
+app.use("/api/referrals", referralLimiter);
+app.use("/api/payments", paymentsLimiter);
+app.use("/api/subscriptions", paymentsLimiter);
+app.use("/api/profile", profileWriteLimiter);
 
 // Serve the built frontend (Vite `dist/` output) as static files so you only need one server running.
 // `index: false` — never auto-serve dist/index.html for "/"; the SEO-aware
@@ -159,13 +252,19 @@ app.use("/api", generalLimiter);
 // Content-hashed build assets (dist/assets/*) — safe to cache hard + immutable.
 // `fallthrough: false` → a missing /assets/* file 404s instead of falling
 // through to the SPA HTML handler.
+// vite-plugin-compression2 emits .br/.gz siblings at build time; serve them
+// directly (no per-request compression CPU).
 app.use(
   "/assets",
-  express.static(path.join(__dirname, "dist", "assets"), {
-    immutable: true,
-    maxAge: "1y",
-    index: false,
-    fallthrough: false,
+  expressStaticGzip(path.join(__dirname, "dist", "assets"), {
+    enableBrotli: true,
+    orderPreference: ["br", "gz"],
+    serveStatic: {
+      immutable: true,
+      maxAge: "1y",
+      index: false,
+      fallthrough: false,
+    },
   }),
 );
 
@@ -367,7 +466,7 @@ app.post("/api/profile/detect-country", requireAuth, async (req, res) => {
       .maybeSingle();
     if (existing?.country) return res.json({ country: existing.country, updated: false });
 
-    const detected = countryFromIp(req.ip);
+    const detected = await countryFromRequest(req);
     if (!detected) return res.json({ country: null, updated: false });
 
     const { error } = await supabaseAdmin
@@ -380,6 +479,9 @@ app.post("/api/profile/detect-country", requireAuth, async (req, res) => {
     fail(res, err, "profile/detect-country", "Failed to detect country.");
   }
 });
+
+// Company ownership + work-email verification (routes/profileCompany.js).
+registerProfileCompanyRoutes(app, { fail });
 
 // ── Resume optimizer ──────────────────────────────────────────
 // Bounds how many /api/generate bodies run the heavy pipeline (2 LLM stages +
@@ -434,11 +536,36 @@ app.post(
       // ── Concurrency cap ──
       // Shed load early: if the semaphore queue is already deep, fast-fail
       // rather than pile on another queued request holding a PDF buffer.
-      if (genGate.pending > 24) {
+      if (genGate.pending > 12) {
         return res.status(503).json({ error: "busy" });
       }
-      await genGate.acquire();
+      // A client that disconnects while queued must not later take a permit.
+      const genAbort = new AbortController();
+      const onGenClose = () => {
+        if (!res.writableEnded) genAbort.abort();
+      };
+      res.on("close", onGenClose);
       try {
+        await genGate.acquire({ signal: genAbort.signal });
+      } catch {
+        res.off("close", onGenClose);
+        return; // client went away while queued
+      }
+      let reservation = null;
+      let genSucceeded = false;
+      try {
+      // Atomic quota reservation (sql/32). Refunded in finally unless the
+      // resume was produced.
+      const reserved = await reserveUsage(req.user.id, "resume_optimizer");
+      if (!reserved.allowed) {
+        return res.status(402).json({
+          error: "usage_limit",
+          feature: "resume_optimizer",
+          ...paywallFields(reserved),
+        });
+      }
+      reservation = reserved.reservation;
+      if (genAbort.signal.aborted) return;
 
       let apiKey;
       try {
@@ -620,16 +747,8 @@ Output ONLY this JSON (no markdown, use \\n for newlines inside string values):
         }
       }
 
-      // Success — meter the use, then respond. A metering failure must not
-      // deny the user the PDF they already generated.
-      try {
-        await incrementUsage(req.user.id, "resume_optimizer");
-      } catch (e) {
-        console.error(
-          "[generate] incrementUsage failed:",
-          redact(e?.message || String(e)),
-        );
-      }
+      // Success - the quota unit was reserved up front; keep it.
+      genSucceeded = true;
 
       res.json({
         filename,
@@ -643,6 +762,8 @@ Output ONLY this JSON (no markdown, use \\n for newlines inside string values):
         // Runs on every exit path from the gated block — success, early
         // return (402/422/…), and thrown errors alike.
         genGate.release();
+        res.off("close", onGenClose);
+        if (!genSucceeded) await refundUsage(reservation);
       }
     } catch (err) {
       fail(res, err, "generate", "Something went wrong generating your resume.");
@@ -670,6 +791,8 @@ function extractJson(raw) {
   return raw.slice(start, end + 1);
 }
 
+const GEMINI_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 45_000;
+
 async function geminiFetch(model, payload) {
   const res = await fetch(GEMINI_ENDPOINT(model), {
     method: "POST",
@@ -678,6 +801,7 @@ async function geminiFetch(model, payload) {
       "x-goog-api-key": process.env.GEMINI_API_KEY,
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
   });
   if (!res.ok) {
     // Log the real upstream body server-side (redacted); never echo it to the client.
@@ -701,6 +825,7 @@ async function callGemini(prompt, model = "gemini-3.1-flash-lite") {
 }
 
 app.post("/api/hld/generate", aiLimiter, requireAuth, async (req, res) => {
+  let reservation = null;
   try {
     const { description } = req.body || {};
     assert(
@@ -712,7 +837,7 @@ app.post("/api/hld/generate", aiLimiter, requireAuth, async (req, res) => {
       return res.status(500).json({ error: "AI service is not configured." });
     }
 
-    const gate = await canAccess(req.user.id, "hld_practice");
+    const gate = await reserveUsage(req.user.id, "hld_practice");
     if (!gate.allowed) {
       return res.status(402).json({
         error: "usage_limit",
@@ -720,6 +845,7 @@ app.post("/api/hld/generate", aiLimiter, requireAuth, async (req, res) => {
         ...paywallFields(gate),
       });
     }
+    reservation = gate.reservation;
 
     const prompt = `You are a senior system design engineer. Given this HLD question/topic:
 ---
@@ -747,22 +873,16 @@ Output ONLY the following JSON (no markdown, no extra text, use \\n for newlines
     }
     const { fr, nfr } = parsed;
 
-    try {
-      await incrementUsage(req.user.id, "hld_practice");
-    } catch (e) {
-      console.error(
-        "[hld/generate] incrementUsage failed:",
-        redact(e?.message || String(e)),
-      );
-    }
-
+    reservation = null; // success: keep the reserved unit
     res.json({ fr, nfr });
   } catch (err) {
+    await refundUsage(reservation);
     fail(res, err, "hld/generate", "AI service error");
   }
 });
 
 app.post("/api/hld/judge", aiLimiter, requireAuth, async (req, res) => {
+  let reservation = null;
   try {
     const { image_base64, frNfr, apiEndpoints, title } = req.body || {};
 
@@ -788,7 +908,7 @@ app.post("/api/hld/judge", aiLimiter, requireAuth, async (req, res) => {
       return res.status(500).json({ error: "AI service is not configured." });
     }
 
-    const gate = await canAccess(req.user.id, "hld_practice");
+    const gate = await reserveUsage(req.user.id, "hld_practice");
     if (!gate.allowed) {
       return res.status(402).json({
         error: "usage_limit",
@@ -796,6 +916,7 @@ app.post("/api/hld/judge", aiLimiter, requireAuth, async (req, res) => {
         ...paywallFields(gate),
       });
     }
+    reservation = gate.reservation;
 
     const frText = frNfr?.fr
       ? `Functional Requirements:\n${frNfr.fr}\n\nNon-Functional Requirements:\n${frNfr.nfr || "N/A"}`
@@ -853,14 +974,17 @@ Give a structured evaluation. Output ONLY this JSON (no markdown, use \\n for ne
         throw e;
       }
     }
+    reservation = null; // success: judge runs now count toward hld_practice
     res.json(result);
   } catch (err) {
+    await refundUsage(reservation);
     fail(res, err, "hld/judge", "AI service error");
   }
 });
 
 // ── Generic AI explanation (metered: ai_explanation) ─────────────
 app.post("/api/ai/explain", aiLimiter, requireAuth, async (req, res) => {
+  let reservation = null;
   try {
     const { prompt, code, question } = req.body || {};
     const input = [question, prompt, code].find((v) => isNonEmptyString(v));
@@ -872,7 +996,7 @@ app.post("/api/ai/explain", aiLimiter, requireAuth, async (req, res) => {
       return res.status(500).json({ error: "AI service is not configured." });
     }
 
-    const gate = await canAccess(req.user.id, "ai_explanation");
+    const gate = await reserveUsage(req.user.id, "ai_explanation");
     if (!gate.allowed) {
       return res.status(402).json({
         error: "usage_limit",
@@ -880,6 +1004,7 @@ app.post("/api/ai/explain", aiLimiter, requireAuth, async (req, res) => {
         ...paywallFields(gate),
       });
     }
+    reservation = gate.reservation;
 
     const p = `You are a concise technical tutor helping someone prepare for software-engineering interviews. Explain the following clearly and accurately. Use short paragraphs and a concrete example when it helps.
 
@@ -888,17 +1013,10 @@ ${input}
 ---`;
     const explanation = await callGemini(p);
 
-    try {
-      await incrementUsage(req.user.id, "ai_explanation");
-    } catch (e) {
-      console.error(
-        "[ai/explain] incrementUsage failed:",
-        redact(e?.message || String(e)),
-      );
-    }
-
+    reservation = null; // success: keep the reserved unit
     res.json({ explanation });
   } catch (err) {
+    await refundUsage(reservation);
     fail(res, err, "ai/explain", "AI service error");
   }
 });
@@ -974,7 +1092,7 @@ function filterSortDsa(list, { search, companies, difficulties, sort }) {
 
 async function fetchAllRows(table, columns, orderCol, ascending) {
   const PAGE = 1000;
-  let all = [];
+  const all = [];
   let from = 0;
   for (;;) {
     const { data, error } = await supabaseAdmin
@@ -983,11 +1101,39 @@ async function fetchAllRows(table, columns, orderCol, ascending) {
       .order(orderCol, { ascending })
       .range(from, from + PAGE - 1);
     if (error) throw error;
-    all = all.concat(data || []);
+    for (const r of data || []) all.push(r); // push, not concat: O(n) not O(n^2)
     if ((data || []).length < PAGE) break;
     from += PAGE;
   }
   return all;
+}
+
+// Page through a filtered query that PostgREST would otherwise silently cap at
+// 1000 rows. `build` must return a FRESH, deterministically ordered query.
+async function fetchAllPaged(build) {
+  const PAGE = 1000;
+  const all = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build().range(from, from + PAGE - 1);
+    if (error) throw error;
+    for (const r of data || []) all.push(r);
+    if ((data || []).length < PAGE) break;
+  }
+  return all;
+}
+
+// The whole DSA catalog, normalised, cached once for all consumers.
+function getAllDsaRows() {
+  return cached("dsa:all-rows", 600000, async () =>
+    normalizeDsa(
+      await fetchAllRows(
+        "leetcode_company_problems",
+        "id, title, difficulty, link, company, topics",
+        "id",
+        true,
+      ),
+    ),
+  );
 }
 
 // Extracted from the /api/catalog/dsa route so the SSR initial-data embed
@@ -1068,16 +1214,7 @@ async function buildDsaCatalogPayload({ plan, search, companies, difficulties, s
     // The whole table is the same for every filter combo, so it's cached
     // once (10 min) under its own key instead of being re-paged out of
     // Supabase in 1000-row round trips for each new company/sort/search key.
-    const rowsAll = await cached("dsa:all-rows", 600000, async () =>
-      normalizeDsa(
-        await fetchAllRows(
-          "leetcode_company_problems",
-          "id, title, difficulty, link, company, topics",
-          "id",
-          true,
-        ),
-      ),
-    );
+    const rowsAll = await getAllDsaRows();
     const total = rowsAll.length;
 
     // Company-filter freemium: filter the FULL set first, then return 5
@@ -1187,7 +1324,11 @@ app.get("/api/catalog/dsa", catalogLimiter, optionalAuth, async (req, res) => {
         plan,
         search: String(req.query.search || "").slice(0, 200),
         companies: csvParam(req.query.company),
-        difficulties: csvParam(req.query.difficulty),
+        // whitelist: only easy|medium|hard ever reaches the PostgREST .or() filter
+        difficulties: csvParam(req.query.difficulty)
+          .map((d) => d.toLowerCase())
+          .filter((d) => ["easy", "medium", "hard"].includes(d))
+          .map((d) => d.charAt(0).toUpperCase() + d.slice(1)),
         sort: ["alpha", "difficulty", "id"].includes(String(req.query.sort))
           ? String(req.query.sort)
           : "id",
@@ -1736,31 +1877,28 @@ app.get("/api/stats/overview", requireAuth, async (req, res) => {
   try {
     const uid = req.user.id;
 
-    const [dsaRows, lldCount, hldCount, progRes, readinessRes] =
+    const [norm, lldCount, hldCount, progRows, readinessRes] =
       await Promise.all([
-        fetchAllRows(
-          "leetcode_company_problems",
-          "id, difficulty, topics",
-          "id",
-          true,
-        ),
+        getAllDsaRows(),
         supabaseAdmin
           .from("lld_problems")
           .select("*", { count: "exact", head: true }),
         supabaseAdmin
           .from("hld_questions")
           .select("*", { count: "exact", head: true }),
-        supabaseAdmin
-          .from("user_problem_progress")
-          .select("problem_id, status")
-          .eq("user_id", uid)
-          .eq("problem_type", "dsa"),
+        fetchAllPaged(() =>
+          supabaseAdmin
+            .from("user_problem_progress")
+            .select("problem_id, status")
+            .eq("user_id", uid)
+            .eq("problem_type", "dsa")
+            .order("problem_id", { ascending: true }),
+        ),
         supabaseAdmin.rpc("get_company_readiness", { p_user_id: uid }),
       ]);
 
-    const norm = normalizeDsa(dsaRows);
     const solved = new Set(
-      (progRes.data || [])
+      (progRows || [])
         .filter((r) => r.status === "solved")
         .map((r) => r.problem_id),
     );
@@ -1806,927 +1944,9 @@ app.get("/api/stats/overview", requireAuth, async (req, res) => {
 });
 
 // ── Jobs board ───────────────────────────────────────────────────
-// Read-only view of the crawler-populated jobs table (see
-// C:\Users\debna\Downloads\job-crawler — schema in src/pgpipe/schema.sql).
-// The crawler owns the schema; this endpoint only reads it.
-//
-// The crawler writes into a dedicated Postgres schema `crawler` (not `public`).
-// For supabase-js to reach it, add `crawler` to the project's exposed schemas:
-//   Supabase dashboard → Settings → API → "Exposed schemas" → add `crawler`.
-// If you later move the crawler to `public` (only after a clean collision
-// check), set JOBS_SCHEMA=public in the server env.
-const JOBS_PAGE_SIZE = 20;
-const JOBS_SCHEMA = process.env.JOBS_SCHEMA || "crawler";
-const JOBS_TABLE = "job_posting";
-
-function jobsDb() {
-  return JOBS_SCHEMA && JOBS_SCHEMA !== "public"
-    ? supabaseAdmin.schema(JOBS_SCHEMA)
-    : supabaseAdmin;
-}
-
-// Map a raw crawler.job_posting row + resolved company name -> the shape
-// JobsPage.jsx renders. `companyTypeBySlug` is optional (a Map or plain
-// object) — omitted when the caller never needed company_type for this
-// request (e.g. no weighting/filter applied), in which case companyType is
-// just left blank rather than forcing an extra lookup.
-function normalizeJob(row, companyNameBySlug, companyTypeBySlug) {
-  const company =
-    (companyNameBySlug && companyNameBySlug[row.company_slug]) ||
-    row.company_slug ||
-    "";
-  let locationType = String(row.location_type || "").toLowerCase();
-  if (locationType === "telecommute") locationType = "remote"; // schema.org enum leak
-  if (locationType === "on_site") locationType = "onsite";
-  const companyType = companyTypeBySlug
-    ? (companyTypeBySlug instanceof Map ? companyTypeBySlug.get(row.company_slug) : companyTypeBySlug[row.company_slug]) || ""
-    : "";
-  return {
-    id: row.id,
-    title: String(row.title || (Array.isArray(row.titles) && row.titles[0]) || ""),
-    company: String(company || ""),
-    companySlug: row.company_slug || "",
-    companyType,
-    location: row.location || "",
-    locationType,
-    country: row.country || "",
-    seniority: row.seniority || "",
-    employmentType: row.employment_type || "",
-    url: row.url || "",
-    source: row.source || "",
-    firstSeen: row.first_seen_at || null,
-    lastSeen: row.last_seen_at || null,
-    postedAt: row.posted_at || null,
-    status: row.status || "open",
-  };
-}
-
-const SENIORITY_ORDER = ["intern", "junior", "mid", "senior", "staff", "principal", "unknown"];
-
-// The first crawl stamps nearly-identical first_seen_at on many rows, so a
-// plain "newest" sort dumps one company's whole board in a block. Pull a
-// bounded pool of the freshest rows and greedily re-space it — keeping the
-// recency order otherwise — so no two postings from the same company land
-// within JOBS_SPREAD_GAP of each other. Pages past the pool fall back to raw
-// DB order.
-const JOBS_INTERLEAVE_POOL = 600;
-const JOBS_SPREAD_GAP = 4;
-// Hard age cap: the board only serves jobs actually POSTED in the last N
-// days (posted_at, parsed from the source ATS's own date — not first_seen_at,
-// which is when WE discovered the row and can lag the real posting date by
-// a lot). Storage retention/cleanup is a separate, first_seen_at-based
-// concern in the crawler (PGPIPE_MAX_AGE_DAYS) — this constant governs what's
-// user-visible, not what's stored.
-const JOBS_MAX_AGE_DAYS = Number(process.env.JOBS_MAX_AGE_DAYS) || 1;
-const jobsMaxAgeISO = () => new Date(Date.now() - JOBS_MAX_AGE_DAYS * 86400000).toISOString();
-
-// ── /jobs/company/:slug — programmatic per-company hub page ────────
-// P1 "page factory": turns the crawler's ~14,880 open postings into real
-// indexable per-company pages instead of leaving them buried in one
-// client-filtered list. Launch is deliberately conservative — a domain that
-// was fully deindexed until this week doesn't need a thin-content flag from
-// 500 sparse company pages on day one, so only the top JOBS_COMPANY_CURATED_N
-// companies by open-posting volume are even candidates for index,follow;
-// every other valid company slug still gets a real page, just noindex,follow
-// (see evaluateJobHubIndexability in lib/seoHead.js for the rest of the gate).
-const JOBS_COMPANY_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,199}$/;
-const JOBS_COMPANY_CURATED_N = Number(process.env.JOBS_COMPANY_CURATED_N) || 50;
-
-async function getCuratedJobsCompanySlugs() {
-  // 6h TTL — matches the growth CLI's page-factory cron cadence; this is a
-  // volume ranking, not per-request-fresh data.
-  return cached("jobs-company:curated", 21_600_000, async () => {
-    const { data } = await jobsDb()
-      .from(JOBS_TABLE)
-      .select("company_slug")
-      .eq("status", "open")
-      .gte("posted_at", jobsMaxAgeISO())
-      .limit(20_000);
-    const counts = new Map();
-    for (const row of data || []) {
-      if (!row.company_slug) continue;
-      counts.set(row.company_slug, (counts.get(row.company_slug) || 0) + 1);
-    }
-    return new Set(
-      [...counts.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, JOBS_COMPANY_CURATED_N)
-        .map(([slug]) => slug),
-    );
-  });
-}
-
-// Returns null for an unknown company slug, else the full page payload
-// (postings + the resolved indexability decision). Cached per-slug so the
-// JSON API and the HTML shell route share one query instead of doubling up.
-async function getJobsCompanyPayload(slug) {
-  return cached(`jobs-company:${slug}`, 300_000, async () => {
-    const { data: company } = await jobsDb()
-      .from("company")
-      .select("slug, name")
-      .eq("slug", slug)
-      .maybeSingle();
-    if (!company) return null;
-
-    const { data: rows } = await jobsDb()
-      .from(JOBS_TABLE)
-      .select("id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, posted_at, status, seniority")
-      .eq("status", "open")
-      .eq("company_slug", slug)
-      .gte("posted_at", jobsMaxAgeISO())
-      .order("posted_at", { ascending: false })
-      .limit(300);
-
-    const postings = (rows || []).filter((r) => r.url);
-    const recordCount = postings.length;
-    const completeRecordCount = postings.filter((r) => r.title && r.location).length;
-    const uniqueFactCount = new Set(postings.map((r) => `${r.title}|${r.location}`)).size;
-    // Rough but honest proxy for what the rendered page actually contains:
-    // every posting's title + location, plus a fixed allowance for the
-    // intro/outro copy JobsCompanyPage.jsx renders around the list.
-    const substantiveWordCount =
-      postings.reduce((sum, r) => sum + String(r.title || "").split(/\s+/).filter(Boolean).length + String(r.location || "").split(/\s+/).filter(Boolean).length, 0) + 60;
-    const newestSeenAt = postings.reduce((max, r) => Math.max(max, Date.parse(r.first_seen_at) || 0), 0);
-    const newestAgeDays = newestSeenAt ? (Date.now() - newestSeenAt) / 86_400_000 : Number.POSITIVE_INFINITY;
-
-    const curatedSlugs = await getCuratedJobsCompanySlugs();
-    const decision = evaluateJobHubIndexability({
-      recordCount,
-      completeRecordCount,
-      uniqueFactCount,
-      substantiveWordCount,
-      newestAgeDays,
-      curated: curatedSlugs.has(slug),
-    });
-
-    return {
-      company: { slug: company.slug, name: company.name || humanizeSlugFallback(slug) },
-      postings: postings.map((r) => normalizeJob(r, {})),
-      eligible: decision.eligible,
-      reasons: decision.reasons,
-    };
-  });
-}
-
-// Cosmetic fallback only — mirrors lib/seoHead.js's humanizeSlug() for the
-// rare case a company row exists with no display name set.
-function humanizeSlugFallback(slug) {
-  return String(slug || "").split("-").filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
-}
-
-function spaceByCompany(rows, gap = JOBS_SPREAD_GAP) {
-  const out = [];
-  const recent = []; // company_slug of the last `gap` picks
-  const deferred = []; // rows skipped because their company was too recent
-  let idx = 0;
-  while (out.length < rows.length) {
-    let pick = null;
-    for (let k = 0; k < deferred.length; k++) {
-      if (!recent.includes(deferred[k].company_slug || "")) {
-        pick = deferred.splice(k, 1)[0];
-        break;
-      }
-    }
-    while (pick === null && idx < rows.length) {
-      const cand = rows[idx++];
-      if (!recent.includes(cand.company_slug || "")) pick = cand;
-      else deferred.push(cand);
-    }
-    if (pick === null) pick = deferred.shift() || rows[idx++]; // everything left collides
-    out.push(pick);
-    recent.push(pick.company_slug || "");
-    if (recent.length > gap) recent.shift();
-  }
-  return out;
-}
-
-// ── Country / company-type weighting on the default feed ───────────────
-// crawler.job_posting.country and crawler.company.company_type (joined via
-// company_slug -> company.slug) let the DEFAULT "Latest first" feed softly
-// favor product companies and Indian postings without ever hard-quota-ing a
-// page — see weightedStrataMerge() below. company_type isn't a job_posting
-// column, so an explicit `company_type` filter is resolved to a slug list
-// first (bounded — ~a few hundred companies) and applied as an `.in()`.
-const COMPANY_TYPES = ["product", "startup", "service"]; // valid explicit-filter values (unknown is default-only)
-const COMPANY_TYPE_WEIGHT = { product: 0.6, startup: 0.3, service: 0.1, unknown: 0.05 };
-const COUNTRIES = ["US", "IN"];
-const COUNTRY_WEIGHT = { US: 0.3, IN: 0.7 };
-
-// slug -> company_type ('unknown' when unset), cached — this table is small
-// (~hundreds of companies) so a full scan is cheap and reused across the
-// explicit filter, the weighting below, and (indirectly) the analytics tab.
-async function getCompanyTypeMap() {
-  return cached("jobs:company-types", 300000, async () => {
-    const { data, error } = await jobsDb().from("company").select("slug, company_type").limit(20000);
-    if (error) throw error;
-    const map = new Map();
-    for (const row of data || []) {
-      if (row.slug) map.set(row.slug, row.company_type || "unknown");
-    }
-    return map;
-  });
-}
-
-// Deterministic smooth weighted round-robin merge (the algorithm nginx uses
-// for weighted upstream balancing): rows are bucketed into strata by
-// `keyWeightFn`, each stratum keeps its incoming (recency) order, and on every
-// round the stratum with the highest accrued credit emits its next row and is
-// discounted by the total weight. This softly biases composition toward the
-// configured ratios — a stratum that runs out is just skipped — without ever
-// enforcing a hard per-page quota.
-function weightedStrataMerge(rows, keyWeightFn) {
-  const groups = new Map(); // key -> { items, weight, current, cursor }
-  for (const row of rows) {
-    const { key, weight } = keyWeightFn(row);
-    let g = groups.get(key);
-    if (!g) {
-      g = { items: [], weight: Math.max(weight, 0.0001), current: 0, cursor: 0 };
-      groups.set(key, g);
-    }
-    g.items.push(row);
-  }
-  if (groups.size <= 1) return rows.slice();
-
-  const totalWeight = [...groups.values()].reduce((s, g) => s + g.weight, 0);
-  const out = [];
-  while (out.length < rows.length) {
-    let pick = null;
-    for (const g of groups.values()) {
-      if (g.cursor >= g.items.length) continue; // stratum exhausted — skip, no quota to enforce
-      g.current += g.weight;
-      if (!pick || g.current > pick.current) pick = g;
-    }
-    if (!pick) break; // shouldn't happen while out.length < rows.length, but stay safe
-    out.push(pick.items[pick.cursor++]);
-    pick.current -= totalWeight;
-  }
-  return out;
-}
-
-// Per-row (company_type, country) stratum + its combined weight, for the
-// default "Latest first" feed. When a request has already hard-filtered one
-// axis to a single value (explicit company_type or country filter), every row
-// shares the same weight on that axis, so this naturally stops influencing
-// that dimension — exactly the "explicit filter overrides the default
-// weighting for that dimension" behavior.
-function jobStratumOf(row, companyTypeMap) {
-  const type = (companyTypeMap && companyTypeMap.get(row.company_slug)) || "unknown";
-  const country = COUNTRIES.includes(row.country) ? row.country : "IN";
-  const weight = (COMPANY_TYPE_WEIGHT[type] ?? COMPANY_TYPE_WEIGHT.unknown) * (COUNTRY_WEIGHT[country] ?? 0.5);
-  return { key: `${type}|${country}`, weight };
-}
-
-// Lightweight fuzzy matcher for facet autocomplete (no pg_trgm dependency).
-// exact > prefix > substring > in-order subsequence; higher is better, <=0 = no match.
-// TODO: if location cardinality grows large, back this with a pg_trgm index + RPC.
-function fuzzyScore(query, target) {
-  const q = String(query || "").toLowerCase().trim();
-  const t = String(target || "").toLowerCase().trim();
-  if (!q) return 1;
-  if (t === q) return 1000;
-  if (t.startsWith(q)) return 900 - t.length;
-  const idx = t.indexOf(q);
-  if (idx >= 0) return 700 - idx - t.length * 0.1;
-  let ti = 0;
-  let hits = 0;
-  let streak = 0;
-  let best = 0;
-  for (const c of q) {
-    let found = -1;
-    for (let k = ti; k < t.length; k++) {
-      if (t[k] === c) { found = k; break; }
-    }
-    if (found === -1) return -1;
-    streak = found === ti ? streak + 1 : 1;
-    if (streak > best) best = streak;
-    hits += 1;
-    ti = found + 1;
-  }
-  return 200 + best * 10 - (t.length - hits);
-}
-
-function rankFacet(candidates, q, limit) {
-  const uniq = [...new Set(candidates.filter(Boolean))];
-  if (!q) return uniq.sort((a, b) => a.localeCompare(b)).slice(0, limit);
-  return uniq
-    .map((c) => [fuzzyScore(q, c), c])
-    .filter(([s]) => s > 0)
-    .sort((a, b) => b[0] - a[0] || a[1].localeCompare(b[1]))
-    .slice(0, limit)
-    .map(([, c]) => c);
-}
-
-// Light "means-the-same" expansion for the free-text job search — no embeddings.
-// A query that is / contains a key also matches its synonyms. Keys with a space
-// match as a substring; single-word keys match a whole token.
-const SEARCH_SYNONYMS = {
-  ml: ["machine learning"],
-  "machine learning": ["ml"],
-  ai: ["artificial intelligence"],
-  llm: ["large language model", "genai"],
-  genai: ["generative ai", "llm"],
-  nlp: ["natural language processing"],
-  researcher: ["research", "scientist"],
-  research: ["researcher", "scientist"],
-  scientist: ["research", "researcher"],
-  analyst: ["analytics"],
-  analytics: ["analyst"],
-  quant: ["quantitative"],
-  quantitative: ["quant"],
-  sde: ["software engineer", "software developer"],
-  swe: ["software engineer"],
-  sre: ["site reliability", "reliability engineer"],
-  devops: ["platform engineer", "infrastructure engineer"],
-  security: ["cybersecurity", "infosec"],
-  cybersecurity: ["security", "infosec"],
-  infosec: ["information security", "security"],
-  pentest: ["penetration testing", "offensive security"],
-  frontend: ["front end", "front-end"],
-  backend: ["back end", "back-end"],
-  fullstack: ["full stack", "full-stack"],
-  qa: ["quality assurance", "sdet"],
-};
-
-// Strip everything that is significant to the PostgREST `.or()` grammar or to
-// to_tsquery so a raw query string is safe to splice into an or-filter.
-function sanitizeOrValue(s) {
-  return String(s).replace(/[[\]%_,()*:.&|!'"<>]/g, " ").trim().replace(/\s+/g, " ");
-}
-
-// PostgREST `.or()` string: websearch full-text on search_tsv OR substring on
-// title, for the query plus any synonym expansions. Gives prefix / partial /
-// "close enough" matching that plain FTS on its own misses.
-function buildSearchOr(raw) {
-  const base = sanitizeOrValue(raw).toLowerCase().slice(0, 80);
-  if (!base) return "";
-  const tokens = base.split(" ");
-  const terms = new Set([base]);
-  for (const [key, syns] of Object.entries(SEARCH_SYNONYMS)) {
-    const hit = key.includes(" ") ? base.includes(key) : tokens.includes(key);
-    if (hit) syns.forEach((s) => terms.add(s));
-    if (terms.size > 6) break;
-  }
-  const parts = [];
-  for (const t of terms) {
-    const clean = sanitizeOrValue(t);
-    if (!clean) continue;
-    parts.push(`search_tsv.wfts(english).${clean.replace(/ /g, "+")}`);
-    parts.push(`title.ilike.*${clean.replace(/ /g, "*")}*`);
-  }
-  return parts.join(",");
-}
-
-function jobsNotReady(res) {
-  return res.json({
-    items: [],
-    total: 0,
-    page: 1,
-    pageCount: 1,
-    facets: { sources: [], locationTypes: ["remote", "hybrid", "onsite"], seniorities: SENIORITY_ORDER },
-    notReady: true,
-  });
-}
-
-app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
-  try {
-    const plan = req.user ? await getUserPlan(req.user.id) : "free";
-    const jobsLimit = getLimit(plan, "jobs_visible");
-    const jobsUnlimited = isUnlimited(jobsLimit);
-    const key = `jobs:${plan}:${qsKey(req)}`;
-    const wasHit = hasFresh(key);
-    // TTL covers the whole response — the 600-row interleave pool + company
-    // spacing + company-name resolve are all re-used from cache within 90s.
-    const payload = await cached(key, 90000, async () => {
-      const search = String(req.query.search || "").trim().slice(0, 120);
-      const company = String(req.query.company || "").trim().slice(0, 80);
-      // `location` may be a comma-separated list — any match keeps the row.
-      const locations = String(req.query.location || "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .slice(0, 12)
-        .map((s) => s.slice(0, 80));
-      const locationType = String(req.query.location_type || "")
-        .trim()
-        .toLowerCase()
-        .slice(0, 20);
-      const source = String(req.query.source || "").trim().slice(0, 40);
-      const seniority = String(req.query.seniority || "").trim().toLowerCase().slice(0, 20);
-      const postedWithinDays = Math.max(0, Math.min(31, parseInt(req.query.posted_within, 10) || 0));
-      // Explicit overrides for the two weighted axes (see jobStratumOf below).
-      // company_type isn't a job_posting column, so it's resolved to a slug
-      // list before the query runs. country IS a column — 'other' is never a
-      // valid explicit value since it's excluded by the hard filter below.
-      const companyType = COMPANY_TYPES.includes(String(req.query.company_type || "").trim().toLowerCase())
-        ? String(req.query.company_type).trim().toLowerCase()
-        : "";
-      const countryFilter = COUNTRIES.includes(String(req.query.country || "").trim().toUpperCase())
-        ? String(req.query.country).trim().toUpperCase()
-        : "";
-      const sort = String(req.query.sort || "newest").trim();
-      const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-      const from = (page - 1) * JOBS_PAGE_SIZE;
-      const to = from + JOBS_PAGE_SIZE - 1;
-
-      // Free tier: the board only ever exposes the first `jobsLimit` postings
-      // (by the active sort) — clamp the requested window into that range.
-      // `pastCap` = this whole page is beyond the free window (from >= limit).
-      const cappedTo = jobsUnlimited ? to : Math.min(to, jobsLimit - 1);
-      const pastCap = !jobsUnlimited && from > cappedTo;
-
-      // For the recency sorts, fetch a fixed pool from row 0, company-space it in
-      // JS (recency order otherwise preserved), then slice this page out. The
-      // pool size never depends on `page`, so boundaries stay stable. The
-      // "company" sort is meant to group, so it opts out; pages past the pool
-      // use raw range order. `pastCap` on a non-spread sort fetches 1 dummy row
-      // (range(0,0)) just to keep `count` accurate — items are discarded below.
-      const canSpread = (sort === "newest" || sort === "oldest") && cappedTo < JOBS_INTERLEAVE_POOL;
-      const rangeFrom = canSpread ? 0 : pastCap ? 0 : from;
-      const rangeTo = canSpread ? JOBS_INTERLEAVE_POOL - 1 : pastCap ? 0 : cappedTo;
-      // The weighted composition (60/30/10 product/startup/service, 30/70
-      // US/India) only shapes the DEFAULT "Latest first" feed — "oldest" and
-      // "company" sorts stay purely chronological/alphabetical.
-      const willWeight = canSpread && sort === "newest";
-
-      // company_type map is needed either to resolve an explicit filter into a
-      // slug list, or to weight the default feed — fetch it once, up front,
-      // for both. Left null (and skipped) when neither applies.
-      let companyTypeMap = null;
-      if (companyType || willWeight) {
-        try {
-          companyTypeMap = await getCompanyTypeMap();
-        } catch {
-          companyTypeMap = null; // company_type not ready yet — degrade to unweighted/unfiltered
-        }
-      }
-      let companyTypeSlugs = null;
-      if (companyType && companyTypeMap) {
-        companyTypeSlugs = [...companyTypeMap.entries()]
-          .filter(([, t]) => (t || "unknown") === companyType)
-          .map(([s]) => s);
-      }
-
-      const likeSafe = (s) => s.replace(/[%_,()*]/g, " ");
-      // Location values often carry commas ("Bengaluru, Karnataka, India"). Strip
-      // the significant chars and wildcard the gaps so a picked value still
-      // matches and commas can't break the `.or()` filter list. `.ilike()` (method)
-      // uses `%`; the `.or()` string form uses `*` (PostgREST URL wildcard).
-      const locCore = (s) => likeSafe(s).trim().replace(/\s+/g, " ");
-      const daysAgoISO = (d) => new Date(Date.now() - d * 86400000).toISOString();
-
-      // `seniority` column is added by a later crawler migration — if it's not
-      // there yet, retry the query once without selecting or filtering on it.
-      const build = (withSeniority) => {
-        const cols =
-          "id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, posted_at, status, country" +
-          (withSeniority ? ", seniority" : "");
-        // count=estimated → PostgREST `Prefer: count=estimated`. pageCount is
-        // now approximate (fast planner estimate, not an exact scan).
-        let q = jobsDb()
-          .from(JOBS_TABLE)
-          .select(cols, { count: "estimated" })
-          .eq("status", "open")
-          .gte("posted_at", jobsMaxAgeISO()) // board only serves jobs actually posted ≤ N days ago
-          .range(rangeFrom, rangeTo);
-
-        if (sort === "oldest") q = q.order("posted_at", { ascending: true }).order("id", { ascending: true });
-        else if (sort === "company") q = q.order("company_slug", { ascending: true }).order("posted_at", { ascending: false });
-        else q = q.order("posted_at", { ascending: false }).order("id", { ascending: false });
-
-        if (search) {
-          const orStr = buildSearchOr(search);
-          if (orStr) q = q.or(orStr);
-        }
-        // company_slug is hyphenated lowercase ("jane-street"); let "Jane Street"
-        // match by turning spaces/hyphens into wildcards.
-        if (company) q = q.ilike("company_slug", `%${likeSafe(company).trim().replace(/[\s-]+/g, "%")}%`);
-        if (locations.length === 1) {
-          q = q.ilike("location", `%${locCore(locations[0]).replace(/ /g, "%")}%`);
-        } else if (locations.length > 1) {
-          q = q.or(locations.map((loc) => `location.ilike.*${locCore(loc).replace(/ /g, "*")}*`).join(","));
-        }
-        if (locationType) q = q.eq("location_type", locationType);
-        if (source) q = q.eq("source", source);
-        if (withSeniority && seniority) q = q.eq("seniority", seniority);
-        if (postedWithinDays > 0) q = q.gte("posted_at", daysAgoISO(postedWithinDays));
-        // Hard filter: the board never serves countries outside US/India. An
-        // explicit `country` pick narrows further; otherwise both are in play
-        // and the weighted merge below softly favors India (~70%) / US (~30%).
-        q = countryFilter ? q.eq("country", countryFilter) : q.in("country", COUNTRIES);
-        // company_type isn't a job_posting column — resolved to a slug list
-        // up front. An empty match list still needs a filter that returns zero
-        // rows rather than skipping the filter entirely.
-        if (companyTypeSlugs) {
-          // company_slug is always `^[a-z0-9][a-z0-9-]{0,199}$` (see
-          // JOBS_COMPANY_SLUG_RE) — an underscore never occurs in a real slug,
-          // so this sentinel is a safe "match nothing" value.
-          q = companyTypeSlugs.length ? q.in("company_slug", companyTypeSlugs) : q.eq("company_slug", "__no_company_type_match__");
-        }
-        return q;
-      };
-
-      const runQuery = async () => {
-        let resp = await build(true);
-        if (resp.error && /seniority/i.test(String(resp.error.message || resp.error))) {
-          resp = await build(false);
-        }
-        if (resp.error) throw resp.error;
-        return { data: resp.data || [], count: resp.count };
-      };
-
-      let rows;
-      let count;
-      if (canSpread) {
-        // The spread pool is always rows 0..POOL-1 for a given filter set —
-        // independent of `page` and of the plan (the free cap is applied by
-        // the slice below). Cache it under a page-less key so paging through
-        // the feed slices an already-built pool instead of re-fetching and
-        // re-spacing 600 rows for every page.
-        const poolKey = `jobs-pool:${qsKey(req, ["page"])}`;
-        const pooled = await cached(poolKey, 90000, async () => {
-          const r = await runQuery();
-          const pool = willWeight ? weightedStrataMerge(r.data, (row) => jobStratumOf(row, companyTypeMap)) : r.data;
-          return { spaced: spaceByCompany(pool), count: r.count };
-        });
-        rows = pooled.spaced.slice(from, cappedTo + 1);
-        count = pooled.count;
-      } else {
-        const r = await runQuery();
-        // pastCap: the dummy range(0,0) fetch above was only for `count`.
-        rows = pastCap ? [] : r.data;
-        count = r.count;
-      }
-
-      // Resolve company display names for just this page's slugs.
-      let companyNameBySlug = {};
-      const slugs = [...new Set(rows.map((r) => r.company_slug).filter(Boolean))];
-      if (slugs.length) {
-        const { data: cRows } = await jobsDb()
-          .from("company")
-          .select("slug, name")
-          .in("slug", slugs);
-        for (const c of cRows || []) companyNameBySlug[c.slug] = c.name;
-      }
-
-      const items = rows.map((r) => normalizeJob(r, companyNameBySlug, companyTypeMap)).filter((j) => j.url);
-
-      // Source facet for the dropdown (best-effort). Only ~7 distinct values
-      // exist, so an 800-row sample is plenty; cached across all jobs requests.
-      let sources = [];
-      try {
-        sources = await cached("jobs:sources", 600000, async () => {
-          const { data: sRows } = await jobsDb()
-            .from(JOBS_TABLE)
-            .select("source")
-            .eq("status", "open")
-            .not("source", "is", null)
-            .limit(800);
-          return [...new Set((sRows || []).map((r) => r.source).filter(Boolean))]
-            .sort()
-            .slice(0, 40);
-        });
-      } catch {
-        /* facets are optional */
-      }
-
-      const total = count ?? items.length;
-      return {
-        items,
-        total,
-        page,
-        pageCount: jobsUnlimited ? Math.max(1, Math.ceil(total / JOBS_PAGE_SIZE)) : 1,
-        locked: jobsUnlimited ? 0 : Math.max(0, total - jobsLimit),
-        limit: serializeLimit(jobsLimit),
-        facets: {
-          sources,
-          locationTypes: ["remote", "hybrid", "onsite"],
-          seniorities: SENIORITY_ORDER,
-          companyTypes: COMPANY_TYPES,
-          countries: COUNTRIES,
-        },
-      };
-    });
-
-    // Payload now varies by plan (free-tier cap) — browser cache only.
-    res.set("Cache-Control", PLAN_GATED_CACHE);
-    res.set("X-Cache", wasHit ? "HIT" : "MISS");
-    res.json(payload);
-  } catch (err) {
-    // Until the crawler has run its migrations (and `crawler` is added to the
-    // project's exposed schemas) the table is unreachable — degrade to a soft
-    // empty instead of a 500.
-    const msg = String((err && err.message) || err);
-    if (
-      /relation .* does not exist|column .* does not exist|Could not find the (table|.*column)|schema cache|schema must be one of|The schema must be|not exposed|PGRST106|PGRST205/i.test(
-        msg,
-      )
-    ) {
-      return jobsNotReady(res);
-    }
-    fail(res, err, "jobs", "Failed to load jobs.");
-  }
-});
-
-// GET /api/jobs/company/:slug → { company, postings, eligible } for one
-// company's programmatic hub page (JobsCompanyPage.jsx). `eligible` mirrors
-// the robots directive the HTML shell route applies to the same slug — the
-// client uses it only to show a "not yet indexed" note, never to hide content.
-app.get("/api/jobs/company/:slug", catalogLimiter, optionalAuth, async (req, res) => {
-  try {
-    const slug = String(req.params.slug || "").trim().toLowerCase();
-    if (!JOBS_COMPANY_SLUG_RE.test(slug)) return res.status(404).json({ error: "Unknown company." });
-    const key = `jobs-company:${slug}`;
-    const wasHit = hasFresh(key);
-    const payload = await getJobsCompanyPayload(slug);
-    if (!payload) return res.status(404).json({ error: "Unknown company." });
-    res.set("Cache-Control", "public, max-age=60, s-maxage=300, stale-while-revalidate=600");
-    res.set("X-Cache", wasHit ? "HIT" : "MISS");
-    res.json(payload);
-  } catch (err) {
-    fail(res, err, "jobs/company", "Failed to load company jobs.");
-  }
-});
-
-// GET /api/jobs/facets?field=company|location|title&q=… → up to `limit` distinct
-// values that actually occur in the OPEN job set, fuzzy-ranked against `q`.
-// Powers the result-aware autocomplete on the Jobs filters + search box.
-app.get("/api/jobs/facets", catalogLimiter, optionalAuth, async (req, res) => {
-  const field = String(req.query.field || "").trim().toLowerCase();
-  try {
-    const q = String(req.query.q || "").trim().slice(0, 60);
-    const limit = Math.min(20, Math.max(1, parseInt(req.query.limit, 10) || 10));
-    if (!["company", "location", "title"].includes(field)) {
-      return res.status(400).json({ error: "field must be 'company', 'location' or 'title'" });
-    }
-
-    const key = `jobs-facet:${field}:${q}`;
-    const wasHit = hasFresh(key);
-    const payload = await cached(key, 300000, async () => {
-      if (field === "title") {
-        // No blank-query list for titles — there are thousands; only suggest once
-        // the user has typed something.
-        if (!q) return { field, options: [] };
-        const { data: rows, error } = await jobsDb()
-          .from(JOBS_TABLE)
-          .select("title")
-          .eq("status", "open")
-          .gte("posted_at", jobsMaxAgeISO())
-          .not("title", "is", null)
-          .limit(2500);
-        if (error) throw error;
-        const candidates = (rows || []).map((r) => String(r.title || "").trim());
-        return { field, options: rankFacet(candidates, q, limit) };
-      }
-
-      if (field === "company") {
-        const { data: rows, error } = await jobsDb()
-          .from(JOBS_TABLE)
-          .select("company_slug")
-          .eq("status", "open")
-          .gte("posted_at", jobsMaxAgeISO())
-          .not("company_slug", "is", null)
-          .limit(2500);
-        if (error) throw error;
-        const slugs = [...new Set((rows || []).map((r) => r.company_slug).filter(Boolean))];
-        const nameBySlug = {};
-        if (slugs.length) {
-          const { data: cRows } = await jobsDb().from("company").select("slug, name").in("slug", slugs);
-          for (const c of cRows || []) nameBySlug[c.slug] = c.name;
-        }
-        const candidates = slugs.map((s) => nameBySlug[s] || s.replace(/-/g, " "));
-        return { field, options: rankFacet(candidates, q, limit) };
-      }
-
-      const { data: rows, error } = await jobsDb()
-        .from(JOBS_TABLE)
-        .select("location")
-        .eq("status", "open")
-        .gte("posted_at", jobsMaxAgeISO())
-        .not("location", "is", null)
-        .limit(2500);
-      if (error) throw error;
-      const candidates = (rows || []).map((r) => String(r.location || "").trim());
-      return { field, options: rankFacet(candidates, q, limit) };
-    });
-
-    res.set("Cache-Control", "public, max-age=120, s-maxage=300");
-    res.set("X-Cache", wasHit ? "HIT" : "MISS");
-    return res.json(payload);
-  } catch (err) {
-    const msg = String((err && err.message) || err);
-    if (/relation .* does not exist|column .* does not exist|schema must be|not exposed|PGRST106|PGRST205/i.test(msg)) {
-      return res.json({ field, options: [] });
-    }
-    fail(res, err, "jobs-facets", "Failed to load suggestions.");
-  }
-});
-
-// GET /api/jobs/analytics → aggregate metrics for the Jobs → Analytics tab.
-// Prefers the crawler.jobs_analytics() SQL function; falls back to a handful
-// of head-only COUNT queries if that function isn't there yet.
-app.get("/api/jobs/analytics", catalogLimiter, optionalAuth, async (_req, res) => {
-  try {
-    const wasHit = hasFresh("jobs-analytics");
-    const payload = await cached("jobs-analytics", 300000, async () => {
-      const rpc = await jobsDb().rpc("jobs_analytics");
-      if (!rpc.error && rpc.data) {
-        const d = rpc.data;
-        return {
-          total: d.total ?? 0,
-          companiesWithJobs: d.companies_with_jobs ?? 0,
-          bySeniority: d.by_seniority ?? [],
-          byWorkType: d.by_work_type ?? [],
-          bySource: d.by_source ?? [],
-          topCompanies: (d.top_companies ?? []).map((c) => ({
-            company: c.name || c.slug,
-            count: c.count,
-          })),
-          postedByDay: d.posted_by_day ?? [],
-          midSharePct: d.mid_share_pct ?? null,
-        };
-      }
-
-      // Fallback: COUNT-only queries (no row transfer).
-      const countWhere = async (apply) => {
-        let q = jobsDb().from(JOBS_TABLE).select("id", { count: "exact", head: true }).eq("status", "open");
-        if (apply) q = apply(q);
-        const { count } = await q;
-        return count || 0;
-      };
-      const total = await countWhere();
-      const workTypes = ["remote", "hybrid", "onsite"];
-      const byWorkType = [];
-      let typed = 0;
-      for (const t of workTypes) {
-        const c = await countWhere((q) => q.eq("location_type", t));
-        typed += c;
-        byWorkType.push({ type: t, count: c });
-      }
-      byWorkType.push({ type: "unspecified", count: Math.max(0, total - typed) });
-
-      let bySeniority = [];
-      let midCount = 0;
-      try {
-        for (const b of SENIORITY_ORDER) {
-          const c = await countWhere((q) => q.eq("seniority", b));
-          if (b === "mid") midCount = c;
-          bySeniority.push({ bucket: b, count: c });
-        }
-      } catch {
-        bySeniority = [];
-      }
-
-      return {
-        total,
-        companiesWithJobs: null,
-        bySeniority,
-        byWorkType,
-        bySource: [],
-        topCompanies: [],
-        postedByDay: [],
-        midSharePct: total ? Math.round((midCount / total) * 1000) / 10 : null,
-      };
-    });
-
-    res.set("Cache-Control", "public, max-age=120, s-maxage=300");
-    res.set("X-Cache", wasHit ? "HIT" : "MISS");
-    res.json(payload);
-  } catch (err) {
-    const msg = String((err && err.message) || err);
-    if (/does not exist|schema cache|schema must be|not exposed|PGRST1|PGRST2/i.test(msg)) {
-      return res.json({
-        total: 0,
-        companiesWithJobs: 0,
-        bySeniority: [],
-        byWorkType: [],
-        bySource: [],
-        topCompanies: [],
-        postedByDay: [],
-        midSharePct: null,
-        notReady: true,
-      });
-    }
-    fail(res, err, "jobs/analytics", "Failed to load job analytics.");
-  }
-});
-
-// GET /api/jobs/analytics/trend?granularity=weekly|monthly → historical
-// hiring-velocity series from the crawler's daily market snapshot
-// (public.jobs_market_snapshot_daily — plain `public` schema, no jobsDb()
-// cross-schema client needed). One row/day, so this is cheap even
-// unpaginated; resampled into week/month buckets in Node.
-const JOBS_SNAPSHOT_TABLE = "jobs_market_snapshot_daily";
-
-// Monday-of-the-week date (UTC) as the weekly bucket key — sortable as a plain
-// string and avoids ISO week-numbering edge cases at year boundaries.
-function jobsWeekBucketKey(dateStr) {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  const dow = (d.getUTCDay() + 6) % 7; // Mon=0 … Sun=6
-  d.setUTCDate(d.getUTCDate() - dow);
-  return d.toISOString().slice(0, 10);
-}
-function jobsMonthBucketKey(dateStr) {
-  return String(dateStr).slice(0, 7); // "YYYY-MM"
-}
-
-function mergeJsonbCounts(target, obj) {
-  for (const [k, v] of Object.entries(obj || {})) {
-    target[k] = (target[k] || 0) + (Number(v) || 0);
-  }
-}
-
-function mergeTopCompanies(target, arr) {
-  for (const c of Array.isArray(arr) ? arr : []) {
-    const name = c && (c.company || c.name);
-    if (!name) continue;
-    const n = Number(c.new_postings ?? c.newPostings ?? c.count) || 0;
-    target[name] = (target[name] || 0) + n;
-  }
-}
-
-// Resample ascending-by-date daily snapshot rows into week/month buckets.
-// new_postings/closed_postings are summed across the bucket (a real velocity
-// total); total_open takes the LAST day's value in the bucket (a point-in-time
-// stock, not something to sum); the jsonb breakdowns are summed key-by-key.
-function resampleJobsSnapshots(rowsAsc, granularity) {
-  const keyFn = granularity === "monthly" ? jobsMonthBucketKey : jobsWeekBucketKey;
-  const buckets = new Map();
-  for (const row of rowsAsc) {
-    const period = keyFn(row.snapshot_date);
-    let b = buckets.get(period);
-    if (!b) {
-      b = {
-        period,
-        totalOpen: 0,
-        newPostings: 0,
-        closedPostings: 0,
-        bySeniority: {},
-        byWorkType: {},
-        byCountry: {},
-        byCompanyType: {},
-        topCompaniesAcc: {},
-      };
-      buckets.set(period, b);
-    }
-    b.newPostings += Number(row.new_postings) || 0;
-    b.closedPostings += Number(row.closed_postings) || 0;
-    b.totalOpen = Number(row.total_open) || 0; // rowsAsc is date-ascending → last write wins = latest day
-    mergeJsonbCounts(b.bySeniority, row.by_seniority);
-    mergeJsonbCounts(b.byWorkType, row.by_work_type);
-    mergeJsonbCounts(b.byCountry, row.by_country);
-    mergeJsonbCounts(b.byCompanyType, row.by_company_type);
-    mergeTopCompanies(b.topCompaniesAcc, row.top_companies);
-  }
-  return [...buckets.values()]
-    .sort((a, b) => a.period.localeCompare(b.period))
-    .map((b) => ({
-      period: b.period,
-      totalOpen: b.totalOpen,
-      newPostings: b.newPostings,
-      closedPostings: b.closedPostings,
-      bySeniority: b.bySeniority,
-      byWorkType: b.byWorkType,
-      byCountry: b.byCountry,
-      byCompanyType: b.byCompanyType,
-      topCompanies: Object.entries(b.topCompaniesAcc)
-        .sort((a, c) => c[1] - a[1])
-        .slice(0, 10)
-        .map(([company, newPostings]) => ({ company, newPostings })),
-    }));
-}
-
-app.get("/api/jobs/analytics/trend", catalogLimiter, optionalAuth, async (req, res) => {
-  const granularity = String(req.query.granularity || "weekly").trim().toLowerCase() === "monthly" ? "monthly" : "weekly";
-  try {
-    const key = `jobs-trend:${granularity}`;
-    const wasHit = hasFresh(key);
-    const payload = await cached(key, 300000, async () => {
-      const { data, error } = await supabaseAdmin
-        .from(JOBS_SNAPSHOT_TABLE)
-        .select(
-          "snapshot_date, total_open, new_postings, closed_postings, by_seniority, by_work_type, by_country, by_company_type, top_companies",
-        )
-        .order("snapshot_date", { ascending: true })
-        .limit(1000); // ~2.7 years of daily rows — comfortable headroom for a 1 row/day table
-      if (error) throw error;
-      const rowsAsc = data || [];
-      return { granularity, points: rowsAsc.length ? resampleJobsSnapshots(rowsAsc, granularity) : [] };
-    });
-
-    res.set("Cache-Control", "public, max-age=120, s-maxage=300");
-    res.set("X-Cache", wasHit ? "HIT" : "MISS");
-    res.json(payload);
-  } catch (err) {
-    // Same story as /api/jobs — the snapshot table may not exist yet if the
-    // crawler's migration + cron haven't landed/run. Degrade to an empty,
-    // non-error series rather than a 500.
-    const msg = String((err && err.message) || err);
-    if (/relation .* does not exist|does not exist|schema cache|PGRST1|PGRST2/i.test(msg)) {
-      return res.json({ granularity, points: [], notReady: true });
-    }
-    fail(res, err, "jobs/analytics/trend", "Failed to load job trend.");
-  }
-});
+// Routes live in routes/jobs.js (reads crawler.job_feed): /api/jobs,
+// /api/jobs/company/:slug, /facets, /analytics, /analytics/trend.
+app.use(createJobsRouter({ catalogLimiter, fail }));
 
 // ── Feedback (feature request / bug report) ──────────────────────
 // Emails the operator directly. Rate-limited; body capped.
@@ -2783,17 +2003,34 @@ function escapeLike(s) {
 
 // Resolve an auth.users row to { id, email, name } via the admin API.
 // Never throws; logs redacted and returns null on failure.
+const REF_USER_TTL_MS = 5 * 60 * 1000;
+const REF_USER_MAX = 500;
+/** @type {Map<string, { v: any, exp: number }>} */
+const refUserCache = new Map();
+
 async function referralAuthUser(userId) {
+  const hit = refUserCache.get(userId);
+  if (hit && hit.exp > Date.now()) {
+    refUserCache.delete(userId); // LRU touch
+    refUserCache.set(userId, hit);
+    return hit.v;
+  }
   try {
     const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
     if (error || !data?.user) return null;
     const u = data.user;
     const md = u.user_metadata || {};
-    return {
+    const v = {
       id: u.id,
       email: u.email || null,
       name: md.full_name || md.name || null,
     };
+    if (refUserCache.size >= REF_USER_MAX) {
+      const k = refUserCache.keys().next().value;
+      if (k !== undefined) refUserCache.delete(k);
+    }
+    refUserCache.set(userId, { v, exp: Date.now() + REF_USER_TTL_MS });
+    return v;
   } catch (e) {
     console.error(
       "[referrals] getUserById failed:",
@@ -2813,24 +2050,27 @@ app.get(
   async (req, res) => {
     try {
       const q = String(req.query.q || "").trim().slice(0, 100);
-      const { data, error } = await supabaseAdmin
-        .from("profiles")
-        .select("company")
-        .not("company", "is", null);
-      if (error) throw error;
-
       const ql = q.toLowerCase();
-      const byLower = new Map();
-      for (const r of data || []) {
-        const c = String(r.company || "").trim();
-        if (!c) continue;
-        if (ql && !c.toLowerCase().startsWith(ql)) continue;
-        const k = c.toLowerCase();
-        if (!byLower.has(k)) byLower.set(k, c);
-      }
-      const companies = [...byLower.values()]
-        .sort((a, b) => a.localeCompare(b))
-        .slice(0, 20);
+      // Prefix match in SQL (never a full-table scan), bounded, and cached.
+      const companies = await cached(`profiles:companies:${ql}`, 60_000, async () => {
+        let qb = supabaseAdmin
+          .from("profiles")
+          .select("company")
+          .not("company", "is", null)
+          .order("company", { ascending: true })
+          .limit(400);
+        if (ql) qb = qb.ilike("company", `${escapeLike(ql)}%`);
+        const { data, error } = await qb;
+        if (error) throw error;
+        const byLower = new Map();
+        for (const r of data || []) {
+          const c = String(r.company || "").trim();
+          if (!c) continue;
+          const k = c.toLowerCase();
+          if (!byLower.has(k)) byLower.set(k, c);
+        }
+        return [...byLower.values()].sort((a, b) => a.localeCompare(b)).slice(0, 20);
+      });
       res.json({ companies });
     } catch (err) {
       fail(res, err, "profiles/companies", "Failed to load companies.");
@@ -2843,9 +2083,12 @@ app.get(
 // file:   resume  (PDF ≤10MB, %PDF- magic bytes, ≥100 bytes)
 app.post(
   "/api/referrals",
+  referralLimiter,
   requireAuth,
   upload.single("resume"),
   async (req, res) => {
+    let reservation = null;
+    let keepReservation = false;
     try {
       const { target_company, job_id, job_title } = req.body || {};
 
@@ -2876,7 +2119,7 @@ app.post(
       );
 
       // 1. Quota gate — MUST run before any storage/DB write.
-      const gate = await canAccess(req.user.id, "referral_request");
+      const gate = await reserveUsage(req.user.id, "referral_request");
       if (!gate.allowed) {
         return res.status(402).json({
           error: "usage_limit",
@@ -2886,6 +2129,7 @@ app.post(
           resetsAt: gate.resetsAt,
         });
       }
+      reservation = gate.reservation;
 
       // 2. One open request per user (pre-check; the partial unique index is
       //    the real guard — step 4 handles the race).
@@ -2942,13 +2186,8 @@ app.post(
         throw insErr;
       }
 
-      // 5. Meter the use — never blocks the response.
-      await incrementUsage(req.user.id, "referral_request").catch((e) =>
-        console.error(
-          "[referrals] incrementUsage failed",
-          redact((e && e.message) || String(e)),
-        ),
-      );
+      // 5. The quota unit was reserved atomically up front; keep it.
+      keepReservation = true;
 
       // 6. Respond.
       res.status(201).json({
@@ -2967,19 +2206,24 @@ app.post(
           .eq("id", req.user.id)
           .maybeSingle();
 
+        // Everyone at the company who opted in; verified first, capped at 50.
         const { data: matchRows, error: mErr } = await supabaseAdmin
           .from("profiles")
-          .select("id")
+          .select("id, company_verified")
           .eq("receive_referral_notifications", true)
           .ilike("company", escapeLike(company))
-          .neq("id", req.user.id);
+          .neq("id", req.user.id)
+          .order("company_verified", { ascending: false })
+          .limit(200);
         if (mErr) throw mErr;
 
-        const recipients = [];
+        const cands = [];
         for (const r of matchRows || []) {
           const au = await referralAuthUser(r.id);
-          if (au && au.email) recipients.push(au.email);
+          if (au && au.email) cands.push({ email: au.email, verified: !!r.company_verified });
+          if (cands.length >= 50) break; // rows are verified-first; 50 is the cap
         }
+        const recipients = selectRecipients(cands).map((c) => c.email);
         if (!recipients.length) {
           console.log("[referrals] request", referralId, "-> 0 recipients");
           return;
@@ -3009,6 +2253,8 @@ app.post(
       );
     } catch (err) {
       fail(res, err, "referrals", "Failed to create referral request.");
+    } finally {
+      if (reservation && !keepReservation) await refundUsage(reservation);
     }
   },
 );
@@ -3023,12 +2269,34 @@ app.get("/api/referrals/mine", requireAuth, async (req, res) => {
       .order("created_at", { ascending: false });
     if (error) throw error;
 
+    const accepterIds = [
+      ...new Set(
+        (rows || [])
+          .filter((r) => r.status === "accepted" && r.accepted_by_user_id)
+          .map((r) => r.accepted_by_user_id),
+      ),
+    ];
+    const accepterMap = new Map();
+    await Promise.all(
+      accepterIds.map(async (id) => accepterMap.set(id, await referralAuthUser(id))),
+    );
+    const verifiedMap = new Map();
+    if (accepterIds.length) {
+      const { data: vrows, error: vErr } = await supabaseAdmin
+        .from("profiles")
+        .select("id, company_verified")
+        .in("id", accepterIds);
+      if (vErr) throw vErr;
+      for (const v of vrows || []) verifiedMap.set(v.id, !!v.company_verified);
+    }
     const requests = [];
     for (const r of rows || []) {
       let accepter = null;
+      let referrerVerified = false;
       if (r.status === "accepted" && r.accepted_by_user_id) {
-        const au = await referralAuthUser(r.accepted_by_user_id);
-        accepter = au ? { name: au.name, email: au.email } : null;
+        const au = accepterMap.get(r.accepted_by_user_id);
+        referrerVerified = !!verifiedMap.get(r.accepted_by_user_id);
+        accepter = au ? { name: au.name, email: au.email, verified: referrerVerified } : null;
       }
       requests.push({
         id: r.id,
@@ -3039,6 +2307,7 @@ app.get("/api/referrals/mine", requireAuth, async (req, res) => {
         accepted_at: r.accepted_at,
         created_at: r.created_at,
         expires_at: r.expires_at,
+        referrerVerified,
         accepter,
       });
     }
@@ -3058,28 +2327,26 @@ app.get("/api/referrals/mine", requireAuth, async (req, res) => {
 });
 
 // GET /api/referrals/open → open requests targeting the caller's own company.
-// No poster name/email, no resume path.
+// Verification is optional here (it only adds a badge + a higher accept limit).
+// The list carries NO poster name/email/phone and NO resume path or signed
+// URL; the resume is served only to the accepter (see /resume).
 app.get("/api/referrals/open", requireAuth, async (req, res) => {
   try {
-    const { data: prof, error: pErr } = await supabaseAdmin
-      .from("profiles")
-      .select("company")
-      .eq("id", req.user.id)
-      .maybeSingle();
-    if (pErr) throw pErr;
+    const mine = await getVerifiedCompany(req.user.id);
+    if (!mine.company) return res.json({ requests: [], no_company: true });
+    const myCompany = mine.company;
 
-    const myCompany = String(prof?.company || "").trim();
-    if (!myCompany) return res.json({ requests: [], no_company: true });
-
+    // sql/33: target_company_norm = lower(btrim(target_company)), indexed.
     const { data: rows, error } = await supabaseAdmin
       .from("referral_requests")
       .select(
         "id, target_company, job_id, job_title, created_at, expires_at, poster_user_id",
       )
       .eq("status", "open")
-      .ilike("target_company", escapeLike(myCompany))
+      .eq("target_company_norm", myCompany.toLowerCase())
       .neq("poster_user_id", req.user.id)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(50);
     if (error) throw error;
 
     const posterIds = [...new Set((rows || []).map((r) => r.poster_user_id))];
@@ -3108,7 +2375,7 @@ app.get("/api/referrals/open", requireAuth, async (req, res) => {
         },
       };
     });
-    res.json({ requests });
+    res.json({ requests, company: myCompany, viewerVerified: mine.verified });
   } catch (err) {
     fail(res, err, "referrals/open", "Failed to load open referral requests.");
   }
@@ -3121,15 +2388,32 @@ app.post(
   requireAuth,
   async (req, res) => {
     try {
-      const { data: prof, error: pErr } = await supabaseAdmin
-        .from("profiles")
-        .select("company")
-        .eq("id", req.user.id)
-        .maybeSingle();
-      if (pErr) throw pErr;
+      const mine = await getVerifiedCompany(req.user.id);
+      if (!mine.company) return res.status(403).json({ error: "no_company" });
+      const myCompany = mine.company;
 
-      const myCompany = String(prof?.company || "").trim();
-      if (!myCompany) return res.status(403).json({ error: "no_company" });
+      // Rolling-24h accept cap (3 unverified / 20 verified), enforced here.
+      const { data: recent, error: rcErr } = await supabaseAdmin
+        .from("referral_requests")
+        .select("accepted_at")
+        .eq("accepted_by_user_id", req.user.id)
+        .gte("accepted_at", acceptWindowStart())
+        .limit(100);
+      if (rcErr) throw rcErr;
+      const lim = evaluateAcceptLimit({
+        verified: mine.verified,
+        acceptedAt: (recent || []).map((r) => r.accepted_at),
+      });
+      if (!lim.allowed) {
+        return res.status(429).json({
+          error: "accept_limit",
+          message: acceptLimitMessage({ limit: lim.limit, verified: mine.verified }),
+          limit: lim.limit,
+          used: lim.used,
+          retryAt: lim.retryAt,
+          verified: mine.verified,
+        });
+      }
 
       // Single conditional UPDATE: id + status='open' + company match
       // (case-insensitive) + not self. maybeSingle() → null when nothing matched.
@@ -3142,14 +2426,14 @@ app.post(
         })
         .eq("id", req.params.id)
         .eq("status", "open")
-        .ilike("target_company", escapeLike(myCompany))
+        .eq("target_company_norm", myCompany.toLowerCase())
         .neq("poster_user_id", req.user.id)
         .select()
         .maybeSingle();
       if (error) throw error;
       if (!data) return res.status(409).json({ error: "already_accepted" });
 
-      res.json({ id: data.id, status: "accepted" });
+      res.json({ id: data.id, status: "accepted", referrerVerified: mine.verified });
 
       // Notify the poster (fire-and-forget). This email intentionally carries
       // the accepter's email address.
@@ -3170,6 +2454,7 @@ app.post(
           accepterName: (accepter && accepter.name) || req.user.email || null,
           accepterEmail: req.user.email,
           company: data.target_company,
+          referrerVerified: mine.verified,
         });
         const r = await resend.sendEmail({
           to: poster.email,
@@ -3224,25 +2509,20 @@ app.get(
     try {
       const { data: row, error } = await supabaseAdmin
         .from("referral_requests")
-        .select("poster_user_id, target_company, status, resume_storage_path")
+        .select("poster_user_id, accepted_by_user_id, status, resume_storage_path")
         .eq("id", req.params.id)
         .maybeSingle();
       if (error) throw error;
       if (!row) return res.status(404).json({ error: "not_found" });
 
-      let allowed = row.poster_user_id === req.user.id;
-      if (!allowed && ["open", "accepted"].includes(row.status)) {
-        const { data: prof, error: pErr } = await supabaseAdmin
-          .from("profiles")
-          .select("company")
-          .eq("id", req.user.id)
-          .maybeSingle();
-        if (pErr) throw pErr;
-        const mine = String(prof?.company || "").trim().toLowerCase();
-        allowed =
-          !!mine &&
-          mine === String(row.target_company || "").trim().toLowerCase();
-      }
+      // Only the requester and the user who accepted this request. Company
+      // membership (verified or not) never grants resume access.
+      const allowed = canViewResume({
+        userId: req.user.id,
+        posterUserId: row.poster_user_id,
+        acceptedByUserId: row.accepted_by_user_id,
+        status: row.status,
+      });
       if (!allowed) return res.status(403).json({ error: "forbidden" });
 
       const { data, error: sErr } = await supabaseAdmin.storage
@@ -3408,8 +2688,22 @@ const JUDGE0_LANG_IDS = {
 };
 const KNOWN_LANGUAGES = new Set(Object.keys(JUDGE0_LANG_IDS));
 
-app.post("/api/run", requireAuth, async (req, res) => {
+// Code execution is expensive and abusable: per-user concurrency of 1 plus a
+// global cap, on top of runLimiter.
+const runActive = new Set();
+const runGate = makeSemaphore(Number(process.env.RUN_MAX_CONCURRENT) || 6);
+const RUN_TIMEOUT_MS = Number(process.env.RUN_TIMEOUT_MS) || 30_000;
+
+app.post("/api/run", runLimiter, requireAuth, async (req, res) => {
+  if (runActive.has(req.user.id)) {
+    return res.status(429).json({ message: "A run is already in progress." });
+  }
+  if (runGate.pending > 20) return res.status(503).json({ message: "Runner busy, try again." });
+  runActive.add(req.user.id);
+  let gateHeld = false;
   try {
+    await runGate.acquire();
+    gateHeld = true;
     const { language = "java", files = [] } = req.body || {};
 
     assert(
@@ -3438,10 +2732,31 @@ app.post("/api/run", requireAuth, async (req, res) => {
       try {
         const runnerRes = await fetch(`${process.env.JAVA_RUNNER_URL}/run`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Runner-Secret": process.env.RUNNER_SHARED_SECRET || "",
+          },
           body: JSON.stringify({ files }),
+          signal: AbortSignal.timeout(RUN_TIMEOUT_MS),
         });
-        const data = await runnerRes.json();
+        const rawText = await runnerRes.text();
+        let data = null;
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          /* non-JSON (e.g. a proxy 502 page) */
+        }
+        if (!data) {
+          console.error("[java-runner proxy] non-JSON", runnerRes.status, redact(rawText.slice(0, 200)));
+          return res.status(502).json({ message: "Code runner is unavailable. Try again shortly." });
+        }
+        if (runnerRes.status === 401) {
+          console.error("[java-runner proxy] 401 - RUNNER_SHARED_SECRET mismatch");
+          return res.status(502).json({ message: "Code runner is unavailable. Try again shortly." });
+        }
+        if (runnerRes.status === 429) {
+          return res.status(429).json({ message: "Code runner is busy. Try again in a few seconds." });
+        }
         if (!runnerRes.ok) return res.status(runnerRes.status).json(data);
         return res.json(data);
       } catch (err) {
@@ -3477,6 +2792,7 @@ app.post("/api/run", requireAuth, async (req, res) => {
           cpu_time_limit: 10,
           memory_limit: 256000,
         }),
+        signal: AbortSignal.timeout(RUN_TIMEOUT_MS),
       },
     );
 
@@ -3508,6 +2824,9 @@ app.post("/api/run", requireAuth, async (req, res) => {
     console.error("[run]", redact((err && err.message) || String(err)));
     if (!res.headersSent)
       res.status(500).json({ message: "Code execution failed." });
+  } finally {
+    runActive.delete(req.user.id);
+    if (gateHeld) runGate.release();
   }
 });
 
@@ -3515,13 +2834,7 @@ app.post("/api/run", requireAuth, async (req, res) => {
 // Provider logic: ./services/razorpay.js. One-time orders that grant a plan
 // for a fixed term; when it lapses the entitlements lazy check drops the user
 // to free. DORMANT until RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are set.
-const checkoutLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 12,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests — slow down." },
-});
+const checkoutLimiter = makeLimiter({ windowMs: 60 * 1000, max: 12 });
 
 const PAID_PLANS = ["pro", "max"];
 const PERIODS = ["monthly", "yearly"];
@@ -3628,48 +2941,83 @@ app.post(
         return res.status(400).json({ error: "signature_mismatch" });
       }
 
-      // Defence-in-depth: pull the order back and confirm it is the one this
-      // user created for this plan/amount (guards against a tampered body).
+      // Authoritative re-check against Razorpay. FAIL CLOSED: if the order
+      // cannot be fetched (Razorpay 5xx / network) we must not grant on the
+      // signature alone — the client can retry.
       const order = await razorpay.fetchOrder(razorpay_order_id);
-      if (order) {
-        const n = order.notes || {};
-        // Trust the order's OWN currency (Razorpay's authoritative record of
-        // what was actually charged), not a freshly-recomputed one — the
-        // user's country is a no-op-once-set value so this can't drift in
-        // practice, but checking against what was actually billed is the
-        // more correct invariant regardless.
-        const expected = expectedAmountFor(order.currency, plan, billingPeriod);
-        if (
-          String(n.user_id || "") !== String(req.user.id) ||
-          String(n.plan || "") !== plan ||
-          String(n.billingPeriod || "") !== billingPeriod ||
-          Number(order.amount) !== expected
-        ) {
-          console.warn("[razorpay/verify] order/claim mismatch", redact(JSON.stringify({ n, amount: order.amount, expected })));
-          return res.status(400).json({ error: "order_mismatch" });
-        }
+      if (!order) {
+        return res.status(503).json({ error: "order_lookup_failed", retryable: true });
+      }
+      const n = order.notes || {};
+      // Trust the order's OWN currency (Razorpay's authoritative record of
+      // what was actually charged), not a freshly-recomputed one.
+      const expected = expectedAmountFor(order.currency, plan, billingPeriod);
+      if (
+        String(order.status || "") !== "paid" ||
+        String(n.user_id || "") !== String(req.user.id) ||
+        String(n.plan || "") !== plan ||
+        String(n.billingPeriod || "") !== billingPeriod ||
+        Number(order.amount) !== expected ||
+        Number(order.amount_paid ?? order.amount) !== expected
+      ) {
+        console.warn("[razorpay/verify] order/claim mismatch", redact(JSON.stringify({ n, status: order.status, amount: order.amount, expected })));
+        return res.status(400).json({ error: "order_mismatch" });
       }
 
-      const now = new Date();
-      const end = new Date(now.getTime() + TERM_DAYS[billingPeriod] * 86400000);
-      const row = {
+      // Exactly-once: the first of verify / order.paid webhook claims the
+      // payment; the loser must not extend the term again (sql/30).
+      const claim = await claimPayment({
+        payment_id: razorpay_payment_id,
+        order_id: razorpay_order_id,
         user_id: req.user.id,
         plan,
-        status: "active",
-        provider: "razorpay",
-        provider_customer_id: null,
-        provider_subscription_id: razorpay_order_id, // UNIQUE — idempotent per order
         billing_period: billingPeriod,
-        current_period_end: end.toISOString(),
-      };
-      const { error } = await supabaseAdmin
-        .from("subscriptions")
-        .upsert(row, { onConflict: "user_id" });
-      if (error) throw error;
+        amount: Number(order.amount),
+        currency: order.currency || null,
+        source: "verify",
+      });
+      if (!claim.claimed) {
+        const { data: prior } = await supabaseAdmin
+          .from("processed_payments")
+          .select("user_id, plan, period_end")
+          .eq("order_id", razorpay_order_id)
+          .maybeSingle();
+        if (prior && String(prior.user_id) === String(req.user.id)) {
+          invalidateUser(req.user.id);
+          return res.json({ ok: true, plan: prior.plan, current_period_end: prior.period_end, alreadyProcessed: true });
+        }
+        return res.status(409).json({ error: "payment_already_used" });
+      }
 
-      invalidateUser(req.user.id); // drop the ~15s plan cache
+      try {
+        const { data: existing } = await supabaseAdmin
+          .from("subscriptions")
+          .select("plan, status, current_period_end")
+          .eq("user_id", req.user.id)
+          .maybeSingle();
+        const end = computePeriodEnd({ termDays: TERM_DAYS[billingPeriod], existing, plan });
+        const row = {
+          user_id: req.user.id,
+          plan,
+          status: "active",
+          provider: "razorpay",
+          provider_customer_id: null,
+          provider_subscription_id: razorpay_order_id, // UNIQUE — idempotent per order
+          billing_period: billingPeriod,
+          current_period_end: end.toISOString(),
+        };
+        const { error } = await supabaseAdmin
+          .from("subscriptions")
+          .upsert(row, { onConflict: "user_id" });
+        if (error) throw error;
+        await recordPaymentPeriodEnd(razorpay_payment_id, row.current_period_end).catch(() => {});
 
-      res.json({ ok: true, plan, current_period_end: row.current_period_end });
+        invalidateUser(req.user.id); // drop the ~15s plan cache
+        res.json({ ok: true, plan, current_period_end: row.current_period_end });
+      } catch (grantErr) {
+        await releasePayment(razorpay_payment_id).catch(() => {});
+        throw grantErr;
+      }
     } catch (err) {
       console.error("[razorpay/verify]", redact((err && (err.stack || err.message)) || String(err)));
       res.status(500).json({ error: "verify_failed" });
@@ -3715,6 +3063,16 @@ app.post(
 
       const rzpPlanId = razorpay.planId(plan, billingPeriod);
       if (!rzpPlanId) return res.status(400).json({ error: "plan_not_configured" });
+
+      // Never replace a live paid row with a 'created' placeholder.
+      const { data: curSub } = await supabaseAdmin
+        .from("subscriptions")
+        .select("plan, status, provider, current_period_end")
+        .eq("user_id", req.user.id)
+        .maybeSingle();
+      if (curSub && effectivePlanFromRow(curSub) !== "free") {
+        return res.status(409).json({ error: "already_subscribed" });
+      }
 
       // Reuse (or create) one Razorpay customer per user.
       let customerId = null;
@@ -3855,12 +3213,22 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
     return res.status(401).json({ error: "bad_signature" });
   }
 
+  const eventId = String(req.get("x-razorpay-event-id") || "").slice(0, 128) || null;
+  let eventClaimed = false;
   try {
     const event = String(req.body && req.body.event) || "";
+    const eventCreatedMs = Number(req.body && req.body.created_at) * 1000 || null;
+
+    // Retried / replayed deliveries carry the same event id: ack and skip.
+    if (eventId) {
+      const isNew = await claimWebhookEvent(eventId, event);
+      if (!isNew) return res.status(200).json({ ok: true, duplicate: true });
+      eventClaimed = true;
+    }
 
     // One-time term payments: safety net for a lost browser callback (tab
     // closed right after paying). Grant the plan straight from order.notes —
-    // idempotent with /api/payments/razorpay/verify (same provider_subscription_id).
+    // idempotent with /api/payments/razorpay/verify via processed_payments.
     if (event === "order.paid") {
       const order = req.body?.payload?.order?.entity;
       const n = (order && order.notes) || {};
@@ -3872,20 +3240,46 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
         console.warn("[rzp-webhook] order.paid amount mismatch", redact(JSON.stringify({ id: order.id, paid })));
         return res.status(202).json({ ok: true, note: "amount mismatch" });
       }
-      const end = new Date(Date.now() + TERM_DAYS[n.billingPeriod] * 86400000).toISOString();
-      const { error: upErr } = await supabaseAdmin.from("subscriptions").upsert(
-        {
-          user_id: n.user_id,
-          plan: n.plan,
-          status: "active",
-          provider: "razorpay",
-          provider_subscription_id: order.id, // UNIQUE per order — idempotent
-          billing_period: n.billingPeriod,
-          current_period_end: end,
-        },
-        { onConflict: "user_id" },
-      );
-      if (upErr) throw upErr;
+      const payment = req.body?.payload?.payment?.entity;
+      const paymentId = (payment && payment.id) || `order_${order.id}`;
+      const claim = await claimPayment({
+        payment_id: paymentId,
+        order_id: order.id,
+        user_id: n.user_id,
+        plan: n.plan,
+        billing_period: n.billingPeriod,
+        amount: paid,
+        currency: order.currency || null,
+        source: "webhook",
+      });
+      if (!claim.claimed) {
+        return res.status(200).json({ ok: true, duplicate: true, note: "payment already processed" });
+      }
+      try {
+        const { data: existing } = await supabaseAdmin
+          .from("subscriptions")
+          .select("plan, status, current_period_end")
+          .eq("user_id", n.user_id)
+          .maybeSingle();
+        const end = computePeriodEnd({ termDays: TERM_DAYS[n.billingPeriod], existing, plan: n.plan }).toISOString();
+        const { error: upErr } = await supabaseAdmin.from("subscriptions").upsert(
+          {
+            user_id: n.user_id,
+            plan: n.plan,
+            status: "active",
+            provider: "razorpay",
+            provider_subscription_id: order.id, // UNIQUE per order — idempotent
+            billing_period: n.billingPeriod,
+            current_period_end: end,
+          },
+          { onConflict: "user_id" },
+        );
+        if (upErr) throw upErr;
+        await recordPaymentPeriodEnd(paymentId, end).catch(() => {});
+      } catch (grantErr) {
+        await releasePayment(paymentId).catch(() => {});
+        throw grantErr;
+      }
       invalidateUser(n.user_id);
       return res.status(200).json({ ok: true, granted: n.plan });
     }
@@ -3922,6 +3316,19 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
       return res.status(202).json({ ok: true, note: "no user mapping" });
     }
 
+    // Ignore events older than what we already stored (out-of-order delivery).
+    if (eventCreatedMs) {
+      const { data: stored } = await supabaseAdmin
+        .from("subscriptions")
+        .select("updated_at")
+        .eq("user_id", userId)
+        .eq("provider_subscription_id", subId)
+        .maybeSingle();
+      if (stored && stored.updated_at && new Date(stored.updated_at).getTime() > eventCreatedMs) {
+        return res.status(200).json({ ok: true, ignored: "stale_event" });
+      }
+    }
+
     const status = subStatusFromRazorpay(entity.status);
     const patch = {
       user_id: userId,
@@ -3949,6 +3356,7 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
     invalidateUser(userId);
     res.status(200).json({ ok: true });
   } catch (err) {
+    if (eventClaimed) await releaseWebhookEvent(eventId).catch(() => {});
     console.error("[rzp-webhook]", redact((err && (err.stack || err.message)) || String(err)));
     res.status(500).json({ error: "processing_failed" }); // Razorpay retries
   }
@@ -4191,8 +3599,41 @@ app.get("/sitemap.xml", async (req, res) => {
   res.type("application/xml").set("Cache-Control", "public, max-age=0, s-maxage=600").send(body);
 });
 
+// ── SSR-lite helpers ─────────────────────────────────────────────
+// Rendered HTML is cached per route (pre-nonce) for 2 minutes; the per-request
+// CSP nonce is stamped onto inline <script>s at send time.
+const SSR_TTL_MS = 120_000;
+const SSR_MAX = 300;
+/** @type {Map<string, { html: string, cc: string, exp: number }>} */
+const ssrCache = new Map();
+
+function stampNonce(html, nonce) {
+  if (!nonce) return html;
+  // Inline executable scripts only: no src= and not a JSON data block.
+  return html.replace(/<script(?![^>]*\bsrc=)(?![^>]*type="application\/(?:ld\+)?json")([^>]*)>/g, `<script nonce="${nonce}"$1>`);
+}
+
 app.get(/^(?!\/api).*/, async (req, res, next) => {
   if (!INDEX_TEMPLATE) return next(); // dev / no build
+
+  // A path with a file extension that no static handler claimed is a missing
+  // file, not an SPA route: 404 instead of serving the HTML shell.
+  if (/\.[A-Za-z0-9]{1,8}$/.test(req.path)) {
+    return res.status(404).type("text/plain").send("Not found");
+  }
+
+  // Stamp the CSP nonce on every HTML string sent from this handler.
+  const rawSend = res.send.bind(res);
+  res.send = (body) =>
+    rawSend(typeof body === "string" ? stampNonce(body, res.locals.cspNonce) : body);
+
+  const ssrKey = req.path.length <= 200 ? req.path : null;
+  const ssrHit = ssrKey ? ssrCache.get(ssrKey) : null;
+  if (ssrHit && ssrHit.exp > Date.now()) {
+    res.set("Content-Type", "text/html; charset=utf-8");
+    res.set("Cache-Control", ssrHit.cc);
+    return res.send(ssrHit.html);
+  }
 
   let c = classifyRoute(req.path);
 
@@ -4309,10 +3750,17 @@ app.get(/^(?!\/api).*/, async (req, res, next) => {
   // most of the shared-cache benefit while shrinking that window to
   // something a real deploy essentially never lands inside twice in a row;
   // ErrorBoundary.jsx's chunk-error auto-reload is the remaining backstop.
-  res.set(
-    "Cache-Control",
-    c.kind === "public" ? "public, max-age=0, s-maxage=30, stale-while-revalidate=30" : "no-store",
-  );
+  const cacheControl =
+    c.kind === "public" ? "public, max-age=0, s-maxage=30, stale-while-revalidate=30" : "no-store";
+  res.set("Cache-Control", cacheControl);
+  // Only cache real, indexable public pages (bounded; unknown paths never grow it).
+  if (ssrKey && c.kind === "public") {
+    if (ssrCache.size >= SSR_MAX) {
+      const k = ssrCache.keys().next().value;
+      if (k !== undefined) ssrCache.delete(k);
+    }
+    ssrCache.set(ssrKey, { html, cc: cacheControl, exp: Date.now() + SSR_TTL_MS });
+  }
   res.send(html);
 });
 
@@ -4370,162 +3818,14 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
   );
 }
 
-// ── Company subscription job-alert digest ─────────────────────────
-// Runs once a day at 09:00 Asia/Kolkata. For every company with at least one
-// subscriber, finds postings first seen in the last ~26h (24h + slack so a
-// late or slow run never leaves a gap; the dedup log prevents repeats) (via the
-// company_subscription_new_postings() SQL join — see sql/18), fans out one
-// email per (subscriber, company-with-new-postings) pair via resend.sendEmail,
-// records each sent (user_id, job_posting_id) pair in the dedup log so a
-// retried/overlapping run never double-sends, then prunes dedup rows older
-// than 3 days (job_posting rows themselves only live ~24h, so nothing older
-// than a few days is ever useful there). No-op without a service-role key.
-let digestRunning = false;
-async function sendCompanySubscriptionDigest() {
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return;
-  if (!resend.isEnabled()) {
-    console.error("[company-subs] digest skipped: RESEND_API_KEY is not set, no job alerts can be emailed");
-    return;
-  }
-  if (digestRunning) return; // a slow run must not overlap the next tick
-  digestRunning = true;
-  try {
-    const since = new Date(Date.now() - 26 * 3600 * 1000).toISOString();
-
-    // Restricted to subscribed companies via a real DB-level join (see the
-    // SQL function) — never by pulling every subscription row into the app
-    // just to build an .in() filter.
-    const { data: newPostings, error: postErr } = await supabaseAdmin.rpc(
-      "company_subscription_new_postings",
-      { since },
-    );
-    if (postErr) throw postErr;
-
-    if (newPostings && newPostings.length) {
-      const slugs = [...new Set(newPostings.map((p) => p.company_slug))];
-
-      const { data: subs, error: subErr } = await supabaseAdmin
-        .from("company_subscriptions")
-        .select("user_id, company_slug, company_name")
-        .in("company_slug", slugs);
-      if (subErr) throw subErr;
-
-      const postingsByCompany = new Map();
-      for (const p of newPostings) {
-        if (!postingsByCompany.has(p.company_slug)) postingsByCompany.set(p.company_slug, []);
-        postingsByCompany.get(p.company_slug).push(p);
-      }
-
-      const jobPostingIds = [...new Set(newPostings.map((p) => p.id))];
-      const { data: alreadySent, error: sentErr } = await supabaseAdmin
-        .from("company_subscription_alerts_sent")
-        .select("user_id, job_posting_id")
-        .in("job_posting_id", jobPostingIds);
-      if (sentErr) throw sentErr;
-      const sentSet = new Set(
-        (alreadySent || []).map((r) => `${r.user_id}:${r.job_posting_id}`),
-      );
-
-      // One entry per email, carrying the dedup rows it covers — a row is
-      // only recorded once its email was actually accepted by Resend.
-      const outgoing = [];
-
-      for (const sub of subs || []) {
-        const postings = postingsByCompany.get(sub.company_slug) || [];
-        const unsent = postings.filter(
-          (p) => !sentSet.has(`${sub.user_id}:${p.id}`),
-        );
-        if (!unsent.length) continue;
-
-        const authUser = await referralAuthUser(sub.user_id);
-        if (!authUser || !authUser.email) continue;
-
-        const tpl = companyJobAlertEmail({
-          companyName: sub.company_name,
-          // Newest first — the email lists only the first few.
-          newJobs: [...unsent]
-            .sort((a, b) => String(b.first_seen_at || "").localeCompare(String(a.first_seen_at || "")))
-            .map((p) => ({
-              title: p.title,
-              url: p.url,
-              location: p.location,
-              seniority: p.seniority,
-            })),
-          companyUrl: `${APP_BASE_URL}/jobs/company/${encodeURIComponent(sub.company_slug)}`,
-          manageUrl: `${APP_BASE_URL}/profile`,
-        });
-        outgoing.push({
-          email: { to: authUser.email, tag: "company_job_alert", ...tpl },
-          rows: unsent.map((p) => ({ user_id: sub.user_id, job_posting_id: p.id })),
-        });
-      }
-
-      // Previously every alert was written to the dedup log whether or not
-      // the email went out, so a skipped send (no RESEND_API_KEY) or a
-      // rejected one (unverified sender) silently and permanently swallowed
-      // those jobs. Only successful sends are recorded now; failures retry
-      // on the next run.
-      const toRecord = [];
-      let sent = 0;
-      let failed = 0;
-      for (const { email, rows } of outgoing) {
-        const result = await resend.sendEmail(email);
-        if (result && result.id) {
-          sent += 1;
-          toRecord.push(...rows);
-        } else {
-          failed += 1;
-        }
-      }
-      if (outgoing.length) {
-        console.log("[company-subs] digest fan-out:", { sent, failed });
-      }
-
-      if (toRecord.length) {
-        const { error: recErr } = await supabaseAdmin
-          .from("company_subscription_alerts_sent")
-          .upsert(toRecord, { onConflict: "user_id,job_posting_id", ignoreDuplicates: true });
-        if (recErr) {
-          console.error(
-            "[company-subs] failed to record sent alerts:",
-            redact(recErr.message || String(recErr)),
-          );
-        }
-      }
-    } else {
-      console.log("[company-subs] digest: no new postings for subscribed companies");
-    }
-
-    // Prune old dedup rows — best effort, part of the same daily run.
-    const pruneBefore = new Date(Date.now() - 3 * 86_400_000).toISOString();
-    const { error: pruneErr } = await supabaseAdmin
-      .from("company_subscription_alerts_sent")
-      .delete()
-      .lt("sent_at", pruneBefore);
-    if (pruneErr) {
-      console.error(
-        "[company-subs] dedup-log prune failed:",
-        redact(pruneErr.message || String(pruneErr)),
-      );
-    }
-  } catch (e) {
-    console.error(
-      "[company-subs] digest failed",
-      redact((e && e.message) || String(e)),
-    );
-  } finally {
-    digestRunning = false;
-  }
-}
-
-if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  // Once a day, 09:00 India time — a single morning digest per company.
-  cron.schedule("0 9 * * *", sendCompanySubscriptionDigest, { timezone: "Asia/Kolkata" });
-} else {
-  console.warn(
-    "[company-subs] job-alert digest disabled (no SUPABASE_SERVICE_ROLE_KEY)",
-  );
-}
+// ── Company subscription job-alert digest (lib/jobsDigest.js) ──────
+scheduleCompanyDigest(cron, {
+  supabaseAdmin,
+  resend,
+  companyJobAlertEmail,
+  appBaseUrl: APP_BASE_URL,
+  redact,
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
