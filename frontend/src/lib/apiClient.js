@@ -56,8 +56,19 @@ function refreshSessionOnce() {
 // navigate to /auth) run for real, same as a deliberate logout.
 // Deduped so a burst of concurrent 401s doesn't fire signOut() N times.
 let signOutInFlight = false
+
+// Routes that require a session (see ProtectedRoute in App.jsx). Everything
+// else (home/jobs, dsa, lld/hld lists, static + legal pages…) is browsable
+// logged-out, so a dead session there must NOT bounce the visitor to /auth.
+const PROTECTED_PATHS = ['/profile', '/pricing', '/subscription/success']
+export function isProtectedPath(pathname) {
+    return PROTECTED_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
+}
+
 function emitAuthExpired() {
-    if (typeof window !== 'undefined') {
+    // Protected pages: prompt the user to sign in again. Public pages: sign out
+    // silently and carry on as an anonymous visitor.
+    if (typeof window !== 'undefined' && isProtectedPath(window.location.pathname)) {
         window.dispatchEvent(new CustomEvent('auth:expired'))
     }
     if (!signOutInFlight) {
