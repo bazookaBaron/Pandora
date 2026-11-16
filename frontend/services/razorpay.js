@@ -85,6 +85,46 @@ export function verifyPaymentSignature({ orderId, paymentId, signature }) {
   return hmacEquals(`${orderId}|${paymentId}`, signature);
 }
 
+// ── Refunds (AutoApply unused-credit refunds) ─────────────────────
+/**
+ * Refund part (or all) of a captured payment. `amountPaise` integer >= 100.
+ * `notes` should carry our batch id so a retry can find an earlier refund.
+ * Throws (status 502) on failure so the caller can retry later.
+ */
+export async function refundPayment(paymentId, { amountPaise, notes, receipt } = {}) {
+  const amount = Math.round(Number(amountPaise));
+  if (!paymentId || !Number.isInteger(amount) || amount < 100) {
+    const e = new Error("refund needs a payment id and an amount >= 100 paise.");
+    e.status = 400;
+    throw e;
+  }
+  try {
+    return await client().payments.refund(String(paymentId), {
+      amount,
+      speed: "normal",
+      notes: notes || {},
+      ...(receipt ? { receipt: String(receipt).slice(0, 40) } : {}),
+    });
+  } catch (err) {
+    const msg = redact((err && (err.error?.description || err.message)) || String(err));
+    console.error("[razorpay] refund failed:", msg);
+    const e = new Error("Could not create the refund.");
+    e.status = 502;
+    throw e;
+  }
+}
+
+/** List refunds already made on a payment ([] on failure). */
+export async function listRefunds(paymentId) {
+  try {
+    const r = await client().payments.fetchMultipleRefund(String(paymentId), { count: 100 });
+    return (r && Array.isArray(r.items) && r.items) || [];
+  } catch (err) {
+    console.error("[razorpay] listRefunds failed:", redact((err && err.message) || String(err)));
+    return null;
+  }
+}
+
 // ── Subscriptions ─────────────────────────────────────────────────
 // Recurring billing against pre-created Razorpay Plans. Env:
 //   RAZORPAY_PLAN_PRO_MONTHLY / _PRO_YEARLY / _MAX_MONTHLY / _MAX_YEARLY

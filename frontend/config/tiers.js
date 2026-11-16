@@ -128,3 +128,21 @@ export function serializeLimit(value) {
 export function deserializeLimit(value) {
     return value === UNLIMITED ? Infinity : value
 }
+
+// ── AutoApply (paid packs of automated job applications) ─────────────
+// Contract: docs/autoapply-contract.md. The Python scheduler/workers read the
+// same numbers from env or cloud_hunter/saas/config.json — keep them in sync.
+export const AUTO_APPLY = {
+    plans: ['pro', 'max'],                // active Pro/Max required to buy
+    monthly_cap: 1000,                    // applications per account per IST calendar month (purchase + claim checks)
+    daily_cap: 60,                        // applied per user per IST day
+    per_company_7d: 3,                    // applied per user per company_key in rolling 7 days
+    window_days_max: 30, window_days_default: 30,   // job posting age the user may choose (1..30)
+    credit_validity_days: 90,
+    review_hours: 6,                      // shortlist review window when review_before_apply = true
+    tenant_daily_cap_default: 150,        // platform-wide submissions per tenant_host per IST day
+    packs: {                              // paise, GST inclusive
+        service: { 50: 59900, 80: 79900, 100: 99900 },
+        product: { 50: 89900, 80: 119900, 100: 149900 },   // confirmed 2026-11-17
+    },
+}

@@ -1,0 +1,28 @@
+# Vloombox AutoApply inbound mail worker.
+#
+# Email routing is NOT configured in this file: Cloudflare Email Routing rules live on the zone.
+# After `wrangler deploy`, in the dashboard: vloombox.in -> Email -> Email Routing ->
+#   Settings: add the subdomain apply.vloombox.in (Cloudflare adds its MX + SPF records)
+#   Routing rules -> Catch-all address (for apply.vloombox.in) -> Action "Send to a Worker" -> aa-email-worker
+# See README.md for the full checklist.
+
+name = "aa-email-worker"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false          # email-only worker: no public HTTP route
+
+[observability]
+enabled = true
+
+# Raw .eml storage: mail/YYYY/MM/DD/<uuid>.eml
+# create once: npx wrangler r2 bucket create aa-mail
+[[r2_buckets]]
+binding = "AA_MAIL"
+bucket_name = "aa-mail"
+
+[vars]
+# Base URL of the Pandora API (Railway). The worker POSTs to {AA_API_BASE}/api/inbound/email.
+AA_API_BASE = "https://www.vloombox.in"
+
+# Secret (never in this file): npx wrangler secret put AA_INBOUND_SECRET
+# It must equal AA_INBOUND_SECRET on the API side.

@@ -88,6 +88,44 @@ export async function startRazorpayCheckout({ plan, billingPeriod, user }) {
 }
 
 /**
+ * Open Razorpay Standard Checkout for an order the caller ALREADY created
+ * (e.g. AutoApply packs: POST /api/autoapply/orders). Resolves with the raw
+ * Razorpay handler response { razorpay_order_id, razorpay_payment_id,
+ * razorpay_signature }; the caller verifies it server-side. Rejects with an
+ * Error whose `.code` is 'dismissed' | 'failed'.
+ */
+export async function openRazorpayOrder({ keyId, orderId, amount, currency = 'INR', description, user }) {
+    await loadCheckoutScript()
+    return new Promise((resolve, reject) => {
+        const rzp = new window.Razorpay({
+            key: keyId,
+            order_id: orderId,
+            amount,
+            currency,
+            name: 'Vloombox',
+            description: description || 'Vloombox',
+            image: '/vloombox-logo.svg',
+            prefill: { email: user?.email || '', name: user?.user_metadata?.full_name || '' },
+            theme: { color: '#22d3ee' },
+            modal: {
+                ondismiss: () => {
+                    const e = new Error('Payment cancelled.')
+                    e.code = 'dismissed'
+                    reject(e)
+                },
+            },
+            handler: (resp) => resolve(resp),
+        })
+        rzp.on('payment.failed', (r) => {
+            const e = new Error(r?.error?.description || 'The payment failed. Please try another method.')
+            e.code = 'failed'
+            reject(e)
+        })
+        rzp.open()
+    })
+}
+
+/**
  * Entry point used by the pricing page: try the recurring Subscription flow;
  * if Subscriptions aren't configured yet (no Razorpay Plan ids / webhook
  * secret), fall back to the one-time term payment so "Upgrade" still works.

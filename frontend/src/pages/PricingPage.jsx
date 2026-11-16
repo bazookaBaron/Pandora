@@ -8,6 +8,8 @@ import { useMediaQuery } from '../lib/useMediaQuery'
 import { ErrorState } from '../components/shared/states'
 import { track, EVENTS } from '../lib/analytics'
 import { startCheckout as startRazorpayCheckoutFlow } from '../lib/razorpay'
+import { useAutoApplyMe } from '../lib/useAutoApply'
+import { PACK_KINDS, PACK_SIZES, packPrice } from './autoapply/ui'
 
 // ── Pricing (config-driven) ─────────────────────────────────────────
 // Renders Free / Pro / Max straight from `config/tiers.js`. The Pro/Max CTAs
@@ -218,6 +220,70 @@ function PlanCard({ id, billing, currency, isCurrent, pending, onCheckout }) {
     )
 }
 
+// ── AutoApply packs (prices come from GET /api/autoapply/me -> config.packs) ─
+function AutoApplySection({ currentPlan }) {
+    const me = useAutoApplyMe()
+    const config = me.data?.config
+    const cap = config?.monthly_cap ?? 1000
+    const eligible = me.data ? !!me.data.eligible : currentPlan === 'pro' || currentPlan === 'max'
+    return (
+        <section aria-labelledby="pricing-autoapply" style={{ maxWidth: 860, margin: '44px auto 0' }}>
+            <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                <span style={{
+                    display: 'inline-block', fontSize: '0.6rem', fontWeight: 900, letterSpacing: '0.16em',
+                    textTransform: 'uppercase', color: 'var(--warm)', border: '1px solid var(--subtle)',
+                    borderRadius: 999, padding: '4px 12px', marginBottom: 10,
+                }}>Add-on · Pro &amp; Max</span>
+                <h2 id="pricing-autoapply" style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.02em', margin: 0 }}>
+                    AutoApply packs
+                </h2>
+                <p style={{ color: 'var(--muted)', fontSize: '0.82rem', maxWidth: 560, margin: '8px auto 0', lineHeight: 1.55 }}>
+                    We submit applications on company career sites for you. Credits are used only when an application is
+                    actually submitted &mdash; up to {cap.toLocaleString('en-IN')} applications per month.
+                </p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+                {['service', 'product'].map((kind) => (
+                    <div key={kind} style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 14, padding: '18px 18px 14px' }}>
+                        <div style={{ fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: kind === 'service' ? 'var(--pop)' : 'var(--warm)' }}>
+                            {PACK_KINDS[kind].name}
+                        </div>
+                        <div style={{ color: 'var(--muted)', fontSize: '0.74rem', marginTop: 3 }}>{PACK_KINDS[kind].blurb}</div>
+                        <ul style={{ listStyle: 'none', padding: 0, margin: '10px 0 0' }}>
+                            {PACK_SIZES.map((size) => {
+                                const p = packPrice(config, kind, size)
+                                return (
+                                    <li key={size} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderTop: '1px solid var(--subtle)', fontSize: '0.8rem' }}>
+                                        <span style={{ color: 'var(--accent)' }}>{size} applications</span>
+                                        <span style={{ color: 'var(--bright)', fontWeight: 900 }}>
+                                            {p != null ? rupees(p) : (me.isLoading ? '…' : 'Coming soon')}
+                                        </span>
+                                    </li>
+                                )
+                            })}
+                        </ul>
+                    </div>
+                ))}
+            </div>
+            <p style={{ textAlign: 'center', marginTop: 16 }}>
+                <Link to={eligible ? '/autoapply/buy' : '/autoapply'} style={{
+                    display: 'inline-block', padding: '10px 18px', borderRadius: 8, textDecoration: 'none',
+                    fontWeight: 900, fontSize: '0.76rem', textTransform: 'uppercase', letterSpacing: '0.06em',
+                    background: eligible ? 'var(--pop)' : 'transparent', color: eligible ? 'var(--surface)' : 'var(--accent)',
+                    border: eligible ? 'none' : '1px solid var(--subtle)',
+                }}>
+                    {eligible ? 'Buy an AutoApply pack' : 'Learn about AutoApply'}
+                </Link>
+            </p>
+            {!eligible && (
+                <p style={{ textAlign: 'center', fontSize: '0.72rem', color: 'var(--faint)', margin: 0 }}>
+                    Needs an active Pro or Max plan.
+                </p>
+            )}
+        </section>
+    )
+}
+
 export default function PricingPage() {
     const { plan: currentPlan, currency, refetch } = useEntitlements()
     const { user } = useAuth()
@@ -385,6 +451,8 @@ export default function PricingPage() {
                 {note && (
                     <ErrorState compact title="Checkout" message={note} style={{ marginTop: 18 }} />
                 )}
+
+                {import.meta.env.VITE_AUTOAPPLY === '1' && <AutoApplySection currentPlan={currentPlan} />}
 
                 <section style={{ maxWidth: 680, margin: '44px auto 0' }}>
                     <h2 style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--bright)', textAlign: 'center', marginBottom: 16, letterSpacing: '-0.02em' }}>
