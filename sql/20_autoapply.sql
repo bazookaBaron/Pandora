@@ -231,6 +231,9 @@ SELECT u.user_id,
                    AND date_trunc('month', t.submitted_at AT TIME ZONE 'Asia/Kolkata')
                      = date_trunc('month', now() AT TIME ZONE 'Asia/Kolkata')), 0) AS applied
 FROM public.aa_profiles u;
+-- Server-only: runs with the caller's rights and is not exposed to client roles.
+ALTER VIEW public.aa_usage_month SET (security_invoker = true);
+REVOKE ALL ON public.aa_usage_month FROM anon, authenticated;
 
 -- ── notify waiting workers that mail arrived (called by the API via RPC) ────
 CREATE OR REPLACE FUNCTION public.aa_notify_mail(p_user uuid, p_event bigint)
