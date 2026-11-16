@@ -203,13 +203,26 @@ export default function DSAListPage({ filterCompany }) {
     const statusFilter = searchParams.get('status') || ''
     const [showMoreFilters, setShowMoreFilters] = useState(false)
     const [searchInput, setSearchInput] = useState(search)
-    const [page, setPage] = useState(1)
-
     const companyKey = companies.join(',')
     const difficultyKey = difficulties.join(',')
 
+    // Page is tagged with the filter set it was chosen under, so changing any
+    // filter falls back to page 1 in the same render (no reset effect => no
+    // double fetch for "new filters + stale page").
+    const filterKey = JSON.stringify([search, companyKey, difficultyKey, sort, statusFilter])
+    const [pageState, setPageState] = useState({ key: filterKey, page: 1 })
+    const page = pageState.key === filterKey ? pageState.page : 1
+    const setPage = (p) => setPageState({ key: filterKey, page: p })
+    const PAGE_SIZE = 50
+    // Status filters depend on the user's progress, which the server doesn't
+    // know about, so they're applied client-side over the FULL filtered set.
+    const statusActive = !!statusFilter
+
     // Debounce the search box → URL param (300ms).
     const searchDebounce = useRef(null)
+    // A pending debounced setSearchParams must not fire after leaving the page
+    // (it would navigate the user back to this list).
+    useEffect(() => () => clearTimeout(searchDebounce.current), [])
     const updateSearch = (v) => {
         setSearchInput(v)
         clearTimeout(searchDebounce.current)
@@ -225,7 +238,6 @@ export default function DSAListPage({ filterCompany }) {
             else n.set(key, Array.isArray(value) ? value.join(',') : value)
             return n
         }, { replace: true })
-        setPage(1)
     }, [setSearchParams])
 
     // ── Single authenticated catalog query ─────────────────────────────
@@ -246,13 +258,43 @@ export default function DSAListPage({ filterCompany }) {
     // /dsa?search=foo shouldn't get seeded with unfiltered data).
     const isDefaultView = !search && !companyKey && !difficultyKey && sort === 'id' && page === 1
 
-    const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
+    const pageQuery = useQuery({
         queryKey: ['catalog-dsa', { search, company: companyKey, difficulty: difficultyKey, sort, page }],
         queryFn: () => apiFetch('/api/catalog/dsa?' + qs.toString()),
         placeholderData: keepPreviousData,
         staleTime: 60 * 1000,
+        enabled: !statusActive,
         ...(isDefaultView ? { initialData: () => consumeInitialData('dsaList') } : null),
     })
+
+    // Status-filter mode: pull every page of the (search/company/difficulty/sort)
+    // filtered set once, then filter by progress + paginate in the browser.
+    // Tier caps still apply server-side, so free users only ever get their slice.
+    const allQuery = useQuery({
+        queryKey: ['catalog-dsa-all', { search, company: companyKey, difficulty: difficultyKey, sort }],
+        enabled: statusActive,
+        staleTime: 60 * 1000,
+        queryFn: async () => {
+            const url = (n) => {
+                const q = new URLSearchParams(qs)
+                q.set('page', String(n))
+                return '/api/catalog/dsa?' + q.toString()
+            }
+            const first = await apiFetch(url(1))
+            const pages = first?.pageCount ?? 1
+            const all = [...(first?.items || [])]
+            // small batches keep us well under the catalog rate limiter
+            for (let n = 2; n <= pages; n += 4) {
+                const batch = []
+                for (let k = n; k < n + 4 && k <= pages; k++) batch.push(apiFetch(url(k)))
+                const res = await Promise.all(batch)
+                res.forEach(r => all.push(...(r?.items || [])))
+            }
+            return { ...first, items: all, page: 1, pageCount: 1 }
+        },
+    })
+
+    const { data, isLoading, isError, error, refetch, isFetching } = statusActive ? allQuery : pageQuery
 
     const items = data?.items || []
     const total = data?.total ?? 0
@@ -260,7 +302,7 @@ export default function DSAListPage({ filterCompany }) {
     const lockedCount = data?.lockedCount ?? locked
     const companyLock = !!data?.companyLock // free user + company filter → per-question lock cards
     const filteredCount = data?.filteredCount ?? items.length
-    const pageCount = data?.pageCount ?? 1
+    const serverPageCount = data?.pageCount ?? 1
     const unlimited = data?.limit === 'unlimited'
 
     // Warm the next page in the background so "Next" renders from cache.
@@ -269,28 +311,30 @@ export default function DSAListPage({ filterCompany }) {
     nextPageQs.set('page', String(page + 1))
     const nextPageUrl = '/api/catalog/dsa?' + nextPageQs.toString()
     useEffect(() => {
-        if (!data || page >= pageCount) return
+        if (!data || statusActive || page >= serverPageCount) return
         queryClient.prefetchQuery({
             queryKey: ['catalog-dsa', { search, company: companyKey, difficulty: difficultyKey, sort, page: page + 1 }],
             queryFn: () => apiFetch(nextPageUrl),
             staleTime: 60 * 1000,
         })
-    }, [data, page, pageCount, nextPageUrl, queryClient, search, companyKey, difficultyKey, sort])
+    }, [data, page, serverPageCount, statusActive, nextPageUrl, queryClient, search, companyKey, difficultyKey, sort])
 
     const { progressMap, toggleStatus, toggleBookmark } = useProgress('dsa')
 
-    // Status-filter chips act only over the rows currently fetched (a page on
-    // pro/max, the preview slice on free) — the server has no progress context.
-    let viewItems = items
-    if (statusFilter === 'solved') viewItems = items.filter(p => progressMap[p.id]?.status === 'solved')
-    else if (statusFilter === 'attempted') viewItems = items.filter(p => progressMap[p.id]?.status === 'attempted')
-    else if (statusFilter === 'unsolved') viewItems = items.filter(p => !progressMap[p.id] || progressMap[p.id]?.status === 'unsolved')
-    else if (statusFilter === 'bookmarked') viewItems = items.filter(p => progressMap[p.id]?.is_bookmarked)
+    // Status filters (solved / attempted / unsolved / bookmarked) run over the
+    // full filtered set (see allQuery) and are paginated here.
+    let filteredItems = items
+    if (statusFilter === 'solved') filteredItems = items.filter(p => progressMap[p.id]?.status === 'solved')
+    else if (statusFilter === 'attempted') filteredItems = items.filter(p => progressMap[p.id]?.status === 'attempted')
+    else if (statusFilter === 'unsolved') filteredItems = items.filter(p => !progressMap[p.id] || progressMap[p.id]?.status === 'unsolved')
+    else if (statusFilter === 'bookmarked') filteredItems = items.filter(p => progressMap[p.id]?.is_bookmarked)
+    const pageCount = statusActive ? Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE)) : serverPageCount
+    const currentPage = statusActive ? Math.min(page, pageCount) : (data?.page ?? page)
+    const viewItems = statusActive
+        ? filteredItems.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+        : filteredItems
 
     const solved = Object.values(progressMap).filter(r => r.status === 'solved').length
-
-    // Reset to page 1 when filters change.
-    useEffect(() => { setPage(1) }, [search, difficultyKey, companyKey, sort])
 
     // Keyboard shortcut: `/` focuses search.
     useEffect(() => {
@@ -444,7 +488,7 @@ export default function DSAListPage({ filterCompany }) {
                                     ))}
                                 </div>
                                 <p style={{ fontSize: '0.62rem', color: 'var(--faint)', marginTop: 6 }}>
-                                    Status filters apply to the rows on this page only.
+                                    Status filters apply across all matching problems.
                                 </p>
                             </div>
                         </div>
@@ -532,7 +576,7 @@ export default function DSAListPage({ filterCompany }) {
                             )}
 
                             {pageCount > 1 && (
-                                <Pagination page={data?.page ?? page} totalPages={pageCount} onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
+                                <Pagination page={currentPage} totalPages={pageCount} onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
                             )}
                         </>
                     )}
@@ -541,7 +585,7 @@ export default function DSAListPage({ filterCompany }) {
                         <div style={{ marginTop: 8, color: 'var(--faint)', fontSize: '0.72rem', textAlign: 'center' }}>
                             {unlimited ? (
                                 <>
-                                    Showing {items.length} of {filteredCount} · {total} total · Press <kbd style={{ border: '1px solid var(--subtle)', borderRadius: 3, padding: '0 4px', fontSize: '0.65rem', color: 'var(--muted)' }}>/</kbd> to search
+                                    Showing {statusActive ? filteredItems.length : items.length} of {statusActive ? filteredItems.length : filteredCount} · {total} total · Press <kbd style={{ border: '1px solid var(--subtle)', borderRadius: 3, padding: '0 4px', fontSize: '0.65rem', color: 'var(--muted)' }}>/</kbd> to search
                                 </>
                             ) : (
                                 <>
