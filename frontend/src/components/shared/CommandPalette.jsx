@@ -35,24 +35,33 @@ export default function CommandPalette() {
     // Search via the authenticated catalog endpoint — tier caps are enforced
     // server-side, so a free user's search never surfaces a capped-out problem.
     useEffect(() => {
-        if (!query.trim()) { setResults([]); return }
+        if (!query.trim()) { setResults([]); setLoading(false); return }
+        // AbortController + `cancelled` flag: a slow response for an older query
+        // must never overwrite results for the current one.
+        const ctrl = new AbortController()
+        let cancelled = false
         const t = setTimeout(async () => {
             setLoading(true)
             try {
                 const data = await apiFetch(
                     '/api/catalog/search?limit=6&q=' + encodeURIComponent(query),
+                    { signal: ctrl.signal },
                 )
+                if (cancelled) return
                 const dsaItems = (data?.dsa || []).map(r => ({ ...r, type: 'dsa' }))
                 const lldItems = (data?.lld || []).map(r => ({ ...r, type: 'lld' }))
                 setResults([...dsaItems, ...lldItems])
             } catch {
+                if (cancelled) return
                 setResults([])
             } finally {
-                setSelected(0)
-                setLoading(false)
+                if (!cancelled) {
+                    setSelected(0)
+                    setLoading(false)
+                }
             }
         }, 200)
-        return () => clearTimeout(t)
+        return () => { cancelled = true; clearTimeout(t); ctrl.abort() }
     }, [query])
 
     const go = useCallback((item) => {
@@ -120,7 +129,7 @@ export default function CommandPalette() {
                     )}
                     {results.map((item, i) => (
                         <div
-                            key={item.id}
+                            key={`${item.type}-${item.id}`}
                             onMouseEnter={() => setSelected(i)}
                             onClick={() => go(item)}
                             style={{
