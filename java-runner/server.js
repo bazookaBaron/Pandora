@@ -1,132 +1,147 @@
 /**
  * java-runner/server.js
  *
- * Minimal Java code execution service.
- * Accepts: POST /run { files: [{ name: string, content: string }] }
- * Returns: { run: { stdout, stderr, code }, compile: { stdout, stderr, code } }
+ * Java code execution service (untrusted code!). See README.md for the threat
+ * model and what is NOT isolated.
  *
- * Deploy on Railway (see Dockerfile + railway.json).
- * Local dev: node server.js (requires JDK 11+ on PATH)
+ * POST /run   (header X-Runner-Secret required)
+ *   { files: [{ name: 'Main.java', content: '...' }], stdin?: string }
+ *   -> { compile: { stdout, stderr, code }, run: { stdout, stderr, code } }
+ * GET  /health  (no auth)
  */
 
 import express from 'express';
-import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
+import {
+    LIMITS, Semaphore, childEnv, detectMainClass, runProcess, safeJoin, secretsMatch, validateRequest,
+} from './lib.js';
 
-const app = express();
-app.use(express.json({ limit: '512kb' }));
+const intEnv = (name, dflt) => {
+    const n = parseInt(process.env[name] ?? '', 10);
+    return Number.isFinite(n) && n > 0 ? n : dflt;
+};
 
-const TIMEOUT_MS = 10_000; // 10 seconds per phase
-const PORT = parseInt(process.env.PORT || '3001', 10);
-
-// ── helpers ─────────────────────────────────────────────────────────
+// Best-effort ulimits applied through `sh -c 'ulimit ...; exec ...'` (POSIX only).
+// -u counts threads per UID across the whole container, so keep headroom for
+// node itself and concurrent runs (default 128; raise if javac fails to fork).
+const ulimitFor = (cpuSec) => ({
+    nproc: intEnv('ULIMIT_NPROC', 128),
+    vmemKb: intEnv('ULIMIT_VMEM_KB', 4 * 1024 * 1024),
+    fsizeBlocks: 10240, // ~10 MB per written file
+    cpuSec,
+});
 
 /**
- * Run a command, collect stdout+stderr, resolve when done or timeout.
- * Returns { stdout, stderr, code }.
+ * Build the express app. Options exist for tests; production uses env defaults.
  */
-function runProcess(cmd, args, cwd) {
-    return new Promise((resolve) => {
-        const proc = spawn(cmd, args, { cwd, shell: false });
-        let stdout = '';
-        let stderr = '';
-        let settled = false;
+export function createApp(opts = {}) {
+    const secret = opts.secret ?? process.env.RUNNER_SHARED_SECRET ?? '';
+    const sem = new Semaphore(
+        opts.maxConcurrent ?? intEnv('MAX_CONCURRENT_RUNS', 2),
+        opts.maxQueue ?? intEnv('MAX_QUEUE', 4),
+    );
+    const compileTimeout = opts.compileTimeoutMs ?? LIMITS.COMPILE_TIMEOUT_MS;
+    const runTimeout = opts.runTimeoutMs ?? LIMITS.RUN_TIMEOUT_MS;
+    const maxOutput = opts.maxOutputBytes ?? LIMITS.MAX_OUTPUT_BYTES;
 
-        const settle = (code) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            resolve({ stdout, stderr, code: code ?? 1 });
-        };
+    const app = express();
+    app.disable('x-powered-by');
 
-        const timer = setTimeout(() => {
-            proc.kill('SIGKILL');
-            stderr += '\n[Execution timed out after 10 s]';
-            settle(124);
-        }, TIMEOUT_MS);
+    // Unauthenticated liveness probe (Railway healthcheck). Reveals nothing.
+    app.get('/health', (_req, res) => res.json({ ok: true }));
 
-        proc.stdout.on('data', (d) => { stdout += d.toString() });
-        proc.stderr.on('data', (d) => { stderr += d.toString() });
-        proc.on('close', settle);
-        proc.on('error', (err) => {
-            stderr += `\n[Process error: ${err.message}]`;
-            settle(1);
-        });
+    // Auth BEFORE body parsing so unauthenticated callers cannot make us buffer 300kb.
+    const requireSecret = (req, res, next) => {
+        if (!secretsMatch(req.get('x-runner-secret'), secret)) {
+            return res.status(401).json({ error: 'unauthorized' });
+        }
+        next();
+    };
+
+    app.post('/run', requireSecret, express.json({ limit: '300kb' }), async (req, res) => {
+        const v = validateRequest(req.body);
+        if (!v.ok) return res.status(400).json({ error: v.error });
+
+        const release = await sem.acquire();
+        if (!release) {
+            res.set('Retry-After', '5');
+            return res.status(429).json({ error: 'runner busy, try again shortly' });
+        }
+
+        let workDir;
+        try {
+            workDir = await fs.mkdtemp(path.join(tmpdir(), 'java-run-'));
+            await fs.chmod(workDir, 0o700).catch(() => { });
+            const env = childEnv(workDir);
+
+            for (const f of v.files) {
+                await fs.writeFile(safeJoin(workDir, f.name), f.content, 'utf-8');
+            }
+
+            // File names are regex-validated, so none can start with '-' or be treated as an option.
+            const compile = await runProcess(
+                'javac',
+                ['-J-Xmx256m', '-encoding', 'UTF-8', '-proc:none', '-d', '.', ...v.files.map((f) => f.name)],
+                { cwd: workDir, env, timeoutMs: compileTimeout, maxBytes: maxOutput, ulimit: ulimitFor(30) },
+            );
+            const compileOut = { stdout: compile.stdout, stderr: compile.stderr, code: compile.code };
+
+            if (compile.code !== 0) {
+                return res.json({
+                    compile: compileOut,
+                    run: { stdout: '', stderr: 'Compilation failed - fix errors above.', code: 1 },
+                });
+            }
+
+            const run = await runProcess(
+                'java',
+                ['-Xmx256m', '-Xss8m', '-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1', '-XX:ActiveProcessorCount=1',
+                    '-Djava.io.tmpdir=' + workDir, '-cp', '.', detectMainClass(v.files)],
+                { cwd: workDir, env, timeoutMs: runTimeout, maxBytes: maxOutput, stdin: v.stdin, ulimit: ulimitFor(12) },
+            );
+            res.json({ compile: compileOut, run: { stdout: run.stdout, stderr: run.stderr, code: run.code } });
+        } catch (err) {
+            console.error('[java-runner] run failed:', err);
+            res.status(500).json({ error: 'internal error' });
+        } finally {
+            release();
+            if (workDir) fs.rm(workDir, { recursive: true, force: true }).catch(() => { });
+        }
     });
+
+    // Generic error handler: never leak parser/internal messages.
+    // eslint-disable-next-line no-unused-vars
+    app.use((err, _req, res, _next) => {
+        if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'request too large' });
+        if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'invalid JSON' });
+        console.error('[java-runner] unhandled:', err);
+        res.status(500).json({ error: 'internal error' });
+    });
+
+    return app;
 }
 
-/**
- * Detect the main class from file content (looks for `public static void main`).
- * Returns the file name without `.java`, or falls back to "Main".
- */
-function detectMainClass(files) {
-    for (const f of files) {
-        if (f.content.includes('public static void main')) {
-            return path.basename(f.name, '.java');
-        }
+/** Start-up guard: returns an error string if the config is unsafe. */
+export function configProblem(env = process.env) {
+    if (env.NODE_ENV === 'production' && !env.RUNNER_SHARED_SECRET) {
+        return 'RUNNER_SHARED_SECRET must be set in production';
     }
-    return 'Main';
+    return null;
 }
 
-// ── routes ──────────────────────────────────────────────────────────
-
-app.get('/health', (_req, res) => res.json({ ok: true }));
-
-app.post('/run', async (req, res) => {
-    const { files } = req.body;
-
-    if (!Array.isArray(files) || files.length === 0) {
-        return res.status(400).json({ error: 'files array is required' });
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+if (isMain) {
+    const problem = configProblem();
+    if (problem) {
+        console.error(`[java-runner] FATAL: ${problem}`);
+        process.exit(1);
     }
-
-    // Validate all files have name + content strings
-    for (const f of files) {
-        if (typeof f.name !== 'string' || typeof f.content !== 'string') {
-            return res.status(400).json({ error: 'each file must have name and content strings' });
-        }
+    if (!process.env.RUNNER_SHARED_SECRET) {
+        console.warn('[java-runner] RUNNER_SHARED_SECRET not set: /run will reject every request');
     }
-
-    // Create isolated temp directory
-    const workDir = path.join(tmpdir(), `java-run-${randomUUID()}`);
-    try {
-        await fs.mkdir(workDir, { recursive: true });
-
-        // Write all source files
-        await Promise.all(
-            files.map((f) => fs.writeFile(path.join(workDir, f.name), f.content, 'utf-8'))
-        );
-
-        // Compile
-        const javaFiles = files.map((f) => f.name);
-        const compile = await runProcess('javac', javaFiles, workDir);
-
-        if (compile.code !== 0) {
-            return res.json({
-                compile: { stdout: compile.stdout, stderr: compile.stderr, code: compile.code },
-                run: { stdout: '', stderr: 'Compilation failed — fix errors above.', code: 1 },
-            });
-        }
-
-        // Run
-        const mainClass = detectMainClass(files);
-        const run = await runProcess('java', ['-cp', '.', mainClass], workDir);
-
-        res.json({
-            compile: { stdout: compile.stdout, stderr: compile.stderr, code: compile.code },
-            run: { stdout: run.stdout, stderr: run.stderr, code: run.code },
-        });
-    } catch (err) {
-        console.error('[java-runner]', err);
-        res.status(500).json({ error: err.message });
-    } finally {
-        // Best-effort cleanup
-        fs.rm(workDir, { recursive: true, force: true }).catch(() => { });
-    }
-});
-
-app.listen(PORT, () => {
-    console.log(`[java-runner] listening on :${PORT}`);
-});
+    const PORT = intEnv('PORT', 3001);
+    createApp().listen(PORT, () => console.log(`[java-runner] listening on :${PORT}`));
+}
