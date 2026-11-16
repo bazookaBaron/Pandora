@@ -1371,3 +1371,24 @@ h3 {
         padding-top: 104px !important;
     }
 }
+
+/* ── FluidCheckbox (CSS replacement for framer-motion) ── */
+.fluid-checkbox {
+    transition: background-color 0.22s ease-out, border-color 0.22s ease-out, transform 0.12s ease-out;
+}
+.fluid-checkbox:active { transform: scale(0.82); }
+.fluid-checkbox-mark { animation: fluid-check-pop 0.18s ease-out both; }
+.fluid-checkbox-path {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: fluid-check-draw 0.22s ease-out forwards;
+}
+@keyframes fluid-check-pop {
+    from { opacity: 0; transform: scale(0.5); }
+    to { opacity: 1; transform: scale(1); }
+}
+@keyframes fluid-check-draw { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+    .fluid-checkbox, .fluid-checkbox-mark, .fluid-checkbox-path { transition: none; animation: none; }
+    .fluid-checkbox-path { stroke-dashoffset: 0; }
+}

@@ -8,8 +8,6 @@
 //    long strings before they leave the browser. Do not pass resume text, JD
 //    text, code, answers, passwords, tokens, or emails in event properties.
 
-import posthog from 'posthog-js'
-
 export const EVENTS = {
     SIGNUP: 'signup',
     LOGIN: 'login',
@@ -36,24 +34,56 @@ const KEY = import.meta.env.VITE_POSTHOG_KEY
 const HOST = import.meta.env.VITE_POSTHOG_HOST || 'https://us.i.posthog.com'
 const DEV = import.meta.env.DEV
 
+// posthog-js (~100KB+) is loaded lazily via dynamic import after the browser is
+// idle, and only when a key is configured. Calls made before it finishes
+// loading are queued (bounded) and replayed once ready.
 let ready = false
+let initStarted = false
+let ph = null
+const MAX_QUEUE = 100
+let queue = []
+
+function enqueue(fn) {
+    if (!KEY) return
+    if (queue.length >= MAX_QUEUE) queue.shift()
+    queue.push(fn)
+}
+
+function whenIdle(cb) {
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(cb, { timeout: 4000 })
+    } else {
+        setTimeout(cb, 1500)
+    }
+}
 
 export function initAnalytics() {
-    if (ready || !KEY) return
-    try {
-        posthog.init(KEY, {
-            api_host: HOST,
-            capture_pageview: false,      // we send pricing_viewed etc. explicitly
-            capture_pageleave: true,
-            autocapture: false,           // meaningful events only
-            disable_session_recording: true,
-            person_profiles: 'identified_only',
-            loaded: () => { ready = true },
-        })
-        ready = true
-    } catch (e) {
-        if (DEV) console.warn('[analytics] init failed', e)
-    }
+    if (initStarted || !KEY) return
+    initStarted = true
+    whenIdle(async () => {
+        try {
+            const mod = await import('posthog-js')
+            const posthog = mod.default || mod.posthog
+            posthog.init(KEY, {
+                api_host: HOST,
+                capture_pageview: false,      // we send pricing_viewed etc. explicitly
+                capture_pageleave: true,
+                autocapture: false,           // meaningful events only
+                disable_session_recording: true,
+                person_profiles: 'identified_only',
+            })
+            ph = posthog
+            ready = true
+            const pending = queue
+            queue = []
+            for (const fn of pending) {
+                try { fn(posthog) } catch (e) { if (DEV) console.warn('[analytics] queued call failed', e) }
+            }
+        } catch (e) {
+            queue = []
+            if (DEV) console.warn('[analytics] init failed', e)
+        }
+    })
 }
 
 export function isEnabled() {
@@ -63,17 +93,17 @@ export function isEnabled() {
 // Tie events to the Supabase user id. `traits` is optional and MUST NOT contain
 // PII — pass non-sensitive facts only (e.g. { plan: 'pro' }).
 export function identifyUser(userId, traits) {
-    if (!isEnabled() || !userId) return
-    try {
-        posthog.identify(String(userId), sanitize(traits))
-    } catch (e) {
-        if (DEV) console.warn('[analytics] identify failed', e)
-    }
+    if (!KEY || !userId) return
+    const props = sanitize(traits)
+    const run = (p) => p.identify(String(userId), props)
+    if (!ready) return enqueue(run)
+    try { run(ph) } catch (e) { if (DEV) console.warn('[analytics] identify failed', e) }
 }
 
 export function resetAnalytics() {
-    if (!isEnabled()) return
-    try { posthog.reset() } catch { /* ignore */ }
+    if (!KEY) return
+    if (!ready) { queue = []; return }   // nothing identified yet; drop queued identify/capture
+    try { ph.reset() } catch { /* ignore */ }
 }
 
 export function track(event, properties) {
@@ -81,21 +111,22 @@ export function track(event, properties) {
         if (DEV) console.warn(`[analytics] ignored unknown event "${event}" — add it to EVENTS if intentional`)
         return
     }
-    if (!isEnabled()) return
-    try {
-        posthog.capture(event, sanitize(properties))
-    } catch (e) {
-        if (DEV) console.warn('[analytics] capture failed', e)
-    }
+    if (!KEY) return
+    const props = sanitize(properties)
+    const run = (p) => p.capture(event, props)
+    if (!ready) return enqueue(run)
+    try { run(ph) } catch (e) { if (DEV) console.warn('[analytics] capture failed', e) }
 }
 
 // Manual pageview helper for the router (only where a page-level event isn't
 // already firing something more specific).
 export function trackPageview() {
-    if (!isEnabled()) return
+    if (!KEY) return
     // No property override: posthog-js reads the full current URL itself, so
     // $host / $pathname / referrer stay correct for web-analytics reports.
-    try { posthog.capture('$pageview') } catch { /* ignore */ }
+    const run = (p) => p.capture('$pageview')
+    if (!ready) return enqueue(run)
+    try { run(ph) } catch { /* ignore */ }
 }
 
 // ── internal ────────────────────────────────────────────────────────
