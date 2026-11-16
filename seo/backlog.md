@@ -42,3 +42,5 @@ Never merge this file via `seo/tracker` → main. Implementation PRs go to `main
 - [x] Basic CollectionPage + FAQPage schema
 - [x] Daily automation + tracker branch
 - [x] Explicit AI-bot robots.txt (live)
+
+- [2026-11-16] Audit /jobs/company/* and /dsa/company/* for unique on-page content (Google is already surfacing them for company-name queries). Success check: each template page has >=1 unique, factual block and impressions grow in GSC 7d vs prior 7d.
