@@ -16,6 +16,12 @@
 --   4. company_verification_codes: hashed 6-digit codes for work-email proof.
 -- Idempotent. Run AFTER 11, 15, 16, 19.
 --
+-- SUPERSEDED IN PART by sql/35_optional_company_verify.sql: verification is now
+-- optional (badge + higher accept limit), so 35 re-creates my_company() to
+-- return the company regardless of company_verified and tightens the
+-- referral_requests RLS. ALWAYS run 35 after 31 (31 then 35 is the final
+-- state; re-running 31 alone would re-impose the mandatory gate until 35 runs).
+--
 -- NOTE: existing users will have company_verified=false and lose referral
 -- visibility until they verify. To grandfather everyone, uncomment the UPDATE
 -- at the bottom (not recommended - that is the exploit this file closes).
@@ -67,7 +73,7 @@ GRANT UPDATE (company, position, years_of_experience, receive_referral_notificat
   ON public.profiles TO authenticated;
 -- SELECT stays governed by the profiles_select_own policy (sql/11).
 
--- ── my_company(): only a VERIFIED company grants referral visibility ───────
+-- ── my_company(): (superseded by sql/35 - now returns company regardless) ──
 CREATE OR REPLACE FUNCTION public.my_company()
 RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT company FROM public.profiles WHERE id = auth.uid() AND company_verified = true

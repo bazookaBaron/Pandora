@@ -6,8 +6,9 @@
  *   POST /api/profile/company/verify-start {workEmail}  -> emails a 6-digit code
  *   POST /api/profile/company/verify-confirm {code}     -> marks company_verified=true
  *
- * Referral visibility (open list, accept, resume) requires company_verified.
- * See sql/31_profiles_column_lock.sql.
+ * Verification is OPTIONAL: it grants a "Verified" badge and a higher daily
+ * accept limit (20 vs 3); nothing is blocked without it.
+ * See sql/31 + sql/35_optional_company_verify.sql and lib/referralAccess.js.
  */
 import { requireAuth } from "../lib/requireAuth.js";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";

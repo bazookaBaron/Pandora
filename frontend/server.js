@@ -39,6 +39,13 @@ import {
   companyJobAlertEmail,
   setEmailAssetBase,
 } from "./lib/referralEmails.js";
+import {
+  acceptLimitMessage,
+  acceptWindowStart,
+  canViewResume,
+  evaluateAcceptLimit,
+  selectRecipients,
+} from "./lib/referralAccess.js";
 import { canAddCompanySubscription, effectivePlanFromRow } from "./lib/entitlements.js";
 import {
   getLimit,
@@ -2199,20 +2206,24 @@ app.post(
           .eq("id", req.user.id)
           .maybeSingle();
 
+        // Everyone at the company who opted in; verified first, capped at 50.
         const { data: matchRows, error: mErr } = await supabaseAdmin
           .from("profiles")
-          .select("id")
+          .select("id, company_verified")
           .eq("receive_referral_notifications", true)
-          .eq("company_verified", true)
           .ilike("company", escapeLike(company))
-          .neq("id", req.user.id);
+          .neq("id", req.user.id)
+          .order("company_verified", { ascending: false })
+          .limit(200);
         if (mErr) throw mErr;
 
-        const recipients = [];
+        const cands = [];
         for (const r of matchRows || []) {
           const au = await referralAuthUser(r.id);
-          if (au && au.email) recipients.push(au.email);
+          if (au && au.email) cands.push({ email: au.email, verified: !!r.company_verified });
+          if (cands.length >= 50) break; // rows are verified-first; 50 is the cap
         }
+        const recipients = selectRecipients(cands).map((c) => c.email);
         if (!recipients.length) {
           console.log("[referrals] request", referralId, "-> 0 recipients");
           return;
@@ -2269,12 +2280,23 @@ app.get("/api/referrals/mine", requireAuth, async (req, res) => {
     await Promise.all(
       accepterIds.map(async (id) => accepterMap.set(id, await referralAuthUser(id))),
     );
+    const verifiedMap = new Map();
+    if (accepterIds.length) {
+      const { data: vrows, error: vErr } = await supabaseAdmin
+        .from("profiles")
+        .select("id, company_verified")
+        .in("id", accepterIds);
+      if (vErr) throw vErr;
+      for (const v of vrows || []) verifiedMap.set(v.id, !!v.company_verified);
+    }
     const requests = [];
     for (const r of rows || []) {
       let accepter = null;
+      let referrerVerified = false;
       if (r.status === "accepted" && r.accepted_by_user_id) {
         const au = accepterMap.get(r.accepted_by_user_id);
-        accepter = au ? { name: au.name, email: au.email } : null;
+        referrerVerified = !!verifiedMap.get(r.accepted_by_user_id);
+        accepter = au ? { name: au.name, email: au.email, verified: referrerVerified } : null;
       }
       requests.push({
         id: r.id,
@@ -2285,6 +2307,7 @@ app.get("/api/referrals/mine", requireAuth, async (req, res) => {
         accepted_at: r.accepted_at,
         created_at: r.created_at,
         expires_at: r.expires_at,
+        referrerVerified,
         accepter,
       });
     }
@@ -2304,14 +2327,13 @@ app.get("/api/referrals/mine", requireAuth, async (req, res) => {
 });
 
 // GET /api/referrals/open → open requests targeting the caller's own company.
-// No poster name/email, no resume path.
+// Verification is optional here (it only adds a badge + a higher accept limit).
+// The list carries NO poster name/email/phone and NO resume path or signed
+// URL; the resume is served only to the accepter (see /resume).
 app.get("/api/referrals/open", requireAuth, async (req, res) => {
   try {
     const mine = await getVerifiedCompany(req.user.id);
     if (!mine.company) return res.json({ requests: [], no_company: true });
-    if (!mine.verified) {
-      return res.json({ requests: [], company_unverified: true, company: mine.company });
-    }
     const myCompany = mine.company;
 
     // sql/33: target_company_norm = lower(btrim(target_company)), indexed.
@@ -2353,7 +2375,7 @@ app.get("/api/referrals/open", requireAuth, async (req, res) => {
         },
       };
     });
-    res.json({ requests });
+    res.json({ requests, company: myCompany, viewerVerified: mine.verified });
   } catch (err) {
     fail(res, err, "referrals/open", "Failed to load open referral requests.");
   }
@@ -2368,8 +2390,30 @@ app.post(
     try {
       const mine = await getVerifiedCompany(req.user.id);
       if (!mine.company) return res.status(403).json({ error: "no_company" });
-      if (!mine.verified) return res.status(403).json({ error: "company_unverified" });
       const myCompany = mine.company;
+
+      // Rolling-24h accept cap (3 unverified / 20 verified), enforced here.
+      const { data: recent, error: rcErr } = await supabaseAdmin
+        .from("referral_requests")
+        .select("accepted_at")
+        .eq("accepted_by_user_id", req.user.id)
+        .gte("accepted_at", acceptWindowStart())
+        .limit(100);
+      if (rcErr) throw rcErr;
+      const lim = evaluateAcceptLimit({
+        verified: mine.verified,
+        acceptedAt: (recent || []).map((r) => r.accepted_at),
+      });
+      if (!lim.allowed) {
+        return res.status(429).json({
+          error: "accept_limit",
+          message: acceptLimitMessage({ limit: lim.limit, verified: mine.verified }),
+          limit: lim.limit,
+          used: lim.used,
+          retryAt: lim.retryAt,
+          verified: mine.verified,
+        });
+      }
 
       // Single conditional UPDATE: id + status='open' + company match
       // (case-insensitive) + not self. maybeSingle() → null when nothing matched.
@@ -2389,7 +2433,7 @@ app.post(
       if (error) throw error;
       if (!data) return res.status(409).json({ error: "already_accepted" });
 
-      res.json({ id: data.id, status: "accepted" });
+      res.json({ id: data.id, status: "accepted", referrerVerified: mine.verified });
 
       // Notify the poster (fire-and-forget). This email intentionally carries
       // the accepter's email address.
@@ -2410,6 +2454,7 @@ app.post(
           accepterName: (accepter && accepter.name) || req.user.email || null,
           accepterEmail: req.user.email,
           company: data.target_company,
+          referrerVerified: mine.verified,
         });
         const r = await resend.sendEmail({
           to: poster.email,
@@ -2464,20 +2509,20 @@ app.get(
     try {
       const { data: row, error } = await supabaseAdmin
         .from("referral_requests")
-        .select("poster_user_id, target_company, status, resume_storage_path")
+        .select("poster_user_id, accepted_by_user_id, status, resume_storage_path")
         .eq("id", req.params.id)
         .maybeSingle();
       if (error) throw error;
       if (!row) return res.status(404).json({ error: "not_found" });
 
-      let allowed = row.poster_user_id === req.user.id;
-      if (!allowed && ["open", "accepted"].includes(row.status)) {
-        const vc = await getVerifiedCompany(req.user.id);
-        const mine = vc.verified ? vc.company.toLowerCase() : "";
-        allowed =
-          !!mine &&
-          mine === String(row.target_company || "").trim().toLowerCase();
-      }
+      // Only the requester and the user who accepted this request. Company
+      // membership (verified or not) never grants resume access.
+      const allowed = canViewResume({
+        userId: req.user.id,
+        posterUserId: row.poster_user_id,
+        acceptedByUserId: row.accepted_by_user_id,
+        status: row.status,
+      });
       if (!allowed) return res.status(403).json({ error: "forbidden" });
 
       const { data, error: sErr } = await supabaseAdmin.storage

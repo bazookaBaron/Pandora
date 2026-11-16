@@ -15,7 +15,7 @@
         "start": "node server.js",
         "test:resume": "node test/resume-isolation.test.mjs",
         "test:seo": "node test/seo-routes.test.mjs",
-        "test": "node --test test/entitlements.test.mjs test/latex-sanitize.test.mjs test/microcache.test.mjs"
+        "test": "node --test test/entitlements.test.mjs test/latex-sanitize.test.mjs test/microcache.test.mjs test/referral-access.test.mjs"
     },
     "dependencies": {
         "@monaco-editor/react": "^4.7.0",
