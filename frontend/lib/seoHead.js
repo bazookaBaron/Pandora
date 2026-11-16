@@ -21,14 +21,22 @@ export const SITE = {
     "Vloombox — AI resume optimizer plus DSA, LLD, HLD and interview prep. Paste a job description and get a tailored, ATS-optimized PDF.",
 };
 
-// process.env.APP_BASE_URL (trailing slashes stripped) — else the request's
-// own origin — else a localhost fallback.
+// process.env.APP_BASE_URL (trailing slashes stripped). In production a missing
+// APP_BASE_URL falls back to the fixed canonical site - NEVER the request Host
+// header, which an attacker controls (canonical/OG/sitemap poisoning). Only in
+// non-production do we derive it from the request for local dev convenience.
+export const CANONICAL_DEFAULT_BASE = "https://www.vloombox.in";
 export function baseUrl(req) {
   const fromEnv = String(process.env.APP_BASE_URL || "").trim().replace(/\/+$/, "");
   if (fromEnv) return fromEnv;
+  if (process.env.NODE_ENV === "production" || process.env.RAILWAY_ENVIRONMENT) {
+    return CANONICAL_DEFAULT_BASE;
+  }
   if (req && typeof req.get === "function") {
     const host = req.get("host");
-    if (host) return `${req.protocol}://${host}`;
+    if (host && /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host)) {
+      return `${req.protocol}://${host}`;
+    }
   }
   return "http://localhost:3000";
 }

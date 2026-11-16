@@ -203,9 +203,12 @@ OUTPUT FORMAT (follow exactly, no other text before/after)
 }
 
 // ── Provider-specific callers ─────────────────────────────────────
+// Every outbound LLM call is bounded (the resume pipeline makes several).
+const AI_TIMEOUT = () => AbortSignal.timeout(Number(process.env.AI_TIMEOUT_MS) || 90_000);
 
 async function callAnthropic({ apiKey, model, prompt }) {
     const res = await fetch(PROVIDERS.anthropic.url, {
+        signal: AI_TIMEOUT(),
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -232,6 +235,7 @@ async function callAnthropic({ apiKey, model, prompt }) {
 
 async function callOpenAI({ apiKey, model, prompt }) {
     const res = await fetch(PROVIDERS.openai.url, {
+        signal: AI_TIMEOUT(),
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -258,6 +262,7 @@ async function callGemini({ apiKey, model, prompt }) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
     const res = await fetch(url, {
+        signal: AI_TIMEOUT(),
         method: "POST",
         headers: {
             "Content-Type": "application/json",
