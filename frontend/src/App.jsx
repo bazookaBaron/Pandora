@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -12,7 +12,7 @@ import { trackPageview } from './lib/analytics'
 
 // Phase 1.5: every page component is code-split behind React.lazy so the
 // production entry chunk no longer ships reactflow / monaco / jszip /
-// html-to-image / react-markdown / framer-motion to routes that don't use them.
+// html-to-image / react-markdown to routes that don't use them.
 const AuthPage = lazy(() => import('./pages/AuthPage'))
 const HomePage = lazy(() => import('./pages/HomePage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
@@ -41,6 +41,18 @@ const LegalPrivacyScaffold = lazy(() => import('./pages/StaticPages').then(m => 
 const LegalTermsScaffold = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.LegalTermsScaffold })))
 const FAQPage = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.FAQPage })))
 const SubscriptionSuccessPage = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.SubscriptionSuccessPage })))
+
+// Key problem pages by their route param so navigating /lld/a -> /lld/b (e.g.
+// from the command palette) remounts with fresh state instead of carrying the
+// previous problem's editor/whiteboard state over.
+function KeyedLLDProblem() {
+    const { slug } = useParams()
+    return <LLDProblemPage key={slug} />
+}
+function KeyedHLDWorkspace() {
+    const { id } = useParams()
+    return <HLDWorkspacePage key={id} />
+}
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -140,9 +152,9 @@ export default function App() {
                         <Route path="/dsa" element={<DSAListPage />} />
                         <Route path="/dsa/company/:companyName" element={<DSACompanyPage />} />
                         <Route path="/lld" element={<LLDListPage />} />
-                        <Route path="/lld/:slug" element={<LLDProblemPage />} />
+                        <Route path="/lld/:slug" element={<KeyedLLDProblem />} />
                         <Route path="/hld" element={<HLDListPage />} />
-                        <Route path="/hld/:id" element={<HLDWorkspacePage />} />
+                        <Route path="/hld/:id" element={<KeyedHLDWorkspace />} />
                         <Route path="/interview" element={<InterviewPage />} />
                         <Route path="/referrals" element={<ReferralsPage />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
