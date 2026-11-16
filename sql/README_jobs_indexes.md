@@ -1,42 +1,61 @@
-# Jobs indexes belong in the job-crawler repo — NOT here
+# Jobs data lives in the job-crawler repo — NOT here
 
-The `crawler.job_posting` and `crawler.company` tables are **owned by a separate
-repository**, the job crawler:
+The `crawler` schema is **owned by a separate repository**, the job crawler:
 
 - GitHub: `bazookaBaron/JobCrawler`
-- Local path: `C:\Users\debna\Downloads\job-crawler`
-- Schema file: `crawler/src/pgpipe/schema.sql`
+- Schema/migrations: `crawler/src/pgpipe/` (schema.sql + migrations)
 
-That project owns the `crawler` schema, its migrations, and its DDL. The Vloombox
-app only *reads* those tables (via Supabase / PostgREST) for the `/api/jobs/*`
-routes. **Do not add `crawler.*` indexes in this `sql/` directory** — add them in
-the crawler repo's `schema.sql` (and its migration path) so the two repos don't
-fight over the same objects.
+The Vloombox app only *reads* it (via Supabase / PostgREST, schema `crawler`
+must be in "Exposed schemas"). **Do not add `crawler.*` tables or indexes in
+this `sql/` directory.** The one exception is the thin read-side helpers in
+`29_jobs_feed_reader.sql` (functions only — no tables in `crawler`).
 
-This file is just a checklist of what the crawler repo should have, based on the
-query shapes the Vloombox `/api/jobs/*` routes issue.
+## How the jobs API reads data now
 
-## Recommended indexes (add in the crawler repo)
+The old approach (fetch a 600-row pool of `job_posting`, interleave by company
+in Node, count by estimate) is gone. The crawler pre-computes the feed:
+
+| Object (crawler repo) | Used by |
+|---|---|
+| `crawler.job_feed` (table, rebuilt by `crawler.build_feed()` after every crawl; open, non-duplicate rows from the last 24h, ordered by a company-cooldown `feed_position`) | `GET /api/jobs` default view (`ORDER BY feed_position`, exact count), company hub, sitemap/curated slugs, analytics |
+| `crawler.feed_page(p_q, p_company, p_location, p_location_type, p_seniority, p_source, p_country, p_company_type, p_hours, p_offset, p_limit)` | `GET /api/jobs` when any filter is set (re-applies the company cooldown over the filtered set, returns `total_count`) |
+| `crawler.job_posting.duplicate_of / eff_at / apply_url / alt_urls / company_name` | job-alert digest (excludes duplicates), response fields |
+
+`p_location` receives several locations as one `'|'`-separated string.
+
+## What `29_jobs_feed_reader.sql` adds (this repo)
+
+`crawler.company_job_counts`, `crawler.job_feed_facet`, `crawler.job_feed_sources`,
+`crawler.jobs_feed_analytics` (all service_role-only) and the `digest_runs`
+table + `claim_digest_run` / `finish_digest_run` for the daily alert digest.
+Run order: crawler migration first, then `18_company_subscriptions.sql`
+(re-run; it replaces `company_subscription_new_postings`), then `29`.
+
+## Indexes the crawler repo should have
+
+All on `crawler.job_feed` (small, fully rebuilt each crawl — create them in the
+build function / migration so a rebuild keeps them):
 
 | Index | Query it serves |
 |-------|-----------------|
-| `job_posting (status, first_seen_at DESC, id DESC) WHERE status = 'open'` | Main listing: `WHERE status = 'open' ORDER BY first_seen_at DESC, id DESC` plus keyset/range pagination. Partial on `status = 'open'` keeps it small. |
-| GIN on `job_posting.search_tsv` | `websearch_to_tsquery` full-text search (`search_tsv @@ ...`). **Confirm this already exists** in `schema.sql` — a tsvector column is usually created with its GIN index, but verify; without it every keyword search is a seq scan. |
-| `pg_trgm` GIN on `job_posting.company_slug` | `company_slug ILIKE '%…%'` filter + `/api/jobs/facets` autocomplete. Needs `CREATE EXTENSION IF NOT EXISTS pg_trgm;` in the crawler DB. |
-| `pg_trgm` GIN on `job_posting.location` | `location ILIKE '%…%'` filter + `/api/jobs/facets` autocomplete. |
-| `pg_trgm` GIN on `job_posting.title` | `title ILIKE '%…%'` filter + `/api/jobs/facets` autocomplete. |
-| `job_posting (status, source) WHERE status = 'open'` | The `source` facet aggregation over the open set. |
+| unique `(feed_position)` | default feed `ORDER BY feed_position` + `range()` |
+| `(id)` | joins / lookups by posting id |
+| `(country)`, `(seniority)`, `(source)` | filter pushdown in `feed_page` and the direct sort paths |
+| `(company_slug)` | company hub (`WHERE company_slug = $1 ORDER BY eff_at DESC`), `company_job_counts` |
+| `pg_trgm` GIN on `title`, `company_name`, `location` | free-text search, company/location filters, `job_feed_facet` (needs `CREATE EXTENSION IF NOT EXISTS pg_trgm`) |
 
-## Notes
+On `crawler.job_posting`: partial unique `(linkedin_job_id) WHERE linkedin_job_id IS NOT NULL`,
+`(dedupe_key)`, and `(status, first_seen_at) WHERE status = 'open' AND duplicate_of IS NULL`
+for the digest function.
 
-- The listing endpoint also asks PostgREST for `count: "exact"` on the filtered
-  set, which forces a full count scan per request. **Phase 0.4** will switch this
-  to a planned/estimated count, which removes that cost — no index fixes it while
-  it stays `exact`.
-- There is also a `company WHERE slug IN (...)` lookup to hydrate company rows for
-  a page of postings. `company.slug` is almost certainly the primary key (or has a
-  unique index), so that lookup is already covered — verify in `schema.sql`, add
-  nothing if the PK is there.
-- All of the above should be `CREATE INDEX CONCURRENTLY IF NOT EXISTS` when applied
-  to the live crawler DB, one statement at a time (CONCURRENTLY cannot run inside a
-  transaction block).
+Apply with `CREATE INDEX CONCURRENTLY IF NOT EXISTS` on the live DB, one
+statement at a time (CONCURRENTLY cannot run inside a transaction block).
+
+## Caching in the API
+
+| Data | TTL |
+|---|---|
+| `/api/jobs` response (keyed by plan + normalized query) | 45 s |
+| Facet candidate lists per field / facet answers | 5 min |
+| Curated company slugs (`company_job_counts`), sources | 10 min |
+| Company hub payload, analytics, trend | 5 min |
