@@ -1,6 +1,6 @@
 # Vloombox SEO Status
 
-**Last updated:** 2026-11-19  
+**Last updated:** 2026-11-20  
 **Site:** https://www.vloombox.in  
 **Repo:** bazookaBaron/Pandora  
 **Rule:** This branch (`seo/tracker`) is tracking-only. Never merge into `main`.
@@ -26,7 +26,10 @@
 4. GEO Q&A blocks + entity clarity.
 5. Title/H1 alignment (dynamic job count).
 
-## Latest run (2026-11-19)
+## Latest run (2026-11-20)
+- GSC export 11-12..11-17: 6 days, ~56 impressions / 0 clicks, company-name queries only; nothing actionable. PostHog $pageview still absent. Inbox quiet. No PR, blog or outreach. Open PRs #14, #9 not mine.
+
+## Previous run (2026-11-19)
 - GSC export 11-12..11-16: 5 days, 44 impressions / 0 clicks total; still company-name queries (hcltech jobs page most impressions, avg pos 6-35; dsa/company pages pos 3-30). No query x page pair with enough volume to act on. PostHog $pageview still absent (6+ days post PR #12 merged; confirm VITE_POSTHOG_KEY on Railway). Live fetch tool unavailable this run. No PR, blog or outreach (personal mailbox blocker unchanged). Open PRs #14, #9 not mine.
 
 ## Previous run (2026-11-18)
