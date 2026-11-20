@@ -153,12 +153,20 @@ export async function backfillMail({ mailDb, batchSize = 500, maxBatches = 1000,
     for (const r of rows) {
       stats.scanned++;
       cursor = r.id;
-      const { category, kind } = classifyMail(r);
+      // A row with `kind` set was classified on arrival by the current classifier, which also saw the calendar
+      // invite and meeting links (never stored). Re-classifying it here without them could turn a kept interview
+      // invite into an expiring 'received' / 'rejected' row (the cleanup would then delete it and, by cascade,
+      // its aa_interviews row), so its category and kind are kept as stored.
+      const trusted = r.kind != null && Object.hasOwn(RETENTION_DAYS, r.category);
+      const { category, kind } = trusted ? { category: r.category, kind: r.kind } : classifyMail(r);
       const company = r.company || companyFromMail({ sender: r.sender, from_name: r.from_name, subject: r.subject });
       const expires_at = expiresAtFor(category, r.received_at || new Date());
       if (category === "rejected") stats.rejected++;
       if (category === "received") stats.received++;
-      if (category !== r.category || kind !== (r.kind ?? null) || company !== (r.company ?? null) || (expires_at ?? null) !== (r.expires_at ?? null)) {
+      // compare instants, not strings: Postgres returns '+00:00' where toISOString() writes 'Z'
+      const sameExpiry =
+        expires_at == null || r.expires_at == null ? (expires_at ?? null) === (r.expires_at ?? null) : Date.parse(expires_at) === Date.parse(r.expires_at);
+      if (category !== r.category || kind !== (r.kind ?? null) || company !== (r.company ?? null) || !sameExpiry) {
         const { error: uErr } = await mailDb.from("aa_mail_events").update({ category, kind, company, expires_at }).eq("id", r.id);
         if (uErr) throw uErr;
         stats.updated++;

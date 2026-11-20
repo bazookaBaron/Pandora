@@ -100,7 +100,7 @@ export function createFakeDb(seed = {}) {
         return b;
       },
       ilike(c, pat) {
-        const re = new RegExp("^" + String(pat).replace(/[.*+?^${}()|[\]\\]/g, (m) => "\\" + m).replace(/%/g, ".*") + "$", "i");
+        const re = new RegExp("^" + String(pat).replace(/[.*+?^${}()|[\]\\]/g, (m) => "\\" + m).replace(/%/g, ".*").replace(/_/g, ".") + "$", "i");
         filters.push((r) => re.test(String(r[c] ?? "")));
         return b;
       },

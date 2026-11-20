@@ -4,6 +4,7 @@ import { Check, Copy } from 'lucide-react'
 import Navbar from '../../components/Navbar'
 import { ErrorState, LoadingState } from '../../components/shared/states'
 import { useAutoApplyMe, useInboxUnread, useNeedsYou } from '../../lib/useAutoApply'
+import { AUTO_APPLY } from '../../../config/tiers.js'
 import './autoapply.css'
 
 // ── shared bits for every AutoApply screen ──────────────────────────
@@ -31,15 +32,14 @@ export function fmtAgo(iso) {
 }
 
 export const PACK_SIZES = [50, 100]
-// Service prices are fixed by the product brief; product prices ONLY come from
-// the API (GET /me -> config.packs.product). Never hard-code product prices.
-const SERVICE_FALLBACK = { 50: 59900, 100: 115000 }
 
+// Prices come from the API (GET /me -> config.packs, what the server charges); before /me has
+// loaded, or when signed out (pricing page), the same shared config/tiers.js the server reads.
 export function packPrice(config, kind, size) {
     const fromApi = config?.packs?.[kind]?.[size] ?? config?.packs?.[kind]?.[String(size)]
     if (fromApi != null) return Number(fromApi)
-    if (kind === 'service') return SERVICE_FALLBACK[size]
-    return null
+    const fallback = AUTO_APPLY.packs?.[kind]?.[size]
+    return Number.isInteger(fallback) ? fallback : null
 }
 
 export const PACK_KINDS = {

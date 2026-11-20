@@ -76,11 +76,18 @@ function unfold(ics) {
 }
 const icsText = (v) => String(v || "").replace(/\\n/gi, "\n").replace(/\\([,;\\])/g, "$1").trim();
 
+/** True for a real calendar date (no 31 Nov / 30 Feb, which Date.UTC would silently roll into the next month). */
+export function isRealDate(y, mo, d) {
+  if (!Number.isInteger(y) || !Number.isInteger(mo) || !Number.isInteger(d) || mo < 1 || mo > 12 || d < 1) return false;
+  return d <= new Date(Date.UTC(y, mo, 0)).getUTCDate();
+}
+
 function icsDate(value, params) {
   const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/.exec(String(value || "").trim());
   if (!m) return null;
   const [, y, mo, d, h, mi, , z] = m;
   const parts = { y: +y, mo: +mo, d: +d, h: h ? +h : 0, mi: mi ? +mi : 0 };
+  if (!isRealDate(parts.y, parts.mo, parts.d) || parts.h > 23 || parts.mi > 59) return null;
   if (!h) return { iso: null, dateOnly: parts, zone: null };
   if (z) return { iso: new Date(Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi)).toISOString(), zone: "UTC" };
   const zone = ianaZone(params.TZID);
@@ -232,7 +239,7 @@ export function findDateTime(text, { receivedAt = null } = {}) {
     }
     if (!t) continue;
     const y = dt.y || inferYear(dt, receivedAt);
-    if (!y) continue;
+    if (!y || !isRealDate(y, dt.mo, dt.d)) continue;
     // an end time: "3:00 PM - 4:00 PM", "15:00 to 16:00"
     let end = null;
     const rest = s.slice(t.end, t.end + 30);

@@ -8,8 +8,13 @@
 -- created before this change; every new batch must be 50 or 100.
 -- Idempotent: safe to run more than once.
 
+-- One DO block = one statement: the old constraint is only dropped if the new one is added. The cutoff is
+-- the later of 2026-11-21 IST and just after the newest existing 80-pack row, so the CHECK can never fail on
+-- an 80-pack bought before this migration ran (old API still live) and stays the same on a re-run.
 DO $$
-DECLARE c record;
+DECLARE
+  c record;
+  cutoff timestamptz;
 BEGIN
   FOR c IN
     SELECT conname FROM pg_constraint
@@ -19,10 +24,13 @@ BEGIN
   LOOP
     EXECUTE format('ALTER TABLE public.aa_batches DROP CONSTRAINT %I', c.conname);
   END LOOP;
-END $$;
 
-ALTER TABLE public.aa_batches
-  ADD CONSTRAINT aa_batches_pack_size_check CHECK (
-    pack_size IN (50,100)
-    OR (pack_size = 80 AND created_at < timestamptz '2026-11-21 00:00:00+05:30')
-  );
+  SELECT GREATEST(timestamptz '2026-11-21 00:00:00+05:30', max(created_at) + interval '1 second')
+    INTO cutoff
+    FROM public.aa_batches WHERE pack_size = 80;
+
+  EXECUTE format(
+    'ALTER TABLE public.aa_batches ADD CONSTRAINT aa_batches_pack_size_check CHECK (
+       pack_size IN (50,100) OR (pack_size = 80 AND created_at < %L::timestamptz))',
+    cutoff);
+END $$;

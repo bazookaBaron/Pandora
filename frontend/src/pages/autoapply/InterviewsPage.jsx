@@ -14,7 +14,8 @@ export function splitInterviews(list, nowMs = Date.now()) {
     for (const iv of list || []) {
         const start = iv.starts_at ? new Date(iv.starts_at).getTime() : NaN
         if (Number.isNaN(start)) { unscheduled.push(iv); continue }
-        const end = iv.ends_at ? new Date(iv.ends_at).getTime() : start + GRACE_MS
+        const endAt = iv.ends_at ? new Date(iv.ends_at).getTime() : NaN
+        const end = Number.isNaN(endAt) ? start + GRACE_MS : endAt
         if (end >= nowMs) upcoming.push(iv)
         else past.push(iv)
     }

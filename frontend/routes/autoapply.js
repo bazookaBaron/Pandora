@@ -133,6 +133,10 @@ const INTERVIEW_FIELDS = "id, mail_event_id, company, role, starts_at, ends_at, 
 
 /** PostgREST-safe ilike term: drop the characters that are syntax in .or() filters. */
 const searchTerm = (q) => String(q || "").replace(/[%_,()*\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+/** ilike body for an exact company name picked from the filter list ("Acme, Inc.", "Tata (TCS)"). It is a plain
+ *  .ilike() filter (not inside .or()), so commas / parentheses are safe; wildcard and escape characters become '_'
+ *  (any one character) instead of a space, so the name still matches itself. */
+export const companyTerm = (q) => String(q || "").replace(/[%_*\\]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120);
 
 // ── prefs normalisation ─────────────────────────────────────────────────────
 function normPrefs(prefs) {
@@ -757,7 +761,7 @@ export function createAutoApplyRouter(deps = {}) {
         if (!INBOX_KINDS.includes(k)) throw bad(`kind must be one of ${INBOX_KINDS.join(", ")}.`);
         qb = qb.eq("kind", k);
       }
-      const company = searchTerm(req.query.company);
+      const company = companyTerm(req.query.company);
       if (company) qb = qb.ilike("company", `%${company}%`);
       if (req.query.unread === "1" || req.query.unread === "true") qb = qb.is("read_at", null);
       const term = searchTerm(req.query.q);

@@ -3656,8 +3656,13 @@ app.post(
 
       // Defence-in-depth: pull the order back and confirm it is the one this
       // user created for this plan/amount (guards against a tampered body).
+      // Fail closed: without Razorpay's own order record the body's plan/period can't be trusted
+      // (the order.paid webhook still grants the plan from the order's notes).
       const order = await razorpay.fetchOrder(razorpay_order_id);
-      if (order) {
+      if (!order) {
+        return res.status(502).json({ error: "order_unverified" });
+      }
+      {
         const n = order.notes || {};
         // Trust the order's OWN currency (Razorpay's authoritative record of
         // what was actually charged), not a freshly-recomputed one — the

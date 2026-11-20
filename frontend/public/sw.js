@@ -26,7 +26,10 @@ self.addEventListener('notificationclick', (event) => {
                 if (c.url === url && 'focus' in c) return c.focus()
             }
             for (const c of list) {
-                if ('navigate' in c && 'focus' in c) return c.navigate(url).then((w) => w && w.focus())
+                // navigate() rejects for a tab this worker does not control (includeUncontrolled): open a window then.
+                if ('navigate' in c && 'focus' in c) {
+                    return c.navigate(url).then((w) => (w ? w.focus() : self.clients.openWindow(url))).catch(() => self.clients.openWindow(url))
+                }
             }
             return self.clients.openWindow(url)
         }),
