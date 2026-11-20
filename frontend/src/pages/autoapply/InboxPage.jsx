@@ -1,16 +1,39 @@
 import { useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
-import { useAutoApplyMe, useInbox, useInboxMail } from '../../lib/useAutoApply'
+import { useAutoApplyMe, useInbox, useInboxCompanies, useInboxMail, useInboxUnread, useMarkAllRead } from '../../lib/useAutoApply'
 import { AALayout, CopyButton, PageHeader, fmtAgo, fmtDate } from './ui'
 import NotifyButton from './NotifyButton'
+import InterviewCard, { safeHref } from './InterviewCard'
 
-const TABS = [
-    { id: 'important', label: 'Important' },
-    { id: 'all', label: 'All' },
-    { id: 'codes', label: 'Codes' },
+// Views of "All emails": each maps to API filters.
+const VIEWS = [
+    { id: 'all', label: 'All', f: { tab: 'all' } },
+    { id: 'important', label: 'Important', f: { tab: 'important' } },
+    { id: 'interview', label: 'Interviews', f: { kind: 'interview' } },
+    { id: 'assessment', label: 'Assessments', f: { kind: 'assessment' } },
+    { id: 'offer', label: 'Offers', f: { kind: 'offer' } },
+    { id: 'rejected', label: 'Rejected', f: { category: 'rejected' } },
+    { id: 'received', label: 'Applied', f: { category: 'received' } },
+    { id: 'codes', label: 'Codes', f: { tab: 'codes' } },
+    { id: 'other', label: 'Other', f: { category: 'other' } },
 ]
+const VIEW_IDS = new Set(VIEWS.map((v) => v.id))
 
-const CATEGORY_LABEL = { important: 'Important', code: 'Code', received: 'Receipt', other: 'Other' }
+const CATEGORY_LABEL = { important: 'Important', code: 'Code', received: 'Applied', rejected: 'Rejected', other: 'Other' }
+const KIND_LABEL = { interview: 'Interview', assessment: 'Assessment', offer: 'Offer', recruiter: 'Recruiter', rejection: 'Rejected' }
+const NOTIFY = new Set(['important', 'rejected'])
+
+function label(m) {
+    return KIND_LABEL[m.kind] || CATEGORY_LABEL[m.category] || 'Other'
+}
+
+function tone(m) {
+    if (m.kind === 'offer' || m.kind === 'interview') return ' t-green'
+    if (m.kind === 'assessment' || m.category === 'important') return ' t-warm'
+    if (m.category === 'rejected') return ' t-red'
+    return ' t-muted'
+}
 
 function linkLabel(url) {
     try {
@@ -20,22 +43,16 @@ function linkLabel(url) {
     }
 }
 
-function safeHref(url) {
-    try {
-        const u = new URL(url)
-        return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : null
-    } catch {
-        return null
-    }
-}
+const isUnread = (m) => NOTIFY.has(m.category) && !m.read_at
 
 function MailDetail({ id, onBack }) {
     const q = useInboxMail(id)
     const m = q.data?.mail
+    const iv = q.data?.interview
     return (
         <section className="aa-card aa-stack" aria-label="Message">
             <div className="aa-row">
-                <button type="button" className="aa-btn" onClick={onBack}>← Back to inbox</button>
+                <button type="button" className="aa-btn" onClick={onBack}>← Back to all emails</button>
             </div>
             {q.isLoading ? (
                 <LoadingState label="Loading message…" />
@@ -43,11 +60,19 @@ function MailDetail({ id, onBack }) {
                 <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load this message" />
             ) : (
                 <>
+                    <div className="aa-row" style={{ gap: 6 }}>
+                        <span className={`aa-pill${tone(m)}`}>{label(m)}</span>
+                        {m.company && <span className="aa-pill t-muted">{m.company}</span>}
+                    </div>
                     <h2 className="aa-h2" style={{ overflowWrap: 'anywhere' }}>{m.subject || '(no subject)'}</h2>
                     <div className="aa-stack" style={{ gap: 4 }}>
-                        <div className="aa-muted" style={{ overflowWrap: 'anywhere' }}><strong>From:</strong> {m.sender}</div>
+                        <div className="aa-muted" style={{ overflowWrap: 'anywhere' }}><strong>From:</strong> {m.from_name ? `${m.from_name} <${m.sender}>` : m.sender}</div>
                         <div className="aa-muted"><strong>Received:</strong> <time dateTime={m.received_at}>{fmtDate(m.received_at)}</time></div>
+                        {m.expires_at && (
+                            <div className="aa-faint">Deleted automatically on {fmtDate(m.expires_at, false)} (application receipts and rejections are kept 30 days).</div>
+                        )}
                     </div>
+                    {iv && <InterviewCard iv={iv} showMailLink={false} past={!!iv.starts_at && new Date(iv.starts_at).getTime() < Date.now()} />}
                     {m.codes?.length > 0 && (
                         <div className="aa-row">
                             {m.codes.map((c) => (
@@ -89,42 +114,60 @@ function MailDetail({ id, onBack }) {
 
 export default function InboxPage() {
     const me = useAutoApplyMe()
-    const [tab, setTab] = useState('important')
+    const [params, setParams] = useSearchParams()
+    const view = VIEW_IDS.has(params.get('view')) ? params.get('view') : 'all'
+    const openId = /^\d{1,18}$/.test(params.get('mail') || '') ? params.get('mail') : null
     const [text, setText] = useState('')
     const [term, setTerm] = useState('')
-    const [openId, setOpenId] = useState(null)
-    const q = useInbox({ tab, q: term })
+    const [company, setCompany] = useState('')
+    const [unreadOnly, setUnreadOnly] = useState(false)
+    const filters = VIEWS.find((v) => v.id === view).f
+    const q = useInbox({ ...filters, q: term, company, unread: unreadOnly })
+    const unread = useInboxUnread()
+    const companies = useInboxCompanies()
+    const markAll = useMarkAllRead()
     const mails = (q.data?.pages || []).flatMap((p) => p.mails || [])
     const address = me.data?.email?.address
+    const unreadCount = unread.data?.count || 0
 
     useEffect(() => {
         const t = setTimeout(() => setTerm(text.trim()), 300)
         return () => clearTimeout(t)
     }, [text])
 
+    const setParam = (k, v) => {
+        const next = new URLSearchParams(params)
+        if (v) next.set(k, v)
+        else next.delete(k)
+        setParams(next, { replace: k === 'view' })
+    }
+
     return (
         <AALayout gate>
             <PageHeader
                 eyebrow="Inbox"
-                title="Vloombox inbox"
-                lead="Everything companies send to your Vloombox address lives here. We never forward your mail; we alert you when an assessment or interview arrives."
+                title="All emails"
+                lead="Everything companies send to your Vloombox address lives here. We never forward your mail; we alert you when an interview, assessment, offer or rejection arrives. Application receipts and rejections are deleted after 30 days; everything else is kept."
                 actions={address ? <CopyButton text={address} label="Copy address" /> : null}
             />
             {address && <p className="aa-faint" style={{ margin: '-8px 0 12px', overflowWrap: 'anywhere' }}>{address}</p>}
-            <div style={{ marginBottom: 14 }}><NotifyButton /></div>
+            <div className="aa-row" style={{ marginBottom: 14 }}>
+                <NotifyButton />
+                <Link to="/autoapply/interviews" className="aa-btn">Interviews →</Link>
+            </div>
 
             {openId ? (
-                <MailDetail id={openId} onBack={() => setOpenId(null)} />
+                <MailDetail id={openId} onBack={() => setParam('mail', null)} />
             ) : (
                 <>
+                    <div className="aa-tabs aa-tabs-wrap" role="tablist" aria-label="Filter by category" style={{ marginBottom: 10 }}>
+                        {VIEWS.map((v) => (
+                            <button key={v.id} type="button" role="tab" aria-selected={view === v.id} className={`aa-tab${view === v.id ? ' is-on' : ''}`} onClick={() => setParam('view', v.id === 'all' ? null : v.id)}>
+                                {v.label}
+                            </button>
+                        ))}
+                    </div>
                     <div className="aa-inbox-bar">
-                        <div className="aa-tabs" role="tablist" aria-label="Inbox view">
-                            {TABS.map((t) => (
-                                <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} className={`aa-tab${tab === t.id ? ' is-on' : ''}`} onClick={() => setTab(t.id)}>
-                                    {t.label}
-                                </button>
-                            ))}
-                        </div>
                         <input
                             type="search"
                             className="input-field aa-inbox-search"
@@ -133,6 +176,19 @@ export default function InboxPage() {
                             value={text}
                             onChange={(e) => setText(e.target.value)}
                         />
+                        <select className="input-field aa-inbox-company" aria-label="Filter by company" value={company} onChange={(e) => setCompany(e.target.value)}>
+                            <option value="">All companies</option>
+                            {(companies.data?.companies || []).map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <label className="aa-row aa-faint" style={{ gap: 6, cursor: 'pointer' }}>
+                            <input type="checkbox" checked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} />
+                            Unread only
+                        </label>
+                        {unreadCount > 0 && (
+                            <button type="button" className="aa-btn" onClick={() => markAll.mutate()} disabled={markAll.isPending}>
+                                {markAll.isPending ? 'Working…' : `Mark ${unreadCount} as read`}
+                            </button>
+                        )}
                     </div>
 
                     {q.isLoading ? (
@@ -142,23 +198,33 @@ export default function InboxPage() {
                     ) : mails.length === 0 ? (
                         <EmptyState
                             icon="✉️"
-                            title={term ? 'No matches' : tab === 'important' ? 'No important mail yet' : 'No mail yet'}
-                            message={term ? 'Try a different search.' : 'Assessments, interview invites and recruiter messages show up here. Verification codes are under Codes.'}
+                            title={term || company || unreadOnly ? 'No matches' : 'No mail here yet'}
+                            message={term || company || unreadOnly ? 'Try a different search or filter.' : 'Interview invites, assessments, offers and recruiter messages show up here. Verification codes are under Codes.'}
                         />
                     ) : (
                         <>
                             <ul className="aa-list">
                                 {mails.map((m) => (
                                     <li key={m.id}>
-                                        <button type="button" className={`aa-card aa-mail-row${m.category === 'important' ? ' is-warm' : ''}`} onClick={() => setOpenId(m.id)}>
+                                        <button
+                                            type="button"
+                                            className={`aa-card aa-mail-row${m.category === 'important' ? ' is-warm' : ''}${isUnread(m) ? ' is-unread' : ''}`}
+                                            onClick={() => setParam('mail', String(m.id))}
+                                            aria-label={`${isUnread(m) ? 'Unread: ' : ''}${m.subject || '(no subject)'}`}
+                                        >
                                             <span className="aa-spread" style={{ gap: 10 }}>
                                                 <span style={{ minWidth: 0, textAlign: 'left' }}>
-                                                    <span className="aa-mail-subject">{m.subject || '(no subject)'}</span>
-                                                    <span className="aa-faint aa-mail-meta">{m.sender} · <time dateTime={m.received_at} title={fmtDate(m.received_at)}>{fmtAgo(m.received_at)}</time></span>
+                                                    <span className="aa-mail-subject">
+                                                        {isUnread(m) && <span className="aa-unread-dot" aria-hidden />}
+                                                        {m.subject || '(no subject)'}
+                                                    </span>
+                                                    <span className="aa-faint aa-mail-meta">
+                                                        {m.company ? `${m.company} · ` : ''}{m.from_name || m.sender} · <time dateTime={m.received_at} title={fmtDate(m.received_at)}>{fmtAgo(m.received_at)}</time>
+                                                    </span>
                                                 </span>
                                                 <span className="aa-row" style={{ gap: 6, flexShrink: 0 }}>
                                                     {m.has_attachments && <span className="aa-pill" title="Had an attachment">📎</span>}
-                                                    {tab === 'all' && <span className={`aa-pill${m.category === 'important' ? ' t-warm' : ''}`}>{CATEGORY_LABEL[m.category] || 'Other'}</span>}
+                                                    <span className={`aa-pill${tone(m)}`}>{label(m)}</span>
                                                 </span>
                                             </span>
                                             {m.codes?.length > 0 && (

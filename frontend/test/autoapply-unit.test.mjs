@@ -103,7 +103,9 @@ test("limits: IST month/day boundaries", () => {
   assert.equal(istMonthStart(d).toISOString(), "2026-11-30T18:30:00.000Z");
   assert.equal(istDayStart(d).toISOString(), "2026-11-30T18:30:00.000Z");
   assert.equal(istMonthStart(new Date("2026-11-16T10:00:00Z")).toISOString(), "2026-10-31T18:30:00.000Z");
-  assert.equal(packPrice("service", 80), 79900);
+  assert.equal(packPrice("service", 100), 115000);
+  assert.equal(packPrice("product", 100), 149900);
+  assert.equal(packPrice("service", 80), null); // 80 packs removed
   assert.equal(packPrice("product", 55), null);
   assert.deepEqual(AUTO_APPLY.plans, ["pro", "max"]);
 });

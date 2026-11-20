@@ -42,6 +42,12 @@ export default function BatchesPage() {
                                     <BatchStatusPill status={b.status} />
                                 </div>
                                 <Progress used={b.credits_used} total={b.credits_total} />
+                                {b.status === 'waiting_profile' && (
+                                    <div className="aa-note is-warn" style={{ marginTop: 10 }}>
+                                        Waiting for your profile{Array.isArray(b.waiting_detail?.missing) && b.waiting_detail.missing.length
+                                            ? `: ${b.waiting_detail.missing.map((m) => m.label || m.key).join(', ')}` : ''}. Open the batch to complete it.
+                                    </div>
+                                )}
                             </Link>
                         </li>
                     ))}

@@ -34,6 +34,7 @@ const AutoApplyBatches = lazy(() => import('./pages/autoapply/BatchesPage'))
 const AutoApplyBatchDetail = lazy(() => import('./pages/autoapply/BatchDetailPage'))
 const AutoApplyNeedsYou = lazy(() => import('./pages/autoapply/NeedsYouPage'))
 const AutoApplyInbox = lazy(() => import('./pages/autoapply/InboxPage'))
+const AutoApplyInterviews = lazy(() => import('./pages/autoapply/InterviewsPage'))
 const AutoApplyAccounts = lazy(() => import('./pages/autoapply/AccountsPage'))
 
 const TermsPage = lazy(() => import('./pages/LegalPages').then(m => ({ default: m.TermsPage })))
@@ -155,11 +156,13 @@ export default function App() {
                         <Route path="/referrals" element={<ReferralsPage />} />
                         <Route path="/autoapply" element={<ProtectedRoute><AutoApplyLanding /></ProtectedRoute>} />
                         <Route path="/autoapply/setup" element={<ProtectedRoute><AutoApplySetup /></ProtectedRoute>} />
+                        <Route path="/autoapply/profile" element={<Navigate to="/autoapply/setup" replace />} />
                         <Route path="/autoapply/buy" element={<ProtectedRoute><AutoApplyBuy /></ProtectedRoute>} />
                         <Route path="/autoapply/batches" element={<ProtectedRoute><AutoApplyBatches /></ProtectedRoute>} />
                         <Route path="/autoapply/batches/:id" element={<ProtectedRoute><AutoApplyBatchDetail /></ProtectedRoute>} />
                         <Route path="/autoapply/needs-you" element={<ProtectedRoute><AutoApplyNeedsYou /></ProtectedRoute>} />
                         <Route path="/autoapply/inbox" element={<ProtectedRoute><AutoApplyInbox /></ProtectedRoute>} />
+                        <Route path="/autoapply/interviews" element={<ProtectedRoute><AutoApplyInterviews /></ProtectedRoute>} />
                         <Route path="/autoapply/accounts" element={<ProtectedRoute><AutoApplyAccounts /></ProtectedRoute>} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>

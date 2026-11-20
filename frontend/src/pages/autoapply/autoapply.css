@@ -191,3 +191,16 @@
 .aa-mail-meta { display: block; overflow-wrap: anywhere; }
 @media (max-width: 640px) { .aa-inbox-search { max-width: none; flex-basis: 100%; } .aa-tabs { width: 100%; } .aa-tab { flex: 1; } }
 
+
+/* All emails: wrapping category chips, company filter, unread rows; interviews */
+.aa-tabs.aa-tabs-wrap { display: flex; flex-wrap: wrap; width: 100%; }
+.aa-tabs.aa-tabs-wrap .aa-tab { flex: 0 0 auto; padding: 7px 11px; }
+.aa-inbox-company { flex: 0 1 200px; min-width: 0; }
+.aa-mail-row.is-unread { border-left: 3px solid var(--pop); }
+.aa-mail-row.is-unread .aa-mail-subject { color: var(--bright); }
+.aa-unread-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--pop); margin-right: 7px; vertical-align: middle; }
+.aa-iv.is-past { opacity: 0.75; }
+@media (max-width: 640px) {
+    .aa-tabs.aa-tabs-wrap .aa-tab { flex: 1 1 30%; }
+    .aa-inbox-company { flex-basis: 100%; }
+}

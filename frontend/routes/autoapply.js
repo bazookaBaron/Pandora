@@ -30,7 +30,9 @@ import { verifyInbound, storeInbound } from "../lib/autoapply/inbound.js";
 import { mailDb as realMailDb } from "../lib/autoapply/mailDb.js";
 import { sendPushForMail, vapidConfig } from "../lib/autoapply/push.js";
 import { cleanupExpiredMail, sendDailyAlerts } from "../lib/autoapply/mailJobs.js";
+import { NOTIFY_CATEGORIES } from "../lib/autoapply/classify.js";
 import { processRefunds } from "../lib/autoapply/refunds.js";
+import { profileCheck } from "../lib/autoapply/profileGate.js";
 import { extractText, draftFromText, maybeEnrichWithAi } from "../lib/autoapply/resumeParse.js";
 
 export { AAError, handleAutoApplyWebhook };
@@ -123,8 +125,11 @@ export function normAlertPrefs(v) {
 }
 
 const INBOX_TABS = { important: "important", codes: "code" };
-const INBOX_LIST_FIELDS = "id, sender, subject, codes, is_human, received_at, text_excerpt, category, has_attachments";
+const INBOX_LIST_FIELDS = "id, sender, from_name, company, subject, codes, is_human, received_at, text_excerpt, category, kind, has_attachments, read_at, expires_at";
 const INBOX_DETAIL_FIELDS = `${INBOX_LIST_FIELDS}, links`;
+const INBOX_CATEGORIES = ["code", "received", "rejected", "important", "other"];
+const INBOX_KINDS = ["interview", "assessment", "offer", "recruiter", "rejection"];
+const INTERVIEW_FIELDS = "id, mail_event_id, company, role, starts_at, ends_at, timezone, tz_assumed, time_text, duration_min, meeting_url, meeting_provider, schedule_url, location, mode, round, interview_type, source, created_at";
 
 /** PostgREST-safe ilike term: drop the characters that are syntax in .or() filters. */
 const searchTerm = (q) => String(q || "").replace(/[%_,()*\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
@@ -230,12 +235,31 @@ export function createAutoApplyRouter(deps = {}) {
     return data[0];
   };
 
+  // Close the user's open needs-you item of kind 'profile' once no batch waits on the profile any more
+  // (the scheduler does the same on its passes; cancel / pause move the batch out of 'waiting_profile' here).
+  const closeProfileItemIfIdle = async (userId, resolution = "dismissed") => {
+    const { count, error } = await db
+      .from("aa_batches")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("status", "waiting_profile");
+    if (error) throw error;
+    if (count) return;
+    const { error: uErr } = await db
+      .from("aa_needs_you")
+      .update({ resolved_at: now().toISOString(), resolution })
+      .eq("user_id", userId)
+      .eq("kind", "profile")
+      .is("resolved_at", null);
+    if (uErr) throw uErr;
+  };
+
   // GET /me
   router.get(
     "/me",
     wrap("me", async (req, res) => {
       const uid = req.user.id;
-      const [plan, prof, usage] = await Promise.all([getUserPlan(uid), getProfile(uid), usageFor(db, uid, now())]);
+      const [plan, prof, usage, answers] = await Promise.all([getUserPlan(uid), getProfile(uid), usageFor(db, uid, now()), getAnswers(uid)]);
       const alias = prof && prof.apply_alias;
       res.json({
         eligible: isEligiblePlan(plan),
@@ -254,6 +278,8 @@ export function createAutoApplyRouter(deps = {}) {
         alert_prefs: normAlertPrefs(prof && prof.alert_prefs),
         review_before_apply: prof ? prof.review_before_apply !== false : true,
         usage,
+        // same rules as the scheduler's gate (saas/profile_gate.py): a paid batch waits in 'waiting_profile' until ok
+        profile_check: profileCheck(prof, answers),
         config: AUTO_APPLY,
       });
     }),
@@ -528,7 +554,9 @@ export function createAutoApplyRouter(deps = {}) {
     writeLimiter,
     wrap("batch/pause", async (req, res) => {
       const batch = await ownBatch(req.user.id, req.params.id);
-      res.json({ batch: await updateBatchIf(batch, ["paid", "shortlisting", "review", "running", "waiting_supply"], { status: "paused" }) });
+      const updated = await updateBatchIf(batch, ["paid", "shortlisting", "review", "running", "waiting_supply", "waiting_profile"], { status: "paused" });
+      if (batch.status === "waiting_profile") await closeProfileItemIfIdle(req.user.id);
+      res.json({ batch: updated });
     }),
   );
 
@@ -547,7 +575,7 @@ export function createAutoApplyRouter(deps = {}) {
     writeLimiter,
     wrap("batch/cancel", async (req, res) => {
       const batch = await ownBatch(req.user.id, req.params.id);
-      const allowed = ["pending_payment", "paid", "shortlisting", "review", "running", "paused", "waiting_supply"];
+      const allowed = ["pending_payment", "paid", "shortlisting", "review", "running", "paused", "waiting_supply", "waiting_profile"];
       let next;
       if (batch.status === "pending_payment") next = "cancelled";
       else next = Number(batch.credits_used) < Number(batch.credits_total) ? "refund_due" : "completed";
@@ -570,6 +598,7 @@ export function createAutoApplyRouter(deps = {}) {
           if (nErr) throw nErr;
         }
       }
+      if (batch.status === "waiting_profile") await closeProfileItemIfIdle(req.user.id);
       res.json({ batch: updated });
     }),
   );
@@ -606,13 +635,14 @@ export function createAutoApplyRouter(deps = {}) {
     wrap("needs-you", async (req, res) => {
       const { data: items, error } = await db
         .from("aa_needs_you")
-        .select("id, kind, payload, task_id, created_at")
+        .select("id, kind, payload, task_id, batch_id, created_at")
         .eq("user_id", req.user.id)
         .is("resolved_at", null)
         .order("created_at", { ascending: false })
         .limit(200);
       if (error) throw error;
-      const ids = [...new Set((items || []).map((i) => i.task_id))];
+      // left join: profile items (kind 'profile') have no task
+      const ids = [...new Set((items || []).map((i) => i.task_id).filter(Boolean))];
       let tasks = [];
       if (ids.length) {
         const r = await db.from("aa_tasks").select("id, company, title, apply_url").in("id", ids);
@@ -622,12 +652,17 @@ export function createAutoApplyRouter(deps = {}) {
       const byId = new Map(tasks.map((t) => [t.id, t]));
       res.json({
         items: (items || []).map((i) => {
-          const t = byId.get(i.task_id) || {};
+          const t = (i.task_id && byId.get(i.task_id)) || null;
           return {
             id: i.id,
             kind: i.kind,
             payload: i.payload || {},
-            task: { company: t.company || null, title: t.title || null, apply_url: t.apply_url || (i.payload && i.payload.apply_url) || null },
+            task_id: i.task_id || null,
+            batch_id: i.batch_id || (i.payload && i.payload.batch_id) || null,
+            task:
+              t || i.task_id
+                ? { company: (t && t.company) || null, title: (t && t.title) || null, apply_url: (t && t.apply_url) || (i.payload && i.payload.apply_url) || null }
+                : null,
             created_at: i.created_at,
           };
         }),
@@ -648,6 +683,9 @@ export function createAutoApplyRouter(deps = {}) {
       if (error) throw error;
       if (!item) throw notFound("Item not found.");
       if (item.resolved_at) throw new AAError(409, "already_resolved", "This item is already resolved.");
+      if (item.kind === "profile" && action !== "dismiss") {
+        throw new AAError(409, "invalid_action", "Complete your profile; this item closes on its own once it is complete.");
+      }
 
       let key = null;
       let value = null;
@@ -680,17 +718,19 @@ export function createAutoApplyRouter(deps = {}) {
           .upsert({ user_id: uid, question_key: key, answer: value, source: "user", updated_at: now().toISOString() }, { onConflict: "user_id,question_key" });
         if (aErr) throw aErr;
       }
-      const taskPatch =
-        action === "answer"
-          ? { status: "queued", not_before: now().toISOString(), reason_code: null, reason_detail: null }
-          : { status: "skipped", reason_code: action === "done" ? "done_by_user" : "dismissed" };
-      const { error: tErr } = await db
-        .from("aa_tasks")
-        .update(taskPatch)
-        .eq("id", item.task_id)
-        .eq("user_id", uid)
-        .eq("status", "needs_you");
-      if (tErr) throw tErr;
+      if (item.task_id) {
+        const taskPatch =
+          action === "answer"
+            ? { status: "queued", not_before: now().toISOString(), reason_code: null, reason_detail: null }
+            : { status: "skipped", reason_code: action === "done" ? "done_by_user" : "dismissed" };
+        const { error: tErr } = await db
+          .from("aa_tasks")
+          .update(taskPatch)
+          .eq("id", item.task_id)
+          .eq("user_id", uid)
+          .eq("status", "needs_you");
+        if (tErr) throw tErr;
+      }
 
       const out = { ...claimed[0] };
       if (key) out.answer_key = key;
@@ -698,7 +738,7 @@ export function createAutoApplyRouter(deps = {}) {
     }),
   );
 
-  // Inbox (mail db). ?tab=important|all|codes &q= &before=<received_at ISO> &limit=
+  // Inbox (mail db). ?tab=important|all|codes &category= &kind= &company= &unread=1 &q= &before=<received_at ISO> &limit=
   router.get(
     "/inbox",
     wrap("inbox", async (req, res) => {
@@ -707,8 +747,21 @@ export function createAutoApplyRouter(deps = {}) {
       if (!["important", "all", "codes"].includes(tab)) throw bad("tab must be important, all or codes.");
       let qb = mailDb.from("aa_mail_events").select(INBOX_LIST_FIELDS).eq("user_id", req.user.id);
       if (INBOX_TABS[tab]) qb = qb.eq("category", INBOX_TABS[tab]);
+      if (req.query.category) {
+        const c = String(req.query.category);
+        if (!INBOX_CATEGORIES.includes(c)) throw bad(`category must be one of ${INBOX_CATEGORIES.join(", ")}.`);
+        qb = qb.eq("category", c);
+      }
+      if (req.query.kind) {
+        const k = String(req.query.kind);
+        if (!INBOX_KINDS.includes(k)) throw bad(`kind must be one of ${INBOX_KINDS.join(", ")}.`);
+        qb = qb.eq("kind", k);
+      }
+      const company = searchTerm(req.query.company);
+      if (company) qb = qb.ilike("company", `%${company}%`);
+      if (req.query.unread === "1" || req.query.unread === "true") qb = qb.is("read_at", null);
       const term = searchTerm(req.query.q);
-      if (term) qb = qb.or(`subject.ilike.%${term}%,sender.ilike.%${term}%,text_excerpt.ilike.%${term}%`);
+      if (term) qb = qb.or(`subject.ilike.%${term}%,sender.ilike.%${term}%,from_name.ilike.%${term}%,company.ilike.%${term}%,text_excerpt.ilike.%${term}%`);
       if (req.query.before !== undefined && req.query.before !== "") {
         if (Number.isNaN(Date.parse(String(req.query.before)))) throw bad("before must be an ISO timestamp.");
         qb = qb.lt("received_at", new Date(String(req.query.before)).toISOString());
@@ -721,6 +774,63 @@ export function createAutoApplyRouter(deps = {}) {
     }),
   );
 
+  // Unread interview / assessment / offer / rejection / other important mail: the nav badge.
+  router.get(
+    "/inbox/unread",
+    wrap("inbox/unread", async (req, res) => {
+      const { data, error } = await mailDb
+        .from("aa_mail_events")
+        .select("id, kind, category")
+        .eq("user_id", req.user.id)
+        .in("category", NOTIFY_CATEGORIES)
+        .is("read_at", null)
+        .order("received_at", { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      const by_kind = {};
+      for (const r of data || []) {
+        const k = r.kind || (r.category === "rejected" ? "rejection" : "other");
+        by_kind[k] = (by_kind[k] || 0) + 1;
+      }
+      res.json({ count: (data || []).length, by_kind });
+    }),
+  );
+
+  router.post(
+    "/inbox/read-all",
+    writeLimiter,
+    wrap("inbox/read-all", async (req, res) => {
+      const { error } = await mailDb
+        .from("aa_mail_events")
+        .update({ read_at: now().toISOString() })
+        .eq("user_id", req.user.id)
+        .is("read_at", null);
+      if (error) throw error;
+      res.json({ ok: true });
+    }),
+  );
+
+  // Distinct companies in the user's mail, for the company filter (most recent first).
+  router.get(
+    "/inbox/companies",
+    wrap("inbox/companies", async (req, res) => {
+      const { data, error } = await mailDb
+        .from("aa_mail_events")
+        .select("company, received_at")
+        .eq("user_id", req.user.id)
+        .order("received_at", { ascending: false })
+        .limit(2000);
+      if (error) throw error;
+      const seen = new Map();
+      for (const r of data || []) {
+        const c = r.company && String(r.company).trim();
+        if (c && !seen.has(c.toLowerCase())) seen.set(c.toLowerCase(), c);
+      }
+      res.json({ companies: [...seen.values()].slice(0, 300) });
+    }),
+  );
+
+  // Opening a mail marks it read.
   router.get(
     "/inbox/:id",
     wrap("inbox/detail", async (req, res) => {
@@ -733,7 +843,46 @@ export function createAutoApplyRouter(deps = {}) {
         .maybeSingle();
       if (error) throw error;
       if (!data) throw notFound("Message not found.");
-      res.json({ mail: data });
+      if (!data.read_at) {
+        const readAt = now().toISOString();
+        const { error: rErr } = await mailDb.from("aa_mail_events").update({ read_at: readAt }).eq("id", data.id).eq("user_id", req.user.id).is("read_at", null);
+        if (rErr) console.warn("[autoapply/inbox] mark read failed:", rErr.message || rErr);
+        else data.read_at = readAt;
+      }
+      let interview = null;
+      if (data.kind === "interview") {
+        const { data: iv, error: iErr } = await mailDb.from("aa_interviews").select(INTERVIEW_FIELDS).eq("mail_event_id", data.id).eq("user_id", req.user.id).maybeSingle();
+        if (iErr) console.warn("[autoapply/inbox] interview lookup failed:", iErr.message || iErr);
+        else interview = iv || null;
+      }
+      res.json({ mail: data, interview });
+    }),
+  );
+
+  // Interviews extracted from mail (mail db). Newest first; the client splits upcoming / past / time not set.
+  router.get(
+    "/interviews",
+    wrap("interviews", async (req, res) => {
+      const { data, error } = await mailDb
+        .from("aa_interviews")
+        .select(INTERVIEW_FIELDS)
+        .eq("user_id", req.user.id)
+        .order("created_at", { ascending: false })
+        .limit(300);
+      if (error) throw error;
+      const rows = data || [];
+      const ids = [...new Set(rows.map((r) => r.mail_event_id))];
+      const mails = new Map();
+      if (ids.length) {
+        const { data: ms, error: mErr } = await mailDb
+          .from("aa_mail_events")
+          .select("id, subject, sender, from_name, received_at, read_at")
+          .eq("user_id", req.user.id)
+          .in("id", ids);
+        if (mErr) throw mErr;
+        for (const m of ms || []) mails.set(m.id, m);
+      }
+      res.json({ interviews: rows.map((r) => ({ ...r, mail: mails.get(r.mail_event_id) || null })), now: now().toISOString() });
     }),
   );
 
@@ -857,8 +1006,9 @@ export function createInboundHandler(deps = {}) {
     try {
       const { event, profile, category } = await storeInbound({ db, mailDb, payload });
       res.status(200).json({ ok: true });
-      // After the response: push an alert for important mail. Mail is never forwarded anywhere.
-      if (category === "important" && profile) {
+      // After the response: push an alert for interview / assessment / offer / rejection / important mail.
+      // Mail is never forwarded anywhere.
+      if (NOTIFY_CATEGORIES.includes(category) && profile) {
         const p = sendPush({ db, event, userId: profile.user_id, prefs: normAlertPrefs(profile.alert_prefs) });
         if (deps.onAfter) deps.onAfter(p);
       }

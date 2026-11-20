@@ -81,9 +81,36 @@ test('newsletter with prices, phones, dates, promo code yields no codes', async 
 
 test('payload has exactly the contract keys', async () => {
   const p = await load('workday_code.eml');
-  assert.deepEqual(Object.keys(p).sort(), ['codes', 'from', 'from_name', 'has_attachments', 'is_human', 'links', 'message_id', 'raw_key',
+  assert.deepEqual(Object.keys(p).sort(), ['codes', 'from', 'from_name', 'has_attachments', 'ics', 'is_human', 'links', 'meeting_links', 'message_id', 'raw_key',
     'received_at', 'reply_to', 'subject', 'text_excerpt', 'to']);
   assert.ok(p.text_excerpt.length <= 2000);
+  assert.equal(p.ics, null);
+  assert.deepEqual(p.meeting_links, []);
+});
+
+test('interview invite: .ics text and meeting links reach the payload; the invite is not an attachment', async () => {
+  const ics = [
+    'BEGIN:VCALENDAR', 'METHOD:REQUEST', 'BEGIN:VEVENT',
+    'DTSTART;TZID=India Standard Time:20261124T103000', 'DTEND;TZID=India Standard Time:20261124T113000',
+    'SUMMARY:Interview: Backend Engineer', 'LOCATION:Microsoft Teams Meeting',
+    'END:VEVENT', 'END:VCALENDAR',
+  ].join('\r\n');
+  const raw = [
+    'From: Jane Recruiter <jane@acme.com>', 'To: amar.p3x9@apply.vloombox.in', 'Subject: Invitation: Interview with Acme',
+    'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="b1"', '',
+    '--b1', 'Content-Type: multipart/alternative; boundary="b2"', '',
+    '--b2', 'Content-Type: text/plain; charset=utf-8', '',
+    'Join the call: https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0?context=x',
+    'Or Zoom backup https://acme.zoom.us/j/99887766554?pwd=xyz. Thanks',
+    '--b2', 'Content-Type: text/calendar; charset=utf-8; method=REQUEST', '', ics, '--b2--',
+    '--b1', 'Content-Type: application/ics; name="invite.ics"', 'Content-Disposition: attachment; filename="invite.ics"', '', ics, '--b1--', '',
+  ].join('\r\n');
+  const parsed = await PostalMime.parse(raw);
+  const p = buildPayload(parsed, { envelopeTo: 'amar.p3x9@apply.vloombox.in', receivedAt: new Date('2026-11-20T06:00:00Z') });
+  assert.match(p.ics, /BEGIN:VEVENT[\s\S]*DTSTART;TZID=India Standard Time:20261124T103000/);
+  assert.equal(p.has_attachments, false, 'a calendar invite is not an attachment the user has to ask for');
+  assert.deepEqual(p.meeting_links, ['https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0?context=x', 'https://acme.zoom.us/j/99887766554?pwd=xyz']);
+  assert.ok(!p.links.some((l) => /zoom|teams/.test(l)), 'meeting links stay out of the verification links');
 });
 
 test('regexes are the mail_otp.py ones', () => {

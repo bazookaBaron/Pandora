@@ -202,6 +202,8 @@ test("POST /orders: eligibility, cap, success", async () => {
   assert.equal(capped.json.error.code, "monthly_cap");
   const bad = await call("POST", "/api/autoapply/orders", { body: { pack_kind: "service", pack_size: 60 } });
   assert.equal(bad.status, 400);
+  const removed = await call("POST", "/api/autoapply/orders", { body: { pack_kind: "service", pack_size: 80 } });
+  assert.equal(removed.status, 400, "80 packs are no longer sold");
   const ok = await call("POST", "/api/autoapply/orders", { body: { pack_kind: "service", pack_size: 50, window_days: 7 } });
   assert.equal(ok.status, 200, JSON.stringify(ok.json));
   assert.equal(ok.json.amount, 59900);
@@ -243,10 +245,10 @@ test("POST /orders/verify: signature, idempotent paid + single purchase ledger r
 });
 
 test("webhook alone marks a pending batch paid (lost browser callback); non-AutoApply events pass through", async () => {
-  const o = await call("POST", "/api/autoapply/orders", { body: { pack_kind: "product", pack_size: 80, window_days: 30 } });
+  const o = await call("POST", "/api/autoapply/orders", { body: { pack_kind: "product", pack_size: 100, window_days: 30 } });
   const wrongAmt = await handleAutoApplyWebhook({ db, body: { event: "payment.captured", payload: { payment: { entity: { id: "pay_2", order_id: o.json.order_id, amount: 100 } } } } });
   assert.match(wrongAmt.note, /amount mismatch/);
-  const r = await handleAutoApplyWebhook({ db, body: { event: "payment.captured", payload: { payment: { entity: { id: "pay_2", order_id: o.json.order_id, amount: 119900 } } } } });
+  const r = await handleAutoApplyWebhook({ db, body: { event: "payment.captured", payload: { payment: { entity: { id: "pay_2", order_id: o.json.order_id, amount: 149900 } } } } });
   assert.equal(r.status, "paid");
   assert.equal(db.rows("aa_credit_ledger").filter((l) => l.batch_id === o.json.batch_id).length, 1);
   assert.equal(await handleAutoApplyWebhook({ db, body: { event: "payment.captured", payload: { payment: { entity: { id: "p", order_id: "order_plan" } } } } }), null);
@@ -347,6 +349,64 @@ test("needs-you: list, answer -> aa_answers + task queued; done; double resolve"
   assert.ok(!after.json.items.find((i) => i.id === n1.id || i.id === n2.id));
 });
 
+test("needs-you: profile item (no task) is listed; only dismiss; pause / cancel from waiting_profile close it", async () => {
+  const mk = (status) => {
+    const b = { id: crypto.randomUUID(), user_id: PRO, pack_kind: "product", pack_size: 50, price_paise: 59900, credits_total: 50, credits_used: 0, status, purchased_at: new Date().toISOString(), waiting_detail: { reason: "profile_incomplete", missing: [{ key: "resume", label: "Upload your resume" }] } };
+    db.rows("aa_batches").push(b);
+    return b;
+  };
+  const b1 = mk("waiting_profile");
+  const b2 = mk("waiting_profile");
+  const tasksBefore = JSON.stringify(db.rows("aa_tasks"));
+  const ny = { id: crypto.randomUUID(), task_id: null, batch_id: b1.id, user_id: PRO, kind: "profile", payload: { missing: [{ key: "resume", label: "Upload your resume" }], batch_id: b1.id, url: "/autoapply/profile" }, resolved_at: null, created_at: new Date().toISOString() };
+  db.rows("aa_needs_you").push(ny);
+
+  const list = await call("GET", "/api/autoapply/needs-you");
+  assert.equal(list.status, 200);
+  const item = list.json.items.find((i) => i.id === ny.id);
+  assert.ok(item, "profile item is listed without a task");
+  assert.equal(item.kind, "profile");
+  assert.equal(item.task, null);
+  assert.equal(item.task_id, null);
+  assert.equal(item.batch_id, b1.id);
+  assert.deepEqual(item.payload.missing, [{ key: "resume", label: "Upload your resume" }]);
+
+  for (const action of ["done", "answer"]) {
+    const r = await call("POST", `/api/autoapply/needs-you/${ny.id}`, { body: { action, answer: "x" } });
+    assert.equal(r.status, 409, action);
+    assert.equal(r.json.error.code, "invalid_action");
+  }
+  assert.equal(db.rows("aa_needs_you").find((n) => n.id === ny.id).resolved_at, null);
+
+  const me = await call("GET", "/api/autoapply/me");
+  assert.equal(me.json.profile_check.ok, false);
+  assert.ok(me.json.profile_check.missing.every((m) => m.key && m.label));
+
+  // pause one waiting batch: another still waits -> item stays open
+  const p = await call("POST", `/api/autoapply/batches/${b1.id}/pause`);
+  assert.equal(p.status, 200, JSON.stringify(p.json));
+  assert.equal(p.json.batch.status, "paused");
+  assert.equal(db.rows("aa_needs_you").find((n) => n.id === ny.id).resolved_at, null);
+  // cancel the last waiting batch: unused credits -> refund_due and the profile item closes
+  const c = await call("POST", `/api/autoapply/batches/${b2.id}/cancel`);
+  assert.equal(c.status, 200, JSON.stringify(c.json));
+  assert.equal(c.json.batch.status, "refund_due");
+  const closed = db.rows("aa_needs_you").find((n) => n.id === ny.id);
+  assert.ok(closed.resolved_at);
+  assert.equal(closed.resolution, "dismissed");
+  assert.equal(JSON.stringify(db.rows("aa_tasks")), tasksBefore, "no task touched");
+
+  // dismiss is allowed and never touches a task
+  const ny2 = { ...ny, id: crypto.randomUUID(), resolved_at: null, resolution: null };
+  db.rows("aa_needs_you").push(ny2);
+  const d = await call("POST", `/api/autoapply/needs-you/${ny2.id}`, { body: { action: "dismiss" } });
+  assert.equal(d.status, 200, JSON.stringify(d.json));
+  assert.equal(d.json.item.resolution, "dismissed");
+  assert.equal(JSON.stringify(db.rows("aa_tasks")), tasksBefore);
+  // clean up so later tests see no extra batches
+  for (const b of [b1, b2]) b.status = "refunded";
+});
+
 test("accounts list + reveal (vault) + rate limit 10/hour", async () => {
   db.rows("aa_portal_accounts").push({ user_id: PRO, tenant_host: "acme.wd3.myworkdayjobs.com", login_email: `${alias}.acme@apply.vloombox.in`, secret_ciphertext: encryptSecret("Pw!12345", PRO, "acme.wd3.myworkdayjobs.com", { key: VAULT_KEY }), status: "active", created_at: new Date().toISOString() });
   const l = await call("GET", "/api/autoapply/accounts");
@@ -381,7 +441,9 @@ test("inbound email: HMAC, alias -> user, mail db row with category, never forwa
   assert.deepEqual(ev.codes, ["482913"]);
   assert.equal(ev.category, "code");
   assert.equal(ev.has_attachments, false);
-  assert.ok(Math.abs(Date.parse(ev.expires_at) - Date.now() - 86400000) < 60000, "code mail expires in 1 day");
+  assert.equal(ev.expires_at, null, "code mail is never deleted");
+  assert.equal(ev.company, "Acme");
+  assert.equal(ev.read_at, null);
   assert.deepEqual(mailDb.rpcCalls.at(-1), { name: "aa_notify_mail", args: { p_user: PRO, p_event: ev.id } });
   assert.equal(db.rpcCalls.filter((c) => c.name === "aa_notify_mail").length, 0);
   await lastAfter;
@@ -396,7 +458,10 @@ test("inbound email: HMAC, alias -> user, mail db row with category, never forwa
   assert.equal(hev.category, "important");
   assert.equal(hev.has_attachments, true);
   assert.equal(hev.forwarded_at ?? null, null);
-  assert.ok(Math.abs(Date.parse(hev.expires_at) - Date.now() - 180 * 86400000) < 60000);
+  assert.equal(hev.expires_at, null);
+  assert.equal(hev.kind, "interview");
+  assert.equal(hev.company, "Acme");
+  assert.equal(mailDb.rows("aa_interviews").filter((r) => r.mail_event_id === hev.id).length, 1, "an interview record is made");
   assert.equal(pushes.length, 1);
   assert.equal(pushes[0].userId, PRO);
   assert.equal(pushes[0].event.id, hev.id);
@@ -427,7 +492,7 @@ test("inbox: tabs, search, pagination, detail, ownership", async () => {
   assert.equal(all.status, 200);
   assert.ok(all.json.mails.length >= 4);
   assert.ok(all.json.mails.every((m) => m.id !== 950), "never shows another user's mail");
-  assert.deepEqual(Object.keys(all.json.mails[0]).sort(), ["category", "codes", "has_attachments", "id", "is_human", "received_at", "sender", "subject", "text_excerpt"]);
+  assert.deepEqual(Object.keys(all.json.mails[0]).sort(), ["category", "codes", "company", "expires_at", "from_name", "has_attachments", "id", "is_human", "kind", "read_at", "received_at", "sender", "subject", "text_excerpt"]);
   const imp = await call("GET", "/api/autoapply/inbox?tab=important");
   assert.ok(imp.json.mails.length >= 1 && imp.json.mails.every((m) => m.category === "important"));
   const codes = await call("GET", "/api/autoapply/inbox?tab=codes");
@@ -452,6 +517,91 @@ test("inbox: tabs, search, pagination, detail, ownership", async () => {
   assert.ok(Array.isArray(one.json.mail.links));
   assert.equal((await call("GET", "/api/autoapply/inbox/950")).status, 404);
   assert.equal((await call("GET", "/api/autoapply/inbox/abc")).status, 404);
+});
+
+test("inbound email: rejection pushes and expires in 30 days; receipts do not push; .ics interview is extracted", async () => {
+  const base = { to: `${alias}@apply.vloombox.in`, from: "no-reply@globex.com", from_name: "Globex Careers", received_at: new Date().toISOString(), codes: [], links: [], is_human: false, raw_key: null, reply_to: null, message_id: null };
+  const before = pushes.length;
+
+  const rej = signed({ ...base, subject: "Update on your application", text_excerpt: "Unfortunately, we will not be moving forward with your application." });
+  await call("POST", "/api/inbound/email", { user: null, raw: rej.raw, headers: rej.headers });
+  await lastAfter;
+  const rev = mailDb.rows("aa_mail_events").at(-1);
+  assert.equal(rev.category, "rejected");
+  assert.equal(rev.kind, "rejection");
+  assert.ok(Math.abs(Date.parse(rev.expires_at) - Date.now() - 30 * 86400000) < 60000, "rejection expires 30 days after receipt");
+  assert.equal(pushes.length, before + 1, "a rejection pushes");
+
+  const rcv = signed({ ...base, subject: "Thank you for applying", text_excerpt: "We have received your application." });
+  await call("POST", "/api/inbound/email", { user: null, raw: rcv.raw, headers: rcv.headers });
+  const cev = mailDb.rows("aa_mail_events").at(-1);
+  assert.equal(cev.category, "received");
+  assert.ok(Math.abs(Date.parse(cev.expires_at) - Date.now() - 30 * 86400000) < 60000);
+  assert.equal(pushes.length, before + 1, "a receipt does not push");
+
+  const ics = ["BEGIN:VCALENDAR", "BEGIN:VEVENT", "DTSTART:20991201T083000Z", "DTEND:20991201T091500Z", "SUMMARY:Interview: Data Engineer - Globex", "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+  const inv = signed({ ...base, subject: "Invitation: Globex interview", text_excerpt: "See invite", ics, meeting_links: ["https://meet.google.com/abc-defg-hij"] });
+  await call("POST", "/api/inbound/email", { user: null, raw: inv.raw, headers: inv.headers });
+  await lastAfter;
+  const iev = mailDb.rows("aa_mail_events").at(-1);
+  assert.equal(iev.kind, "interview");
+  assert.equal(iev.expires_at, null);
+  assert.equal("ics" in iev, false, "the .ics text is not stored on the mail row");
+  const iv = mailDb.rows("aa_interviews").find((r) => r.mail_event_id === iev.id);
+  assert.equal(iv.user_id, PRO);
+  assert.equal(iv.starts_at, "2099-12-01T08:30:00.000Z");
+  assert.equal(iv.role, "Data Engineer");
+  assert.equal(iv.meeting_provider, "google_meet");
+  assert.equal(pushes.length, before + 2);
+  assert.equal(pushes.at(-1).event.kind, "interview");
+});
+
+test("inbox: category / kind / company / unread filters, unread count, read on open, read-all, companies, interviews", async () => {
+  const mine = () => mailDb.rows("aa_mail_events").filter((r) => r.user_id === PRO);
+  const rej = await call("GET", "/api/autoapply/inbox?category=rejected");
+  assert.equal(rej.status, 200);
+  assert.ok(rej.json.mails.length >= 1 && rej.json.mails.every((m) => m.category === "rejected"));
+  const ivs = await call("GET", "/api/autoapply/inbox?kind=interview");
+  assert.ok(ivs.json.mails.length >= 1 && ivs.json.mails.every((m) => m.kind === "interview"));
+  assert.equal((await call("GET", "/api/autoapply/inbox?category=nope")).status, 400);
+  assert.equal((await call("GET", "/api/autoapply/inbox?kind=nope")).status, 400);
+  const glx = await call("GET", "/api/autoapply/inbox?company=globex");
+  assert.ok(glx.json.mails.length >= 3 && glx.json.mails.every((m) => /globex/i.test(m.company)));
+
+  const unread = await call("GET", "/api/autoapply/inbox/unread");
+  assert.equal(unread.status, 200);
+  const expect = mine().filter((r) => ["important", "rejected"].includes(r.category) && !r.read_at).length;
+  assert.equal(unread.json.count, expect);
+  assert.ok(unread.json.by_kind.rejection >= 1);
+
+  const target = mine().find((r) => r.category === "rejected" && !r.read_at);
+  const open = await call("GET", `/api/autoapply/inbox/${target.id}`);
+  assert.equal(open.status, 200);
+  assert.ok(open.json.mail.read_at, "opening a mail marks it read");
+  assert.equal((await call("GET", "/api/autoapply/inbox/unread")).json.count, expect - 1);
+  const unreadList = await call("GET", "/api/autoapply/inbox?unread=1");
+  assert.ok(unreadList.json.mails.length >= 1 && unreadList.json.mails.every((m) => m.read_at == null));
+  assert.ok(unreadList.json.mails.every((m) => m.id !== target.id));
+
+  const ivMail = mine().filter((r) => r.kind === "interview").at(-1);
+  const withIv = await call("GET", `/api/autoapply/inbox/${ivMail.id}`);
+  assert.equal(withIv.json.interview.mail_event_id, ivMail.id);
+
+  const comps = await call("GET", "/api/autoapply/inbox/companies");
+  assert.ok(comps.json.companies.includes("Globex"));
+  assert.equal(new Set(comps.json.companies.map((c) => c.toLowerCase())).size, comps.json.companies.length, "deduplicated");
+
+  const list = await call("GET", "/api/autoapply/interviews");
+  assert.equal(list.status, 200);
+  assert.ok(list.json.interviews.length >= 2);
+  assert.ok(list.json.interviews.every((i) => i.mail && i.mail.id === i.mail_event_id));
+  assert.ok(list.json.now);
+
+  assert.equal((await call("POST", "/api/autoapply/inbox/read-all")).status, 200);
+  assert.equal((await call("GET", "/api/autoapply/inbox/unread")).json.count, 0);
+  // another user's interviews are never listed
+  mailDb.rows("aa_interviews").push({ id: 9999, mail_event_id: 950, user_id: FREE, company: "X", created_at: new Date().toISOString() });
+  assert.ok((await call("GET", "/api/autoapply/interviews")).json.interviews.every((i) => i.id !== 9999));
 });
 
 test("push: key, subscribe (validated, per-user), unsubscribe", async () => {

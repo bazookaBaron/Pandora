@@ -31,8 +31,8 @@ AUTO_APPLY = {
   review_hours: 6,                      // shortlist review window when review_before_apply = true
   tenant_daily_cap_default: 150,        // platform-wide submissions per tenant_host per IST day
   packs: {                              // paise, GST inclusive
-    service: { 50: 59900, 80: 79900, 100: 99900 },
-    product: { 50: 89900, 80: 119900, 100: 149900 },   // confirmed 2026-11-17
+    service: { 50: 59900, 100: 115000 },
+    product: { 50: 89900, 100: 149900 },   // confirmed 2026-11-20 (80 packs removed)
   },
 }
 ```
@@ -43,9 +43,13 @@ AUTO_APPLY = {
 
 Batch: `pending_payment` (order created) -> `paid` (API, after signature verify; ledger `purchase` +credits_total, `purchased_at`, `expires_at` = +90 d) -> `shortlisting` (scheduler) -> `review` (if review_before_apply; `review_until` set) -> `running` -> `waiting_supply` (no more matching jobs right now; scheduler keeps refilling) -> `completed` (credits_used = credits_total). User can `paused`/resume and `cancelled`. At `expires_at` with credits left: scheduler -> `refund_due`; API cron refunds `price_paise * remaining / credits_total` via Razorpay, writes ledger `refund` (-remaining), -> `refunded`. Cancel with credits left also goes to `refund_due`.
 
+Profile gate (`cloud_hunter/saas/profile_gate.py`, mirrored in `Pandora/frontend/lib/autoapply/profileGate.js`; migration `sql/22_autoapply_gate.sql`): a batch is only shortlisted / claimed when the user's profile is complete (onboarding done, resume file, apply email, name, phone, city, current company + title unless `facts.currently_employed = 'no'`, experience years, education, and every `required` question; a question with a form default counts once onboarding is done). Otherwise the scheduler (from `paid` / `shortlisting`) or the worker (from `running` / `waiting_supply`) moves the batch to **`waiting_profile`** with `aa_batches.waiting_detail = {reason: 'profile_incomplete', missing: [{key, label}], checked_at}`, and opens ONE needs-you item of kind `profile` per user. Each pass re-checks: once complete the batch goes to `shortlisting` (no tasks yet) or `running`, `waiting_detail` is cleared and the item is resolved `done_by_user`. From `waiting_profile` the user can pause (-> `paused`) or cancel (-> `refund_due` / `completed`); when no other batch of the user still waits, the API resolves the profile item `dismissed`. No credit is used while waiting; `expires_at` keeps running.
+
 Task: `shortlisted` (scheduler) -> `removed` (user, during review) | `queued` (scheduler, after review or immediately) -> `claimed` -> `running` -> `waiting_code` -> `submitting` -> `applied` (ledger `capture` -1, batch credits_used +1) | `skipped` | `failed` (retryable: back to `queued`, attempt+1, not_before backoff, max 2 retries) | `needs_you` (row in `aa_needs_you`). Credits are only ever spent by `applied`.
 
 When a needs-you item is resolved with `answered`, the API upserts `aa_answers` and sets the task back to `queued` (attempt unchanged). `done_by_user` sets the task `skipped` with `reason_code='done_by_user'` (no credit). `dismissed`/`expired` -> `skipped`.
+
+Needs-you kind `profile`: `task_id` NULL, `batch_id` = the (latest) waiting batch, payload `{missing: [{key, label}], batch_id, url: '/autoapply/profile', note}` (the web app redirects `/autoapply/profile` to `/autoapply/setup`). It never expires (the 7-day expiry skips it) and only `dismiss` is accepted by the API (409 `invalid_action` for `done` / `answer`); it touches no task. The scheduler resolves it itself once the profile is complete.
 
 ## Standard answers (`aa_answers.question_key`)
 
@@ -73,9 +77,9 @@ Key: env `AA_VAULT_KEY` = base64 of 32 random bytes. Secret string -> UTF-8 -> A
   "reply_to": null, "message_id": "<...>" }
 ```
 
-The body also carries `"has_attachments": true|false` (the mail had a real, non-inline attachment; attachments are never stored).
+The body also carries `"has_attachments": true|false` (the mail had a real, non-inline attachment other than a calendar invite; attachments are never stored), `"meeting_links": [url]` (Zoom / Meet / Teams / Webex / Chime / Skype / Calendly / GoodTime links, up to 5; kept out of `links`) and `"ics": "<text>"|null` (the first calendar invite, max 32 000 chars). `ics` and `meeting_links` only feed the classifier and the interview extractor; they are not stored on the mail row.
 
-Alias resolution: local part before `@`; the user's alias is the first two dot-separated parts (`first.k7q2`); anything after is a per-company tag. The alias is resolved against the MAIN db (`aa_profiles`). The API classifies the mail, inserts it into the MAIL db's `aa_mail_events` (user_id NULL if unknown) with `category` and `expires_at`, then `rpc('aa_notify_mail', {p_user, p_event})` on the mail db. Respond `200 {ok:true}` fast.
+Alias resolution: local part before `@`; the user's alias is the first two dot-separated parts (`first.k7q2`); anything after is a per-company tag. The alias is resolved against the MAIN db (`aa_profiles`). The API classifies the mail, inserts it into the MAIL db's `aa_mail_events` (user_id NULL if unknown) with `category`, `kind`, `company`, `from_name`, `read_at` NULL and `expires_at`; for an interview mail it also inserts an `aa_interviews` row (`lib/autoapply/interview.js`, pure + unit tested). Then `rpc('aa_notify_mail', {p_user, p_event})` on the mail db. Respond `200 {ok:true}` fast.
 
 **Mail is never forwarded** (no Resend relay, no auto-forward). It is read only on the Vloombox inbox page.
 
@@ -83,17 +87,18 @@ Alias resolution: local part before `@`; the user's alias is the first two dot-s
 
 | category | what | expires |
 |---|---|---|
-| `code` | verification code / OTP / "verify your email" / password reset | 1 day |
-| `received` | automated "we received your application / thank you for applying" | 14 days |
-| `important` | assessment / test / interview / offer / next steps, or written by a person (`is_human`) | 180 days |
-| `other` | everything else | 180 days |
+| `code` | verification code / OTP / "verify your email" / password reset | never |
+| `received` | automated "we received your application / applied successfully" | 30 days after receipt |
+| `rejected` | clear rejection ("unfortunately ... not moving forward", "pursue other candidates", "position has been filled", "regret to inform", ...) that does not also invite to an interview / assessment / offer | 30 days after receipt |
+| `important` | assessment / test / interview / offer / next steps, or written by a person (`is_human`) | never |
+| `other` | everything else | never |
 
-`code` and `received` are only chosen on a clear match (they are deleted early); strong "important" words (assessment, interview, offer, ...) win over them, and anything a person wrote is `important`. A daily cron (03:40 IST, on Railway) deletes rows with `expires_at < now()` in batches of 500; that daily activity also keeps the free Supabase mail project from pausing.
+`kind`: `interview` / `assessment` / `offer` / `recruiter` (inside `important`), `rejection` (= `rejected`), else NULL. Only `received` and `rejected` are ever deleted, so they are chosen only on a clear match; anything unsure is kept. Non-expiring rows have `expires_at` NULL. A daily cron (03:40 IST, on Railway) deletes rows with `category IN ('received','rejected') AND expires_at < now()` in batches of 500; that daily activity also keeps the free Supabase mail project from pausing.
 
 ### Alerts
 
-- **Web push** (immediately, for `important` only): "New message from <sender>: <subject>", url `/autoapply/inbox`. Needs `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY`; silently off otherwise. Subscriptions live in the main db (`aa_push_subscriptions`); 404/410 from the push service deletes the subscription. Service worker: `frontend/public/sw.js` (push only, no caching).
-- **Daily alert email** (19:00 IST cron): for each user with `important` mail received in the last 24 h and `alerted_at IS NULL`, ONE email via Resend to `aa_profiles.contact_email` (else the auth email): "You have N new messages in Vloombox (e.g. 1 assessment from IBM). Open: <APP_BASE_URL>/autoapply/inbox". Never contains the mail body or subject. Sets `alerted_at`. Honours `aa_profiles.alert_prefs` (`{"email":true,"push":true}`). Max 100 sends per run (Resend free tier); the rest go next run.
+- **Web push** (immediately, for `important` and `rejected`): title by kind ("Interview invite · Acme", "Assessment to complete", "Offer received", "Application update"), body "New message from <sender>: <subject>", url `/autoapply/inbox?mail=<id>`. Needs `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY`; silently off otherwise. Subscriptions live in the main db (`aa_push_subscriptions`); 404/410 from the push service deletes the subscription. Service worker: `frontend/public/sw.js` (push only, no caching).
+- **Daily alert email** (19:00 IST cron): for each user with `important` or `rejected` mail received in the last 24 h and `alerted_at IS NULL`, ONE email via Resend to `aa_profiles.contact_email` (else the auth email): "You have N new messages in Vloombox (e.g. 1 assessment from IBM). Open: <APP_BASE_URL>/autoapply/inbox". Never contains the mail body or subject. Sets `alerted_at`. Honours `aa_profiles.alert_prefs` (`{"email":true,"push":true}`). Max 100 sends per run (Resend free tier); the rest go next run.
 
 Workers wait for codes with `LISTEN aa_mail` on the MAIL database (`AA_MAIL_DB_URL`; payload `<user_id>:<event_id>`) plus a 2 s poll fallback on its `aa_mail_events WHERE user_id=$1 AND received_at > $since AND consumed_by_task IS NULL`, matching sender domain / company / tag.
 
@@ -101,7 +106,7 @@ Workers wait for codes with `LISTEN aa_mail` on the MAIL database (`AA_MAIL_DB_U
 
 | Method + path | Body / query | Response |
 |---|---|---|
-| `GET /api/autoapply/me` | | `{eligible, plan, onboarding_done, profile, prefs, email: {mode, alias, address, contact_email}, alert_prefs: {email, push}, review_before_apply, usage: {month_purchased, month_applied, monthly_cap, remaining_purchasable, today_applied, daily_cap}, config: AUTO_APPLY (packs, limits)}` |
+| `GET /api/autoapply/me` | | `{eligible, plan, onboarding_done, profile, prefs, email: {mode, alias, address, contact_email}, alert_prefs: {email, push}, review_before_apply, usage: {month_purchased, month_applied, monthly_cap, remaining_purchasable, today_applied, daily_cap}, profile_check: {ok, missing: [{key, label}]} (same rules as the gate), config: AUTO_APPLY (packs, limits)}` |
 | `PUT /api/autoapply/profile` | `{profile?, prefs?, email_mode?, contact_email?, alert_prefs?: {email?, push?}, review_before_apply?, consent?: true, onboarding_done?}` | `{ok, profile row}`; creates `apply_alias` on first save |
 | `POST /api/autoapply/resume` | multipart `resume` (pdf/docx <= 5 MB) | `{resume_path, parsed: {profile draft}}` |
 | `GET /api/autoapply/answers` / `PUT` | PUT `{answers: {key: value}}` | see above |
@@ -110,12 +115,16 @@ Workers wait for codes with `LISTEN aa_mail` on the MAIL database (`AA_MAIL_DB_U
 | `POST /api/autoapply/orders/verify` | `{razorpay_order_id, razorpay_payment_id, razorpay_signature}` | `{batch}` (idempotent) |
 | `GET /api/autoapply/batches` | | `{batches: [...]}` |
 | `GET /api/autoapply/batches/:id` | | `{batch, counts: {status: n}, tasks: [{id, company, title, ats, status, reason_code, score, submitted_at, apply_url}]}` |
-| `POST /api/autoapply/batches/:id/{approve,pause,resume,cancel}` | | `{batch}` |
+| `POST /api/autoapply/batches/:id/{approve,pause,resume,cancel}` | | `{batch}`; approve: `review`; pause: `paid`, `shortlisting`, `review`, `running`, `waiting_supply`, `waiting_profile`; resume: `paused`; cancel: those + `pending_payment`, `paused` (409 `invalid_state` otherwise) |
 | `POST /api/autoapply/batches/:id/tasks/:taskId/remove` | | `{task}` (only while batch `review`) |
-| `GET /api/autoapply/needs-you` | | `{items: [{id, kind, payload, task: {company, title, apply_url}, created_at}]}` |
-| `POST /api/autoapply/needs-you/:id` | `{action: 'done'|'answer'|'dismiss', answer?}` | `{item}` |
-| `GET /api/autoapply/inbox` | `?tab=important\|all\|codes&q=<text>&before=<received_at ISO>&limit=50` (default tab `all`; `q` matches sender, subject, text) | `{mails: [{id, sender, subject, codes, is_human, received_at, text_excerpt, category, has_attachments}], next_before: <ISO>\|null}` |
-| `GET /api/autoapply/inbox/:id` | | `{mail: {...list fields, links: [url]}}` (404 if not the caller's) |
+| `GET /api/autoapply/needs-you` | | `{items: [{id, kind, payload, task_id, batch_id, task: {company, title, apply_url} \| null, created_at}]}` (`task` is null for kind `profile`) |
+| `POST /api/autoapply/needs-you/:id` | `{action: 'done'|'answer'|'dismiss', answer?}` | `{item}`; kind `profile`: only `dismiss` (409 `invalid_action`) |
+| `GET /api/autoapply/inbox` | `?tab=important\|all\|codes&category=&kind=&company=&unread=1&q=<text>&before=<received_at ISO>&limit=50` (default tab `all`; `q` matches sender, name, company, subject, text) | `{mails: [{id, sender, from_name, company, subject, codes, is_human, received_at, text_excerpt, category, kind, has_attachments, read_at, expires_at}], next_before: <ISO>\|null}` |
+| `GET /api/autoapply/inbox/:id` | | `{mail: {...list fields, links: [url]}, interview: {...}\|null}`; marks the mail read (404 if not the caller's) |
+| `GET /api/autoapply/inbox/unread` | | `{count, by_kind: {interview: n, rejection: n, ...}}` (unread `important` + `rejected`; nav badge) |
+| `POST /api/autoapply/inbox/read-all` | | `{ok}` |
+| `GET /api/autoapply/inbox/companies` | | `{companies: [name]}` |
+| `GET /api/autoapply/interviews` | | `{interviews: [{id, mail_event_id, company, role, starts_at, ends_at, timezone, tz_assumed, time_text, duration_min, meeting_url, meeting_provider, schedule_url, location, mode, round, interview_type, source, created_at, mail: {...}}], now}` |
 | `GET /api/autoapply/push/key` | | `{enabled, key}` (VAPID public key; `enabled:false, key:null` when push is not configured) |
 | `POST /api/autoapply/push/subscribe` | `{endpoint, keys: {p256dh, auth}}` (PushSubscription JSON) | `{ok}` |
 | `POST /api/autoapply/push/unsubscribe` | `{endpoint}` | `{ok}` |

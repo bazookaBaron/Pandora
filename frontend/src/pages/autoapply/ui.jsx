@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { Check, Copy } from 'lucide-react'
 import Navbar from '../../components/Navbar'
 import { ErrorState, LoadingState } from '../../components/shared/states'
-import { useAutoApplyMe, useNeedsYou } from '../../lib/useAutoApply'
+import { useAutoApplyMe, useInboxUnread, useNeedsYou } from '../../lib/useAutoApply'
 import './autoapply.css'
 
 // ── shared bits for every AutoApply screen ──────────────────────────
@@ -30,10 +30,10 @@ export function fmtAgo(iso) {
     return `${Math.floor(s / 86400)} d ago`
 }
 
-export const PACK_SIZES = [50, 80, 100]
+export const PACK_SIZES = [50, 100]
 // Service prices are fixed by the product brief; product prices ONLY come from
 // the API (GET /me -> config.packs.product). Never hard-code product prices.
-const SERVICE_FALLBACK = { 50: 59900, 80: 79900, 100: 99900 }
+const SERVICE_FALLBACK = { 50: 59900, 100: 115000 }
 
 export function packPrice(config, kind, size) {
     const fromApi = config?.packs?.[kind]?.[size] ?? config?.packs?.[kind]?.[String(size)]
@@ -64,6 +64,7 @@ const BATCH_STATUS = {
     running: ['Running', 't-green', true],
     paused: ['Paused', 't-amber'],
     waiting_supply: ['Waiting for jobs', 't-pop'],
+    waiting_profile: ['Waiting for your profile', 't-warm'],
     completed: ['Completed', 't-green'],
     expired: ['Expired', 't-muted'],
     refund_due: ['Refund pending', 't-warm'],
@@ -88,7 +89,33 @@ const TASK_STATUS = {
 
 export const TASK_STATUS_ORDER = Object.keys(TASK_STATUS)
 export const taskStatusLabel = (s) => (TASK_STATUS[s] || [s])[0]
-export const ACTIVE_BATCH = ['paid', 'shortlisting', 'review', 'running', 'paused', 'waiting_supply']
+export const ACTIVE_BATCH = ['paid', 'shortlisting', 'review', 'running', 'paused', 'waiting_supply', 'waiting_profile']
+
+// ── profile gate (missing items from /me profile_check, aa_batches.waiting_detail or a 'profile' needs-you item) ──
+// missing key -> SetupPage step that fixes it (fields.* / facts.* / profile items are on the answers step)
+const STEP_FOR = { onboarding: 'consent', resume: 'resume', email: 'email' }
+export const setupStepFor = (key) => STEP_FOR[key] || 'answers'
+export function setupLinkFor(missing) {
+    const first = Array.isArray(missing) && missing[0]
+    const key = first && (typeof first === 'object' ? first.key : first)
+    return key ? `/autoapply/setup?step=${setupStepFor(key)}` : '/autoapply/setup'
+}
+const missingLabel = (m) => (typeof m === 'object' && m ? m.label || m.key : String(m))
+
+export function ProfileMissing({ missing, lead = 'We start applying as soon as your profile is complete. Still missing:', cta = 'Complete your profile', style }) {
+    const list = Array.isArray(missing) ? missing : []
+    return (
+        <div className="aa-note is-warn aa-stack" style={style} role="status">
+            <span>{lead}</span>
+            {list.length > 0 && (
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {list.map((m, i) => <li key={(m && m.key) || i}>{missingLabel(m)}</li>)}
+                </ul>
+            )}
+            <div><Link to={setupLinkFor(list)} className="aa-btn is-primary">{cta}</Link></div>
+        </div>
+    )
+}
 
 function Pill({ map, status }) {
     const [label, tone, live] = map[status] || [String(status || 'unknown').replace(/_/g, ' '), 't-muted']
@@ -186,7 +213,8 @@ const TABS = [
     { to: '/autoapply/batches', label: 'Batches' },
     { to: '/autoapply/needs-you', label: 'Needs you', badge: true },
     { to: '/autoapply/buy', label: 'Buy' },
-    { to: '/autoapply/inbox', label: 'Inbox' },
+    { to: '/autoapply/inbox', label: 'Inbox', unread: true },
+    { to: '/autoapply/interviews', label: 'Interviews' },
     { to: '/autoapply/accounts', label: 'Accounts' },
     { to: '/autoapply/setup', label: 'Setup' },
 ]
@@ -194,7 +222,9 @@ const TABS = [
 function SubNav({ showBadge }) {
     const { pathname } = useLocation()
     const needs = useNeedsYou()
+    const unread = useInboxUnread({ enabled: !!showBadge })
     const count = showBadge ? (needs.data?.items?.length || 0) : 0
+    const unreadCount = showBadge ? (unread.data?.count || 0) : 0
     return (
         <nav className="aa-subnav" aria-label="AutoApply">
             {TABS.map((t) => {
@@ -203,6 +233,7 @@ function SubNav({ showBadge }) {
                     <Link key={t.to} to={t.to} className={`nav-pill${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined}>
                         {t.label}
                         {t.badge && count > 0 && <span className="aa-count" aria-label={`${count} waiting`}>{count}</span>}
+                        {t.unread && unreadCount > 0 && <span className="aa-count" aria-label={`${unreadCount} unread`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}
                     </Link>
                 )
             })}

@@ -2,18 +2,60 @@ import { useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { useNeedsYou, useResolveNeedsYou } from '../../lib/useAutoApply'
-import { AALayout, InlineConfirm, PageHeader, fmtAgo } from './ui'
+import { Link } from 'react-router-dom'
+import { AALayout, InlineConfirm, PageHeader, ProfileMissing, fmtAgo } from './ui'
 
 const KIND = {
+    profile: { title: 'Complete your profile', help: 'A paid batch is waiting until your profile is complete. We start applying on our next check after you finish it.' },
     captcha: { title: 'Captcha', help: 'The site asked for a captcha we can’t solve. Open the job, apply yourself, then tell us.' },
     sso: { title: 'Social sign-in', help: 'This site only allows Google / LinkedIn sign-in. Open the job, apply yourself, then tell us.' },
     account: { title: 'Account problem', help: 'We could not create or open your account on this site. Open the job and apply yourself.' },
     question: { title: 'Question', help: 'The form asked something we don’t have an answer for. Your answer is saved and reused next time.' },
     other: { title: 'Needs a human', help: 'Something on this site needs you. Open the job and apply yourself.' },
 }
-const ORDER = ['question', 'captcha', 'sso', 'account', 'other']
+const ORDER = ['profile', 'question', 'captcha', 'sso', 'account', 'other']
+
+function ProfileItem({ item }) {
+    const resolve = useResolveNeedsYou()
+    const p = item.payload || {}
+    const [confirmDismiss, setConfirmDismiss] = useState(false)
+    const [err, setErr] = useState(null)
+    const id = `ny-${item.id}`
+    const batchId = item.batch_id || p.batch_id
+    return (
+        <li className="aa-card aa-stack" aria-labelledby={`${id}-h`}>
+            <div className="aa-spread">
+                <div>
+                    <div id={`${id}-h`} style={{ color: 'var(--bright)', fontWeight: 900, fontSize: '0.86rem' }}>Complete your profile</div>
+                    <div className="aa-faint">AutoApply profile · {fmtAgo(item.created_at)}</div>
+                </div>
+                <span className="aa-pill t-warm">Profile</span>
+            </div>
+            <ProfileMissing missing={p.missing} lead={`${KIND.profile.help} Still missing:`} />
+            <div className="aa-row">
+                {batchId && <Link className="aa-btn" to={`/autoapply/batches/${batchId}`}>View batch</Link>}
+                {!confirmDismiss && <button type="button" className="aa-btn" onClick={() => setConfirmDismiss(true)} disabled={resolve.isPending}>Hide</button>}
+            </div>
+            {confirmDismiss && (
+                <InlineConfirm
+                    message="Hide this reminder? The batch still waits until your profile is complete."
+                    confirmLabel="Hide"
+                    tone="neutral"
+                    busy={resolve.isPending}
+                    onConfirm={() => { setErr(null); resolve.mutate({ id: item.id, action: 'dismiss' }, { onError: (e) => { setErr(e); setConfirmDismiss(false) } }) }}
+                    onCancel={() => setConfirmDismiss(false)}
+                />
+            )}
+            {err && <ErrorState compact message={errorText(err)} />}
+        </li>
+    )
+}
 
 function Item({ item }) {
+    return item.kind === 'profile' ? <ProfileItem item={item} /> : <TaskItem item={item} />
+}
+
+function TaskItem({ item }) {
     const resolve = useResolveNeedsYou()
     const p = item.payload || {}
     const meta = KIND[item.kind] || KIND.other

@@ -275,11 +275,48 @@ export function isoSeconds(date) {
   return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-/** Contract body (docs/autoapply-contract.md, "Inbound mail") from a postal-mime result. */
-/** True when the mail carries a real attachment (inline/related images such as logos do not count). */
+const isCalendar = (a) => a && (/^(?:text|application)\/(?:calendar|ics)\b/i.test(a.mimeType || '') || /\.ics$/i.test(a.filename || ''));
+
+/** True when the mail carries a real attachment (inline/related images such as logos do not count; nor does a
+ *  calendar invite, whose details reach the API as `ics`). */
 export function hasRealAttachments(list) {
-  return (Array.isArray(list) ? list : []).some((a) => a && a.disposition !== 'inline' && a.related !== true);
+  return (Array.isArray(list) ? list : []).some((a) => a && a.disposition !== 'inline' && a.related !== true && !isCalendar(a));
 }
+
+export const MAX_ICS = 32_000;
+
+/** Text of the first calendar invite (text/calendar part or .ics attachment), capped, or null. */
+export function calendarText(list) {
+  const a = (Array.isArray(list) ? list : []).find(isCalendar);
+  if (!a || a.content == null) return null;
+  let s;
+  try {
+    s = typeof a.content === 'string' ? a.content : new TextDecoder('utf-8').decode(a.content instanceof ArrayBuffer ? new Uint8Array(a.content) : a.content);
+  } catch {
+    return null;
+  }
+  return /BEGIN:VEVENT/i.test(s) ? s.slice(0, MAX_ICS) : null;
+}
+
+const MEETING_LINK_RE = /https?:\/\/(?:(?:[\w-]+\.)?zoom\.us\/(?:j|my|w|s)\/|meet\.google\.com\/[a-z]{3,4}-[a-z]{4}-[a-z]{3,4}|teams\.(?:microsoft|live)\.com\/(?:l\/meetup-join|meet)\/|[\w-]+\.webex\.com\/(?:meet|join|[\w-]+\/j\.php)|chime\.aws\/\d|join\.skype\.com\/|(?:[\w-]+\.)?calendly\.com\/|(?:[\w-]+\.)?goodtime\.io\/)[^\s"'<>]*/gi;
+
+/** Video-meeting and scheduling links (Zoom, Meet, Teams, Webex, Chime, Skype, Calendly, GoodTime): the verification
+ *  link filter drops these, the interview extractor in the API needs them. Up to 5, in document order. */
+export function extractMeetingLinks({ text = '', html = '', ics = '' } = {}) {
+  const out = [];
+  const seen = new Set();
+  for (const m of `${text || ''}\n${html || ''}\n${ics || ''}`.matchAll(MEETING_LINK_RE)) {
+    const link = cleanLink(m[0]);
+    const k = link.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(link);
+    if (out.length >= 5) break;
+  }
+  return out;
+}
+
+/** Contract body (docs/autoapply-contract.md, "Inbound mail") from a postal-mime result. */
 
 export function buildPayload(parsed, { envelopeTo = '', envelopeFrom = '', receivedAt = new Date(), rawKey = null } = {}) {
   const p = parsed || {};
@@ -293,6 +330,7 @@ export function buildPayload(parsed, { envelopeTo = '', envelopeFrom = '', recei
   const codes = extractCodes({ subject, text: p.text || '', html });
   const links = extractLinks({ subject, text: p.text || '', html });
   const isHuman = decideIsHuman({ fromAddr, headers, subject, text: plain, codes, links });
+  const ics = calendarText(p.attachments);
   return {
     to: String(envelopeTo || '').trim().toLowerCase(),
     from: fromAddr,
@@ -307,5 +345,7 @@ export function buildPayload(parsed, { envelopeTo = '', envelopeFrom = '', recei
     raw_key: rawKey,
     reply_to: replyTo ? replyTo.toLowerCase() : null,
     message_id: p.messageId || headers['message-id'] || null,
+    meeting_links: extractMeetingLinks({ text: p.text || '', html, ics: ics || '' }),
+    ics,
   };
 }

@@ -11,6 +11,7 @@ const UNIQUE = {
   aa_credit_ledger: [["id"], { cols: ["batch_id"], where: (r) => r.reason === "purchase" }, { cols: ["task_id"], where: (r) => r.reason === "capture" }],
   aa_tasks: [["id"]],
   aa_mail_events: [["id"]],
+  aa_interviews: [["id"], ["mail_event_id"]],
   aa_push_subscriptions: [["id"], ["endpoint"]],
   aa_needs_you: [["id"]],
   aa_portal_accounts: [["user_id", "tenant_host"]],
@@ -48,7 +49,7 @@ export function createFakeDb(seed = {}) {
   function withDefaults(table, row) {
     const base = DEFAULTS[table] ? DEFAULTS[table]() : {};
     const r = { ...base, ...clone(row) };
-    if (!("id" in r) && ["aa_credit_ledger", "aa_mail_events", "aa_push_subscriptions"].includes(table)) r.id = seq++;
+    if (!("id" in r) && ["aa_credit_ledger", "aa_mail_events", "aa_push_subscriptions", "aa_interviews"].includes(table)) r.id = seq++;
     const nowIso = new Date().toISOString();
     r.created_at ??= nowIso;
     r.updated_at ??= nowIso;
@@ -96,6 +97,11 @@ export function createFakeDb(seed = {}) {
           throw new Error("fake or(): unsupported " + part);
         });
         filters.push((r) => conds.some((fn) => fn(r)));
+        return b;
+      },
+      ilike(c, pat) {
+        const re = new RegExp("^" + String(pat).replace(/[.*+?^${}()|[\]\\]/g, (m) => "\\" + m).replace(/%/g, ".*") + "$", "i");
+        filters.push((r) => re.test(String(r[c] ?? "")));
         return b;
       },
       neq(c, v) { filters.push((r) => r[c] !== v); return b; },

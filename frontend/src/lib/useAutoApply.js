@@ -38,6 +38,9 @@ export const aaKeys = {
     needsYou: ['aa', 'needs-you'],
     inbox: (tab, q, limit) => ['aa', 'inbox', tab, q, limit],
     inboxMail: (id) => ['aa', 'inbox-mail', id],
+    inboxUnread: ['aa', 'inbox-unread'],
+    inboxCompanies: ['aa', 'inbox-companies'],
+    interviews: ['aa', 'interviews'],
     accounts: ['aa', 'accounts'],
 }
 
@@ -105,14 +108,19 @@ export function useNeedsYou() {
     })
 }
 
-/** Inbox list (tab: 'important' | 'all' | 'codes', q: search text), paginated with ?before=. */
-export function useInbox({ tab = 'all', q = '', limit = 30, refetchInterval = 30_000 } = {}) {
+/**
+ * Inbox list, newest first, paginated with ?before=. tab: 'important' | 'all' | 'codes'; filters (all optional):
+ * category ('code'|'received'|'rejected'|'important'|'other'), kind ('interview'|'assessment'|'offer'|'recruiter'|'rejection'),
+ * company (text), unread (bool), q (search sender / subject / text).
+ */
+export function useInbox({ tab = 'all', q = '', category = '', kind = '', company = '', unread = false, limit = 30, refetchInterval = 30_000 } = {}) {
     const uid = useUid()
+    const filters = { tab, q, category, kind, company, unread: unread ? '1' : '' }
     return useInfiniteQuery({
-        queryKey: [...aaKeys.inbox(tab, q, limit), uid],
+        queryKey: [...aaKeys.inbox(tab, q, limit), category, kind, company, !!unread, uid],
         queryFn: ({ pageParam }) => {
-            const p = new URLSearchParams({ tab, limit: String(limit) })
-            if (q) p.set('q', q)
+            const p = new URLSearchParams({ limit: String(limit) })
+            for (const [k, v] of Object.entries(filters)) if (v) p.set(k, v)
             if (pageParam) p.set('before', pageParam)
             return aa('/inbox?' + p.toString())
         },
@@ -123,13 +131,52 @@ export function useInbox({ tab = 'all', q = '', limit = 30, refetchInterval = 30
     })
 }
 
+/** Opening a mail marks it read on the server, so the unread badge and lists refresh after it loads. */
 export function useInboxMail(id) {
     const uid = useUid()
+    const qc = useQueryClient()
     return useQuery({
         queryKey: [...aaKeys.inboxMail(id), uid],
-        queryFn: () => aa('/inbox/' + encodeURIComponent(id)),
+        queryFn: async () => {
+            const r = await aa('/inbox/' + encodeURIComponent(id))
+            qc.invalidateQueries({ queryKey: aaKeys.inboxUnread })
+            return r
+        },
         enabled: !!uid && !!id,
     })
+}
+
+/** { count, by_kind } of unread interview / assessment / offer / rejection / important mail (nav badge). */
+export function useInboxUnread({ enabled = true } = {}) {
+    const uid = useUid()
+    return useQuery({
+        queryKey: [...aaKeys.inboxUnread, uid],
+        queryFn: () => aa('/inbox/unread'),
+        enabled: !!uid && enabled,
+        refetchInterval: 60_000,
+        staleTime: 20_000,
+    })
+}
+
+export function useInboxCompanies() {
+    const uid = useUid()
+    return useQuery({ queryKey: [...aaKeys.inboxCompanies, uid], queryFn: () => aa('/inbox/companies'), enabled: !!uid, staleTime: 60_000 })
+}
+
+export function useMarkAllRead() {
+    const qc = useQueryClient()
+    return useMutation({
+        mutationFn: () => aa('/inbox/read-all', { method: 'POST' }),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: aaKeys.inboxUnread })
+            qc.invalidateQueries({ queryKey: ['aa', 'inbox'] })
+        },
+    })
+}
+
+export function useInterviews() {
+    const uid = useUid()
+    return useQuery({ queryKey: [...aaKeys.interviews, uid], queryFn: () => aa('/interviews'), enabled: !!uid, refetchInterval: 120_000 })
 }
 
 // Web push endpoints (see usePush.js)

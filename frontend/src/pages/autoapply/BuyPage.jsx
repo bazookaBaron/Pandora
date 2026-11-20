@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { openRazorpayOrder } from '../../lib/razorpay'
 import { useAutoApplyMe, useCreateOrder, useSupply, useVerifyOrder } from '../../lib/useAutoApply'
-import { AALayout, PACK_KINDS, PACK_SIZES, PageHeader, fmtDate, num, packPrice, rupees } from './ui'
+import { AALayout, PACK_KINDS, PACK_SIZES, PageHeader, ProfileMissing, fmtDate, num, packPrice, rupees } from './ui'
 
 function useDebounced(value, ms) {
     const [v, setV] = useState(value)
@@ -97,6 +97,9 @@ export default function BuyPage() {
     const remaining = u.remaining_purchasable ?? Math.max(0, cap - (u.month_purchased || 0))
     const price = packPrice(config, kind, size)
     const onboarded = !!me.data?.onboarding_done
+    const check = me.data?.profile_check
+    const profileMissing = check && !check.ok ? check.missing || [] : []
+    const [ackWait, setAckWait] = useState(false)
     const sizeOk = size <= remaining
     const busy = !!stage
 
@@ -172,6 +175,14 @@ export default function BuyPage() {
                     <Link to="/autoapply/setup" className="aa-btn is-primary">Go to setup</Link>
                 </div>
             )}
+            {me.data && onboarded && profileMissing.length > 0 && (
+                <ProfileMissing
+                    style={{ marginBottom: 16 }}
+                    missing={profileMissing}
+                    lead="Your profile is not complete. You can still buy, but the batch waits (no credit used, the credit validity still runs) until you finish it. Missing:"
+                    cta="Finish your profile first"
+                />
+            )}
 
             <div className="aa-stack">
                 <section className="aa-card" aria-labelledby="buy-kind">
@@ -229,10 +240,16 @@ export default function BuyPage() {
                             <div className="aa-faint">{PACK_KINDS[kind].name} · {size} applications · last {wd} days · GST included</div>
                         </div>
                         <button type="button" className="aa-btn is-primary" style={{ padding: '11px 18px' }} onClick={buy}
-                            disabled={busy || !onboarded || !sizeOk || price == null}>
+                            disabled={busy || !onboarded || !sizeOk || price == null || (profileMissing.length > 0 && !ackWait)}>
                             {stage === 'paying' ? 'Payment open…' : busy ? 'Working…' : `Pay ${price != null ? rupees(price) : ''}`}
                         </button>
                     </div>
+                    {onboarded && profileMissing.length > 0 && (
+                        <label className="aa-row" style={{ marginTop: 10, gap: 8, fontSize: '0.76rem' }}>
+                            <input type="checkbox" checked={ackWait} onChange={(e) => setAckWait(e.target.checked)} disabled={busy} />
+                            <span>I understand this batch waits until my profile is complete.</span>
+                        </label>
+                    )}
                     <p className="aa-faint" style={{ margin: '10px 0 0' }}>
                         Credits are valid for {config.credit_validity_days ?? 90} days. Unused credits are refunded pro rata at expiry or when you cancel.
                     </p>

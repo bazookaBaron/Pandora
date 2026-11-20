@@ -4,7 +4,8 @@
  *   X-AA-Signature: hex(HMAC_SHA256(AA_INBOUND_SECRET, `${ts}.${rawBody}`))
  */
 import crypto from "node:crypto";
-import { classifyMail, expiresAtFor } from "./classify.js";
+import { classifyMail, expiresAtFor, companyFromMail } from "./classify.js";
+import { extractInterview } from "./interview.js";
 
 export const MAX_SKEW_S = 60;
 
@@ -45,7 +46,8 @@ const strArr = (v, max, len) =>
 
 /**
  * Store one inbound mail. The alias is resolved against the MAIN db (aa_profiles); the mail row goes to the
- * MAIL db (`mailDb`, defaults to `db`) with a category and expires_at. Returns { event, profile, category }
+ * MAIL db (`mailDb`, defaults to `db`) with a category, kind and expires_at (NULL = kept), plus an aa_interviews
+ * row for an interview mail. Returns { event, profile, category, kind, interview }
  * (profile null for an unknown alias). Mail is never forwarded anywhere; alerts are the caller's job.
  */
 export async function storeInbound({ db, mailDb = db, payload }) {
@@ -79,16 +81,36 @@ export async function storeInbound({ db, mailDb = db, payload }) {
     received_at: receivedAt,
     has_attachments: p.has_attachments === true,
   };
-  const { category } = classifyMail(row);
+  // Not stored: the calendar invite text and meeting links only feed the classifier / interview extractor.
+  const ics = typeof p.ics === "string" && p.ics ? p.ics.slice(0, 32_000) : null;
+  const meetingLinks = strArr(p.meeting_links, 10, 2000);
+  const fromName = p.from_name == null ? null : String(p.from_name).slice(0, 200);
+  const { category, kind } = classifyMail({ ...row, ics, meeting_links: meetingLinks });
   row.category = category;
-  // Retention counts from arrival at Vloombox, so a late retry from the worker is not deleted at once.
+  row.kind = kind;
+  row.from_name = fromName;
+  row.company = companyFromMail({ sender: row.sender, from_name: fromName, subject: row.subject });
+  row.read_at = null;
+  // Only received / rejected mail expires (30 days); retention counts from arrival at Vloombox, so a late
+  // retry from the worker is not deleted at once. Everything else keeps expires_at NULL = never deleted.
   row.expires_at = expiresAtFor(category, new Date());
   const { data: event, error } = await mailDb.from("aa_mail_events").insert(row).select("*").single();
   if (error) throw error;
+
+  let interview = null;
+  if (kind === "interview" && event.user_id) {
+    const x = extractInterview({ ...row, ics, meeting_links: meetingLinks, received_at: receivedAt });
+    if (x) {
+      const rec = { mail_event_id: event.id, user_id: event.user_id, ...x };
+      const { data: saved, error: iErr } = await mailDb.from("aa_interviews").insert(rec).select("*").single();
+      if (iErr) console.warn("[autoapply/inbound] aa_interviews insert failed:", iErr.message || iErr);
+      else interview = saved;
+    }
+  }
 
   if (profile) {
     const { error: nErr } = await mailDb.rpc("aa_notify_mail", { p_user: profile.user_id, p_event: event.id });
     if (nErr) console.warn("[autoapply/inbound] aa_notify_mail failed:", nErr.message || nErr);
   }
-  return { event, profile: profile || null, category };
+  return { event, profile: profile || null, category, kind, interview };
 }

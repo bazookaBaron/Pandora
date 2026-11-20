@@ -18,14 +18,16 @@ test("classifier: codes", () => {
   assert.equal(cat({ subject: "Verify your email address", text_excerpt: "Click the link to verify." }), "code");
   assert.equal(cat({ subject: "Reset your password", text_excerpt: "..." }), "code");
   assert.equal(cat({ subject: "Security code", codes: ["123456"], text_excerpt: "Your one-time code: 123456" }), "code");
-  assert.equal(classifyMail({ subject: "Your OTP is 123456", codes: ["123456"] }).retention_days, 1);
+  assert.equal(classifyMail({ subject: "Your OTP is 123456", codes: ["123456"] }).retention_days, null, "codes are never deleted");
 });
 
 test("classifier: received confirmations", () => {
   assert.equal(cat({ subject: "Thank you for applying to Acme", text_excerpt: "We have received your application." }), "received");
   assert.equal(cat({ subject: "Application received", text_excerpt: "Our team will review it and be in touch if there is a match." }), "received");
   assert.equal(cat({ subject: "Your application", text_excerpt: "Thanks for applying! We'll review your profile." }), "received");
-  assert.equal(classifyMail({ subject: "Thanks for applying" }).retention_days, 14);
+  assert.equal(cat({ subject: "You have successfully applied to Globex", text_excerpt: "Track your application in your candidate home." }), "received");
+  assert.equal(cat({ subject: "Applied successfully", text_excerpt: "Your application for Data Analyst was sent." }), "received");
+  assert.equal(classifyMail({ subject: "Thanks for applying" }).retention_days, 30);
 });
 
 test("classifier: important", () => {
@@ -35,7 +37,7 @@ test("classifier: important", () => {
   assert.equal(cat({ subject: "Your offer letter", text_excerpt: "" }), "important");
   assert.equal(cat({ subject: "Next steps for your application", text_excerpt: "" }), "important");
   assert.equal(cat({ subject: "Hello", text_excerpt: "Hi, quick question about your profile", is_human: true }), "important");
-  assert.equal(classifyMail({ subject: "Online assessment" }).retention_days, 180);
+  assert.equal(classifyMail({ subject: "Online assessment" }).retention_days, null);
 });
 
 test("classifier: strong important beats code/received; unsure is never code/received", () => {
@@ -50,32 +52,42 @@ test("classifier: strong important beats code/received; unsure is never code/rec
   assert.equal(cat({ subject: "Weekly digest from Globex", text_excerpt: "news" }), "other");
   assert.equal(cat({ subject: "Employment verification form", text_excerpt: "Please upload documents" }), "other");
   assert.equal(cat({}), "other");
-  assert.deepEqual(RETENTION_DAYS, { code: 1, received: 14, important: 180, other: 180 });
+  assert.deepEqual(RETENTION_DAYS, { code: null, received: 30, rejected: 30, important: null, other: null });
 });
 
 test("classifier: expiresAtFor", () => {
   const t = new Date("2026-01-01T00:00:00Z");
-  assert.equal(expiresAtFor("code", t), "2026-01-02T00:00:00.000Z");
-  assert.equal(expiresAtFor("received", t), "2026-01-15T00:00:00.000Z");
-  assert.equal(expiresAtFor("other", t), "2026-06-30T00:00:00.000Z");
+  assert.equal(expiresAtFor("code", t), null);
+  assert.equal(expiresAtFor("received", t), "2026-01-31T00:00:00.000Z");
+  assert.equal(expiresAtFor("rejected", t), "2026-01-31T00:00:00.000Z");
+  assert.equal(expiresAtFor("important", t), null);
+  assert.equal(expiresAtFor("other", t), null);
+  assert.equal(expiresAtFor("bogus", t), null);
 });
 
 // ── cleanup ────────────────────────────────────────────────────────────────
 const now = new Date("2026-11-17T00:00:00Z");
 const iso = (offsetMs) => new Date(now.getTime() + offsetMs).toISOString();
-const row = (over) => ({ user_id: "u1", alias: "a.b", sender: "x@y.com", subject: "s", codes: [], links: [], is_human: false, text_excerpt: "", category: "other", received_at: iso(-1000), expires_at: iso(86400000), ...over });
+const row = (over) => ({ user_id: "u1", alias: "a.b", sender: "x@y.com", subject: "s", codes: [], links: [], is_human: false, text_excerpt: "", category: "received", received_at: iso(-1000), expires_at: iso(86400000), ...over });
 
 test("cleanup: deletes only expired rows, in batches", async () => {
   const mailDb = createFakeDb({
     aa_mail_events: [
       ...Array.from({ length: 7 }, (_, i) => row({ id: 100 + i, expires_at: iso(-1000 * (i + 1)) })),
+      row({ id: 107, category: "rejected", expires_at: iso(-5000) }),
       row({ id: 200 }),
-      row({ id: 201, category: "important", expires_at: iso(86400000 * 100) }),
+      row({ id: 201, category: "important", expires_at: null }),
+      row({ id: 202, category: "code", expires_at: null }),
+      row({ id: 203, category: "other", expires_at: null }),
+      // legacy rows that still carry an old expiry: never deleted unless received / rejected
+      row({ id: 204, category: "important", expires_at: iso(-5000) }),
+      row({ id: 205, category: "code", expires_at: iso(-5000) }),
+      row({ id: 206, category: "other", expires_at: iso(-5000) }),
     ],
   });
   const r = await cleanupExpiredMail({ mailDb, now, batchSize: 3 });
-  assert.deepEqual(r, { deleted: 7 });
-  assert.deepEqual(mailDb.rows("aa_mail_events").map((x) => x.id).sort(), [200, 201]);
+  assert.deepEqual(r, { deleted: 8 });
+  assert.deepEqual(mailDb.rows("aa_mail_events").map((x) => x.id).sort(), [200, 201, 202, 203, 204, 205, 206]);
   assert.deepEqual(await cleanupExpiredMail({ mailDb, now }), { deleted: 0 });
 });
 
@@ -192,7 +204,11 @@ test("push: disabled without VAPID env, sends to every subscription, drops dead 
   assert.deepEqual(r, { sent: 1, removed: 1 });
   assert.equal(calls.length, 2);
   assert.equal(calls[0].body.body, "New message from Acme HR: Your online assessment");
-  assert.equal(calls[0].body.url, "/autoapply/inbox");
+  assert.equal(calls[0].body.url, "/autoapply/inbox?mail=9");
+  assert.equal(calls[0].body.title, "Vloombox inbox");
+  assert.equal(pushPayload({ id: 3, kind: "interview", company: "Acme", sender: "x@acme.com", subject: "Interview" }).title, "Interview invite · Acme");
+  assert.equal(pushPayload({ id: 4, category: "rejected", sender: "x@acme.com", subject: "Update" }).title, "Application update");
+  assert.equal(pushPayload({ id: 5, kind: "offer", sender: "x@acme.com", subject: "Offer" }).title, "Offer received");
   assert.deepEqual(db.rows("aa_push_subscriptions").map((s) => s.endpoint).sort(), ["https://p.test/live", "https://p.test/other"]);
 
   assert.equal((await sendPushForMail({ db, event, userId: U(1), webpush, prefs: { push: false } })).skipped, "opted_out");

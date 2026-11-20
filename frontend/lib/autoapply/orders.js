@@ -28,7 +28,7 @@ export function validateOrderInput(body) {
     throw new AAError(400, "invalid_input", "pack_kind must be 'service' or 'product'.");
   }
   const size = Number(pack_size);
-  if (![50, 80, 100].includes(size)) throw new AAError(400, "invalid_input", "pack_size must be 50, 80 or 100.");
+  if (![50, 100].includes(size)) throw new AAError(400, "invalid_input", "pack_size must be 50 or 100.");
   const wd = window_days === undefined || window_days === null ? AUTO_APPLY.window_days_default : Number(window_days);
   if (!Number.isInteger(wd) || wd < 1 || wd > AUTO_APPLY.window_days_max) {
     throw new AAError(400, "invalid_input", `window_days must be an integer 1..${AUTO_APPLY.window_days_max}.`);

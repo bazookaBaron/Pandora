@@ -29,12 +29,12 @@ export const TIERS = {
     },
     pro: {
         // Billed for non-India users (see lib/geo.js's currencyForCountry) —
-        // no longer "display only". ~27% off monthly x12, matching the INR
-        // yearly discount.
-        price: { monthly: 990, yearly: 8699 }, // cents, USD: $9.90/mo, $86.99/yr
+        // no longer "display only". Yearly = 10x monthly (2 months free),
+        // matching the INR yearly discount.
+        price: { monthly: 499, yearly: 4990 }, // cents, USD: $4.99/mo, $49.90/yr
         // Razorpay charges in paise (INR). Billed for India (and unknown —
         // the safe default) users.
-        price_inr: { monthly: 79900, yearly: 699900 }, // ₹799/mo, ₹6,999/yr
+        price_inr: { monthly: 19900, yearly: 199000 }, // ₹199/mo, ₹1,990/yr
         limits: {
             dsa_catalog_visible: Infinity,
             lld_catalog_visible: Infinity,
@@ -49,9 +49,9 @@ export const TIERS = {
         },
     },
     max: {
-        // Billed for non-India users — ~27% off monthly x12, same discount as Pro.
-        price: { monthly: 1400, yearly: 12299 }, // cents, USD: $14/mo, $122.99/yr
-        price_inr: { monthly: 169900, yearly: 1499900 }, // ₹1,699/mo, ₹14,999/yr
+        // Billed for non-India users — yearly = 10x monthly, same discount as Pro.
+        price: { monthly: 899, yearly: 8990 }, // cents, USD: $8.99/mo, $89.90/yr
+        price_inr: { monthly: 59900, yearly: 599000 }, // ₹599/mo, ₹5,990/yr
         limits: {
             dsa_catalog_visible: Infinity,
             lld_catalog_visible: Infinity,
@@ -142,7 +142,7 @@ export const AUTO_APPLY = {
     review_hours: 6,                      // shortlist review window when review_before_apply = true
     tenant_daily_cap_default: 150,        // platform-wide submissions per tenant_host per IST day
     packs: {                              // paise, GST inclusive
-        service: { 50: 59900, 80: 79900, 100: 99900 },
-        product: { 50: 89900, 80: 119900, 100: 149900 },   // confirmed 2026-11-17
+        service: { 50: 59900, 100: 115000 },
+        product: { 50: 89900, 100: 149900 },   // confirmed 2026-11-20 (80 packs removed)
     },
 }

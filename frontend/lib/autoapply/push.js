@@ -1,5 +1,5 @@
 /**
- * Web push for AutoApply "important" mail. Disabled (silently) unless VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY
+ * Web push for AutoApply interview / assessment / offer / rejection / other important mail. Disabled (silently) unless VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY
  * are set. VAPID_SUBJECT defaults to mailto:support.vloombox@gmail.com. Never throws.
  */
 const DEFAULT_SUBJECT = "mailto:support.vloombox@gmail.com";
@@ -28,11 +28,22 @@ export function senderLabel(event) {
   return clip(m ? m[1] : event.sender, 60) || "a company";
 }
 
+const PUSH_TITLE = {
+  interview: "Interview invite",
+  assessment: "Assessment to complete",
+  offer: "Offer received",
+  rejection: "Application update",
+  recruiter: "Message from a recruiter",
+};
+
 export function pushPayload(event) {
+  const kind = event.kind || (event.category === "rejected" ? "rejection" : null);
+  const company = clip(event.company, 60);
+  const title = PUSH_TITLE[kind] ? `${PUSH_TITLE[kind]}${company ? ` · ${company}` : ""}` : "Vloombox inbox";
   return {
-    title: "Vloombox inbox",
+    title,
     body: `New message from ${senderLabel(event)}: ${clip(event.subject, 100) || "(no subject)"}`,
-    url: "/autoapply/inbox",
+    url: `/autoapply/inbox?mail=${event.id}`,
     tag: `aa-mail-${event.id}`,
   };
 }

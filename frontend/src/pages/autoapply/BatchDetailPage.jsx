@@ -4,7 +4,7 @@ import { ExternalLink } from 'lucide-react'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { useAutoApplyRealtime, useBatch, useBatchAction, useRemoveTask } from '../../lib/useAutoApply'
 import {
-    AALayout, BatchStatusPill, InlineConfirm, PACK_KINDS, PageHeader, Progress, TASK_STATUS_ORDER, TaskStatusPill,
+    AALayout, BatchStatusPill, InlineConfirm, PACK_KINDS, PageHeader, ProfileMissing, Progress, TASK_STATUS_ORDER, TaskStatusPill,
     fmtDate, num, reasonText, rupees, taskStatusLabel,
 } from './ui'
 
@@ -39,9 +39,9 @@ function Controls({ batch }) {
     const s = batch.status
     const can = {
         approve: s === 'review',
-        pause: ['shortlisting', 'review', 'running', 'waiting_supply', 'paid'].includes(s),
+        pause: ['shortlisting', 'review', 'running', 'waiting_supply', 'waiting_profile', 'paid'].includes(s),
         resume: s === 'paused',
-        cancel: ['paid', 'shortlisting', 'review', 'running', 'paused', 'waiting_supply'].includes(s),
+        cancel: ['paid', 'shortlisting', 'review', 'running', 'paused', 'waiting_supply', 'waiting_profile'].includes(s),
     }
     if (!Object.values(can).some(Boolean)) return null
 
@@ -192,7 +192,9 @@ export default function BatchDetailPage() {
                         actions={<BatchStatusPill status={batch.status} />}
                     />
                     {params.get('new') && (
-                        <div className="aa-note is-ok" role="status" style={{ marginBottom: 14 }}>Payment confirmed. We are shortlisting jobs for you now.</div>
+                        <div className="aa-note is-ok" role="status" style={{ marginBottom: 14 }}>
+                            {batch.status === 'waiting_profile' ? 'Payment confirmed. Complete your profile and we start shortlisting jobs.' : 'Payment confirmed. We are shortlisting jobs for you now.'}
+                        </div>
                     )}
                     <div className="aa-stack">
                         <section className="aa-card" aria-label="Progress">
@@ -211,6 +213,13 @@ export default function BatchDetailPage() {
                                         : 'A refund for unused credits is being processed.'}
                                 </p>
                             ) : null}
+                            {batch.status === 'waiting_profile' && (
+                                <ProfileMissing
+                                    style={{ marginTop: 12 }}
+                                    missing={batch.waiting_detail?.missing}
+                                    lead="Waiting for your profile. We start this batch as soon as it is complete (no credit is used meanwhile). Still missing:"
+                                />
+                            )}
                             {batch.status === 'waiting_supply' && (
                                 <p className="aa-muted" style={{ margin: '12px 0 0' }}>No more matching jobs right now. We keep checking for new postings.</p>
                             )}
