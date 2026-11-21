@@ -2040,8 +2040,9 @@ const SENIORITY_ORDER = ["intern", "junior", "mid", "senior", "staff", "principa
 // recency order otherwise — so no two postings from the same company land
 // within JOBS_SPREAD_GAP of each other. Pages past the pool fall back to raw
 // DB order.
-const JOBS_INTERLEAVE_POOL = 600;
-const JOBS_SPREAD_GAP = 4;
+const JOBS_INTERLEAVE_POOL = 1000;
+// At least 8 other companies' postings between two from the same company.
+const JOBS_SPREAD_GAP = 8;
 // Hard age cap: the board only serves jobs actually POSTED in the last N
 // days (posted_at, parsed from the source ATS's own date — not first_seen_at,
 // which is when WE discovered the row and can lag the real posting date by
@@ -2145,7 +2146,9 @@ function humanizeSlugFallback(slug) {
   return String(slug || "").split("-").filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
 }
 
-function spaceByCompany(rows, gap = JOBS_SPREAD_GAP) {
+// strict: stop once only colliding rows remain (they are left out of the
+// spaced pool rather than bunched at its end; still reachable by filter).
+function spaceByCompany(rows, gap = JOBS_SPREAD_GAP, strict = false) {
   const out = [];
   const recent = []; // company_slug of the last `gap` picks
   const deferred = []; // rows skipped because their company was too recent
@@ -2163,7 +2166,20 @@ function spaceByCompany(rows, gap = JOBS_SPREAD_GAP) {
       if (!recent.includes(cand.company_slug || "")) pick = cand;
       else deferred.push(cand);
     }
-    if (pick === null) pick = deferred.shift() || rows[idx++]; // everything left collides
+    if (pick === null && strict) break;
+    if (pick === null) {
+      // Everything left collides (fewer than gap+1 companies remain): take the
+      // deferred row whose company was placed longest ago, so the tail stays
+      // as spread out as the remaining mix allows.
+      let best = 0;
+      let bestAge = -1;
+      for (let k = 0; k < deferred.length; k++) {
+        const age = recent.lastIndexOf(deferred[k].company_slug || "");
+        const a = age === -1 ? Infinity : recent.length - age;
+        if (a > bestAge) { bestAge = a; best = k; }
+      }
+      pick = deferred.length ? deferred.splice(best, 1)[0] : rows[idx++];
+    }
     out.push(pick);
     recent.push(pick.company_slug || "");
     if (recent.length > gap) recent.shift();
@@ -2517,7 +2533,7 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
         const pooled = await cached(poolKey, 90000, async () => {
           const r = await runQuery();
           const pool = willWeight ? weightedStrataMerge(r.data, (row) => jobStratumOf(row, companyTypeMap)) : r.data;
-          return { spaced: spaceByCompany(pool), count: r.count };
+          return { spaced: spaceByCompany(pool, JOBS_SPREAD_GAP, true), count: r.count };
         });
         rows = pooled.spaced.slice(from, cappedTo + 1);
         count = pooled.count;
@@ -2525,6 +2541,8 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
         const r = await runQuery();
         // pastCap: the dummy range(0,0) fetch above was only for `count`.
         rows = pastCap ? [] : r.data;
+        // Past the spaced pool, still keep each page mixed on recency sorts.
+        if (!pastCap && (sort === "newest" || sort === "oldest")) rows = spaceByCompany(rows);
         count = r.count;
       }
 
