@@ -164,7 +164,7 @@ export default function NeedsYouPage() {
             ) : q.isError ? (
                 <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load" />
             ) : items.length === 0 ? (
-                <EmptyState icon="✅" title="Nothing needs you right now. Captchas, sign-ins and questions show up here." action={<GuideNextCta fallback={{ to: '/autoapply/batches', label: 'Open batches' }} />} />
+                <EmptyState icon="✅" title="Nothing needs you right now. Captchas, sign-ins and questions show up here." action={<GuideNextCta fallback={{ to: '/autoapply', label: 'Open batches' }} />} />
             ) : (
                 <div className="aa-stack">
                     {groups.map(([k, list]) => (

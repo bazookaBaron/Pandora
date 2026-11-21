@@ -1,63 +1,59 @@
-import { useId, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { readFlag, writeFlag } from './storage'
 import { useAAGuide } from './useAAGuide'
 import './onboarding.css'
 
-const COLLAPSE_KEY = 'vb_aa_guide_collapsed'
+// Collapse the 8 server-derived guide steps into 5 compact timeline steps.
+const GROUPS = [
+    { id: 'profile', label: 'Profile', ids: ['resume', 'answers', 'prefs'] },
+    { id: 'email', label: 'Email', ids: ['email', 'consent'] },
+    { id: 'buy', label: 'Buy pack', ids: ['buy'] },
+    { id: 'applying', label: 'Applying', ids: ['review'] },
+    { id: 'results', label: 'Results', ids: ['track'] },
+]
+
+export function buildTimeline(g) {
+    const byId = Object.fromEntries(g.steps.map((s) => [s.id, s]))
+    const groups = GROUPS.map((grp) => {
+        const parts = grp.ids.map((id) => byId[id])
+        const open = parts.find((p) => p.state !== 'done')
+        return { id: grp.id, label: grp.label, done: !open && grp.id !== 'results', cta: (open || parts[0]).cta }
+    })
+    const cur = groups.findIndex((x) => !x.done)
+    return groups.map((x, i) => ({ ...x, state: x.done ? 'done' : i === cur ? 'current' : 'todo' }))
+}
 
 /**
- * Compact AutoApply progress stepper (horizontal; vertical on phones). Every state comes from
- * the server (see useAAGuide). Only the current step's sentence and one primary CTA are shown.
- * Renders nothing for ineligible users (the pages show the upgrade card) or before data loads.
+ * Compact AutoApply timeline for the Overview (horizontal; vertical on phones). State comes from
+ * the server (see useAAGuide). The current step has one action button; once everything before
+ * "Results" is done it collapses to a single slim line. Renders nothing for ineligible users.
  */
 export default function AAProgressGuide({ style }) {
     const g = useAAGuide()
-    const bodyId = useId()
-    const [collapsed, setCollapsed] = useState(() => readFlag(COLLAPSE_KEY) === '1')
-
     if (!g.ready || !g.eligible) return null
+    const steps = buildTimeline(g)
+    const cur = steps.find((s) => s.state === 'current')
 
-    const toggle = () => {
-        setCollapsed((c) => {
-            writeFlag(COLLAPSE_KEY, c ? null : '1')
-            return !c
-        })
+    if (!cur || cur.id === 'results') {
+        return (
+            <p className="ob-slim" role="status" style={style}>
+                <span className="ob-slim-dot" aria-hidden>✓</span>
+                Setup complete. We are applying; results land in your Inbox.
+            </p>
+        )
     }
-    const cur = g.current
 
     return (
         <section className="ob-guide" aria-label="AutoApply progress" style={style}>
-            <div className="ob-guide-head">
-                <span className="ob-guide-title">
-                    Your progress <span className="ob-guide-count">{g.doneCount} of {g.total}</span>
-                </span>
-                <button type="button" className="ob-link" onClick={toggle} aria-expanded={!collapsed} aria-controls={bodyId}>
-                    {collapsed ? 'Show' : 'Hide'}
-                </button>
-            </div>
-            {!collapsed && (
-                <div id={bodyId}>
-                    <ol className="ob-steps">
-                        {g.steps.map((s, i) => (
-                            <li key={s.id} className={`ob-step is-${s.state}`} aria-current={s.state === 'current' ? 'step' : undefined}>
-                                <span className="ob-dot" aria-hidden>{s.state === 'done' ? '✓' : i + 1}</span>
-                                <span className="ob-step-label">{s.label}</span>
-                                <span className="ob-sr">{s.state === 'done' ? ' (done)' : s.state === 'current' ? ' (current step)' : ' (locked)'}</span>
-                            </li>
-                        ))}
-                    </ol>
-                    {cur && (
-                        <div className="ob-current" aria-live="polite">
-                            <div>
-                                <div className="ob-current-title">{cur.title}</div>
-                                <p className="ob-current-text">{cur.text}</p>
-                            </div>
-                            <Link to={cur.cta.to} className="aa-btn is-primary">{cur.cta.label}</Link>
-                        </div>
-                    )}
-                </div>
-            )}
+            <ol className="ob-steps">
+                {steps.map((s, i) => (
+                    <li key={s.id} className={`ob-step is-${s.state}`} aria-current={s.state === 'current' ? 'step' : undefined}>
+                        <span className="ob-dot" aria-hidden>{s.state === 'done' ? '✓' : i + 1}</span>
+                        <span className="ob-step-label">{s.label}</span>
+                        <span className="ob-sr">{s.state === 'done' ? ' (done)' : s.state === 'current' ? ' (current step)' : ' (to do)'}</span>
+                        {s.state === 'current' && <Link to={s.cta.to} className="aa-btn is-primary ob-step-cta">{s.cta.label}</Link>}
+                    </li>
+                ))}
+            </ol>
         </section>
     )
 }

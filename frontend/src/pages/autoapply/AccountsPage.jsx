@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { useAccounts, useRevealPassword } from '../../lib/useAutoApply'
-import { AALayout, CopyButton, PageHeader, fmtDate } from './ui'
+import { CopyButton, fmtDate } from './ui'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 
@@ -48,7 +48,7 @@ function ReauthPrompt({ host, onDone, onCancel }) {
         try { sessionStorage.setItem(REVEAL_AFTER_AUTH, host) } catch { /* private mode */ }
         const { error } = await supabase.auth.signInWithOAuth({
             provider,
-            options: { redirectTo: `${window.location.origin}/autoapply/accounts` },
+            options: { redirectTo: `${window.location.origin}/autoapply/account#sites` },
         })
         if (error) {
             setBusy(false)
@@ -128,13 +128,13 @@ function Reveal({ host }) {
     )
 }
 
-export default function AccountsPage() {
+export default function SitesSection() {
     const q = useAccounts()
     const accounts = q.data?.accounts || []
 
     return (
-        <AALayout gate>
-            <PageHeader eyebrow="Accounts" title="Career-site accounts" lead="Accounts we created for you on company career sites. Passwords are encrypted; each reveal is logged." />
+        <div>
+            <p className="aa-muted" style={{ margin: '0 0 12px' }}>Accounts we created for you on company career sites. Passwords are encrypted; each reveal is logged.</p>
             {q.isLoading ? (
                 <LoadingState label="Loading accounts…" />
             ) : q.isError ? (
@@ -163,6 +163,6 @@ export default function AccountsPage() {
                     </table>
                 </div>
             )}
-        </AALayout>
+        </div>
     )
 }
