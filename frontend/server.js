@@ -21,6 +21,8 @@ import {
 import { compileLatexToPdf } from "./lib/latexCompiler.js";
 import { buildFilename } from "./lib/filename.js";
 import { requireAuth, optionalAuth } from "./lib/requireAuth.js";
+import { runMarketSnapshots, loadMarketAnalytics } from "./lib/marketSnapshot.js";
+import { isAdminUser as isMarketAdmin } from "./lib/autoapply/health.js";
 import {
   canAccess,
   reserveUsage,
@@ -2916,6 +2918,58 @@ app.get("/api/jobs/analytics/trend", catalogLimiter, optionalAuth, async (req, r
     fail(res, err, "jobs/analytics/trend", "Failed to load job trend.");
   }
 });
+
+// ── Market analytics (Adzuna daily snapshots; see lib/marketSnapshot.js) ──
+// Reads stored rows only — never calls Adzuna from a user request.
+app.get("/api/market/analytics", catalogLimiter, optionalAuth, async (req, res) => {
+  const country = String(req.query.country || "IN").toUpperCase() === "US" ? "US" : "IN";
+  try {
+    const key = `market-analytics:${country}`;
+    const wasHit = hasFresh(key);
+    const payload = await cached(key, 600000, () => loadMarketAnalytics(supabaseAdmin, country));
+    res.set("Cache-Control", "public, max-age=300, s-maxage=600");
+    res.set("X-Cache", wasHit ? "HIT" : "MISS");
+    res.json(payload);
+  } catch (err) {
+    fail(res, err, "market/analytics", "Failed to load market analytics.");
+  }
+});
+
+let marketRunning = false;
+async function runMarketJob() {
+  if (marketRunning) return { skipped: "already_running" };
+  marketRunning = true;
+  try {
+    const r = await runMarketSnapshots({ supabase: supabaseAdmin });
+    invalidate("market-analytics:");
+    console.log("[market] daily snapshot", r);
+    return r;
+  } catch (e) {
+    console.error("[market] daily snapshot failed:", (e && e.message) || e);
+    return { error: true };
+  } finally {
+    marketRunning = false;
+  }
+}
+
+// Admin-only manual trigger (AA_ADMIN_EMAILS / AA_ADMIN_USER_IDS). Responds
+// immediately; the run takes ~4 min (rate-limited). Guarded in-DB, so a repeat
+// the same day is a no-op.
+app.post("/api/market/refresh", requireAuth, async (req, res) => {
+  if (!isMarketAdmin(req.user)) return res.status(403).json({ error: "Admins only." });
+  if (marketRunning) return res.status(202).json({ started: false, reason: "already_running" });
+  runMarketJob();
+  res.status(202).json({ started: true });
+});
+
+if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY) {
+  cron.schedule("30 2 * * *", runMarketJob, { timezone: "Asia/Kolkata" });
+  // Catch-up after a deploy/restart that straddled 02:30; the in-DB guard makes it a no-op if done.
+  const t = setTimeout(runMarketJob, 120000);
+  if (t.unref) t.unref();
+} else {
+  console.warn("[market] daily market snapshot disabled (needs SUPABASE_SERVICE_ROLE_KEY + ADZUNA_APP_ID/KEY)");
+}
 
 // ── Feedback (feature request / bug report) ──────────────────────
 // Emails the operator directly. Rate-limited; body capped.

@@ -124,3 +124,15 @@ export function useJobsTrend(granularity, enabled) {
     })
     return { ...query, data: query.data || EMPTY_TREND }
 }
+
+// Daily Adzuna market snapshot (server reads stored rows only). { ready:false }
+// until the first snapshot has been taken.
+export function useMarketAnalytics(country) {
+    const c = country === 'US' ? 'US' : 'IN'
+    return useQuery({
+        queryKey: ['market-analytics', c],
+        queryFn: () => apiFetch('/api/market/analytics?country=' + c),
+        staleTime: 10 * 60_000,
+        placeholderData: keepPreviousData,
+    })
+}
