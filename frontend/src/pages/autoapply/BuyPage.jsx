@@ -3,8 +3,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { openRazorpayOrder } from '../../lib/razorpay'
-import { useAutoApplyMe, useCreateOrder, useSupply, useVerifyOrder } from '../../lib/useAutoApply'
-import { AALayout, PACK_KINDS, PACK_SIZES, PageHeader, ProfileMissing, fmtDate, num, packPrice, rupees } from './ui'
+import { useAutoApplyMe, useCompanySuggest, useCreateOrder, useSupply, useVerifyOrder } from '../../lib/useAutoApply'
+import { AALayout, MustCompaniesInput, PACK_KINDS, PACK_SIZES, PageHeader, ProfileMissing, ReadinessCard, fmtDate, num, packPrice, rupees } from './ui'
 
 function useDebounced(value, ms) {
     const [v, setV] = useState(value)
@@ -100,6 +100,9 @@ export default function BuyPage() {
     const check = me.data?.profile_check
     const profileMissing = check && !check.ok ? check.missing || [] : []
     const [ackWait, setAckWait] = useState(false)
+    const [must, setMust] = useState([])
+    const [mustQuery, setMustQuery] = useState('')
+    const suggest = useCompanySuggest(useDebounced(mustQuery, 250), kind)
     const sizeOk = size <= remaining
     const busy = !!stage
 
@@ -117,7 +120,7 @@ export default function BuyPage() {
         setStage('order')
         let order
         try {
-            order = await createOrder.mutateAsync({ pack_kind: kind, pack_size: size, window_days: wd })
+            order = await createOrder.mutateAsync({ pack_kind: kind, pack_size: size, window_days: wd, must_companies: must })
         } catch (err) {
             setStage('')
             if (err?.status === 403 || err?.code === 'not_eligible') setNote({ kind: 'eligible', text: err.message })
@@ -175,7 +178,9 @@ export default function BuyPage() {
                     <Link to="/autoapply/setup" className="aa-btn is-primary">Go to setup</Link>
                 </div>
             )}
-            {me.data && onboarded && profileMissing.length > 0 && (
+            {me.data && me.data.readiness ? (
+                <ReadinessCard readiness={me.data.readiness} style={{ marginBottom: 16 }} />
+            ) : me.data && onboarded && profileMissing.length > 0 && (
                 <ProfileMissing
                     style={{ marginBottom: 16 }}
                     missing={profileMissing}
@@ -228,6 +233,19 @@ export default function BuyPage() {
                     <label className="field-label" htmlFor="buy-wd">Jobs posted in the last <span style={{ color: 'var(--pop)' }}>{wd} day{wd === 1 ? '' : 's'}</span></label>
                     <input id="buy-wd" type="range" className="aa-range" min={1} max={maxWindow} value={wd} onChange={(e) => setWindowDays(Number(e.target.value))} disabled={busy} aria-valuetext={`${wd} days`} />
                     <div className="field-hint">Fresher postings get more replies; a longer window finds more jobs.</div>
+                </section>
+
+                <section className="aa-card" aria-labelledby="buy-must">
+                    <h2 id="buy-must" className="aa-h2">4 · Must-apply companies <span className="aa-faint" style={{ fontWeight: 600 }}>(optional)</span></h2>
+                    <MustCompaniesInput
+                        idPrefix="buy-must"
+                        value={must}
+                        onChange={setMust}
+                        query={mustQuery}
+                        onQuery={setMustQuery}
+                        suggestions={suggest.data?.companies || []}
+                        disabled={busy}
+                    />
                 </section>
 
                 {me.data && <SupplyPanel kind={kind} windowDays={debouncedWd} size={size} />}

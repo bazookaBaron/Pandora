@@ -450,7 +450,7 @@ test("inbound email: HMAC, alias -> user, mail db row with category, never forwa
   assert.equal(pushes.length, 0, "a code mail does not push");
   assert.equal(sent.length, 0, "nothing is ever sent through Resend for inbound mail");
 
-  const human = signed({ ...mail, from: "jane@acme.com", from_name: "Jane at Acme", subject: "Interview", is_human: true, codes: [], has_attachments: true });
+  const human = signed({ ...mail, from: "jane@acme.com", from_name: "Jane at Acme", subject: "Interview", is_human: true, codes: [], has_attachments: true, message_id: "<m2>" });
   await call("POST", "/api/inbound/email", { user: null, raw: human.raw, headers: human.headers });
   await lastAfter;
   assert.equal(sent.length, 0, "recruiter mail is not forwarded");

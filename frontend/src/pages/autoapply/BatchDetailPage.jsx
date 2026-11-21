@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
-import { useAutoApplyRealtime, useBatch, useBatchAction, useRemoveTask } from '../../lib/useAutoApply'
+import { fetchTaskProof, useAutoApplyRealtime, useBatch, useBatchAction, useCompanySuggest, useRemoveTask, useSetMustCompanies } from '../../lib/useAutoApply'
 import {
-    AALayout, BatchStatusPill, InlineConfirm, PACK_KINDS, PageHeader, ProfileMissing, Progress, TASK_STATUS_ORDER, TaskStatusPill,
+    AALayout, BatchStatusPill, InlineConfirm, MustCompaniesInput, PACK_KINDS, PageHeader, ProfileMissing, Progress, TASK_STATUS_ORDER, TaskStatusPill,
     fmtDate, num, reasonText, rupees, taskStatusLabel,
 } from './ui'
 
@@ -77,6 +77,104 @@ function Controls({ batch }) {
     )
 }
 
+const NOT_CHARGED_LABEL = { failed: 'failed', captcha: 'captcha', blocked: 'blocked / sign-in', other: 'skipped' }
+
+function ChargeSummary({ charge }) {
+    if (!charge) return null
+    const reasons = Object.entries(charge.by_reason || {}).filter(([, n]) => n > 0)
+    return (
+        <section className="aa-card" aria-labelledby="charge-h">
+            <h2 id="charge-h" className="aa-h2">Credits</h2>
+            <div className="aa-grid">
+                <div>
+                    <div className="aa-stat-value" style={{ color: 'var(--green, inherit)' }}>{num(charge.applied)}</div>
+                    <div className="aa-stat-label">Applied · 1 credit each</div>
+                </div>
+                <div>
+                    <div className="aa-stat-value">{num(charge.not_charged)}</div>
+                    <div className="aa-stat-label">Not charged</div>
+                    {reasons.length > 0 && (
+                        <div className="aa-faint" style={{ marginTop: 4 }}>{reasons.map(([k, n]) => `${num(n)} ${NOT_CHARGED_LABEL[k] || k}`).join(' · ')}</div>
+                    )}
+                </div>
+                {charge.in_progress > 0 && (
+                    <div>
+                        <div className="aa-stat-value">{num(charge.in_progress)}</div>
+                        <div className="aa-stat-label">In progress</div>
+                    </div>
+                )}
+            </div>
+            <p className="aa-muted" style={{ margin: '12px 0 0' }}>
+                Credits are only used for jobs we actually applied to. Failed attempts, captchas, blocked sites and skipped jobs cost nothing; unused credits are refunded pro rata.
+            </p>
+        </section>
+    )
+}
+
+function ProofButton({ batchId, task }) {
+    const [busy, setBusy] = useState(false)
+    const [err, setErr] = useState(null)
+    async function open() {
+        setErr(null)
+        setBusy(true)
+        // open the tab synchronously (popup blockers), then point it at the short-lived signed URL
+        const w = window.open('', '_blank')
+        try {
+            const { url } = await fetchTaskProof(batchId, task.id)
+            if (w) { w.opener = null; w.location.href = url } else window.location.assign(url)
+        } catch (e) {
+            if (w) w.close()
+            setErr(errorText(e))
+        } finally {
+            setBusy(false)
+        }
+    }
+    return (
+        <>
+            <button type="button" className="aa-btn" onClick={open} disabled={busy} aria-label={`View proof of the ${task.company} application`}>
+                {busy ? 'Opening…' : 'View proof'}
+            </button>
+            {err && <span className="aa-faint" role="alert">{err}</span>}
+        </>
+    )
+}
+
+function MustCompaniesEditor({ batch }) {
+    const save = useSetMustCompanies()
+    const current = Array.isArray(batch.must_companies) ? batch.must_companies : []
+    const [editing, setEditing] = useState(false)
+    const [draft, setDraft] = useState(current)
+    const [query, setQuery] = useState('')
+    const suggest = useCompanySuggest(query, batch.pack_kind)
+    const editable = ['paid', 'shortlisting', 'review', 'running', 'paused', 'waiting_supply', 'waiting_profile'].includes(batch.status)
+    if (!current.length && !editable) return null
+    return (
+        <section className="aa-card" aria-labelledby="must-h">
+            <div className="aa-spread">
+                <h2 id="must-h" className="aa-h2" style={{ margin: 0 }}>Must-apply companies</h2>
+                {editable && !editing && <button type="button" className="aa-btn" onClick={() => { setDraft(current); setEditing(true) }}>{current.length ? 'Edit' : 'Add'}</button>}
+            </div>
+            {editing ? (
+                <div className="aa-stack" style={{ marginTop: 10 }}>
+                    <MustCompaniesInput idPrefix="batch-must" value={draft} onChange={setDraft} query={query} onQuery={setQuery} suggestions={suggest.data?.companies || []} disabled={save.isPending} />
+                    <div className="aa-row">
+                        <button type="button" className="aa-btn is-primary" disabled={save.isPending}
+                            onClick={() => save.mutate({ id: batch.id, companies: draft }, { onSuccess: () => setEditing(false) })}>
+                            {save.isPending ? 'Saving…' : 'Save'}
+                        </button>
+                        <button type="button" className="aa-btn" onClick={() => setEditing(false)} disabled={save.isPending}>Cancel</button>
+                    </div>
+                    {save.isError && <ErrorState compact message={errorText(save.error)} />}
+                </div>
+            ) : current.length ? (
+                <div className="aa-chips" style={{ marginTop: 10 }}>{current.map((c) => <span key={c} className="aa-chip">{c}</span>)}</div>
+            ) : (
+                <p className="aa-faint" style={{ margin: '8px 0 0' }}>None. Add up to 10 companies we should apply to first.</p>
+            )}
+        </section>
+    )
+}
+
 function TaskTable({ batch, tasks }) {
     const remove = useRemoveTask()
     const [filter, setFilter] = useState('all')
@@ -133,11 +231,25 @@ function TaskTable({ batch, tasks }) {
                                 <td data-label="Status">
                                     <TaskStatusPill status={t.status} />
                                     {t.reason_code && <div className="aa-faint" style={{ marginTop: 4 }}>{reasonText(t.reason_code)}</div>}
+                                    {t.not_charged && t.status !== 'removed' && t.status !== 'cancelled' && <div className="aa-faint" style={{ marginTop: 4 }}>Not charged</div>}
+                                    {t.status === 'applied' && t.confirmation_text && (
+                                        <div className="aa-faint" style={{ marginTop: 4, maxWidth: 320, overflowWrap: 'anywhere' }} title={t.confirmation_text}>
+                                            “{t.confirmation_text.length > 140 ? `${t.confirmation_text.slice(0, 140)}…` : t.confirmation_text}”
+                                        </div>
+                                    )}
+                                    {t.status === 'applied' && t.confirmation_mail && (
+                                        <div style={{ marginTop: 4 }}>
+                                            <Link to={`/autoapply/inbox?mail=${encodeURIComponent(t.confirmation_mail.id)}`} style={{ color: 'var(--pop)', fontSize: '0.72rem' }}>
+                                                Confirmation mail: {t.confirmation_mail.subject || '(no subject)'}
+                                            </Link>
+                                        </div>
+                                    )}
                                 </td>
                                 <td data-label="Score">{t.score ?? '—'}</td>
                                 <td data-label="Submitted">{t.submitted_at ? fmtDate(t.submitted_at) : '—'}</td>
                                 <td>
                                     <div className="aa-row" style={{ gap: 6 }}>
+                                        {t.status === 'applied' && t.has_proof && <ProofButton batchId={batch.id} task={t} />}
                                         {t.apply_url && (
                                             <a className="aa-btn" href={t.apply_url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${t.company} job posting`}>
                                                 <ExternalLink size={12} aria-hidden /> Job
@@ -235,6 +347,10 @@ export default function BatchDetailPage() {
                                 </p>
                             </section>
                         )}
+
+                        <ChargeSummary charge={q.data?.charge} />
+
+                        <MustCompaniesEditor key={(batch.must_companies || []).join('|')} batch={batch} />
 
                         <Controls batch={batch} />
 

@@ -4,6 +4,7 @@
  *
  *   profileReady(profileRow, answers) -> { ok, missing: [key...] }
  *   missingPayload(missing)           -> [{ key, label }]
+ *   profileReadiness(profileRow, answers) -> { ok, pct, done, total, missing: [{ key, label, fix }] }
  *
  * `profileRow` is an aa_profiles row; `answers` is {question_key: answer} from aa_answers.
  * Keep in sync with profile_gate.py (LABELS, REQUIRED_QUESTIONS, COVERED and the fallbacks).
@@ -58,6 +59,13 @@ export function profileLabel(key) {
 }
 
 export function profileReady(user, answers) {
+  const { missing } = evaluate(user, answers);
+  return { ok: missing.length === 0, missing };
+}
+
+/** Every gate item checked for this user -> { missing: [key...], total, blocked }. `blocked` = required questions
+ *  that are not asked separately because the profile item that covers them is still missing (not done either). */
+function evaluate(user, answers) {
   const u = user || {};
   const a = answers || u.answers || {};
   const p = isObj(u.profile) ? u.profile : {};
@@ -89,12 +97,14 @@ export function profileReady(user, answers) {
   for (const k of PROFILE_ITEMS) if (k in has && !has[k]) miss.push(k);
 
   const coveredOk = new Set(Object.entries(COVERED).filter(([item]) => has[item]).flatMap(([, qs]) => qs));
+  let blocked = 0;
   for (const [key, q] of Object.entries(REQUIRED_QUESTIONS)) {
     if (s(a[key]) || coveredOk.has(key) || (q.default !== null && done)) continue;
-    if (Object.entries(COVERED).some(([item, qs]) => miss.includes(item) && qs.includes(key))) continue;
+    if (Object.entries(COVERED).some(([item, qs]) => miss.includes(item) && qs.includes(key))) { blocked++; continue; }
     miss.push(key);
   }
-  return { ok: miss.length === 0, missing: miss };
+  const total = 3 + Object.keys(has).length + Object.keys(REQUIRED_QUESTIONS).length;
+  return { missing: miss, total, blocked };
 }
 
 export const missingPayload = (missing) => (missing || []).map((key) => ({ key, label: profileLabel(key) }));
@@ -103,4 +113,20 @@ export const missingPayload = (missing) => (missing || []).map((key) => ({ key, 
 export function profileCheck(user, answers) {
   const r = profileReady(user, answers);
   return { ok: r.ok, missing: missingPayload(r.missing) };
+}
+
+// missing key -> the Setup step that fixes it (same mapping as the client's setupStepFor in pages/autoapply/ui.jsx)
+const FIX_STEP = { onboarding: "consent", resume: "resume", email: "email" };
+export const fixLinkFor = (key) => `/autoapply/setup?step=${FIX_STEP[key] || "answers"}${FIX_STEP[key] ? "" : `&field=${encodeURIComponent(key)}`}`;
+
+/**
+ * Readiness score for the home / Buy pages: the same items as the gate, as a percentage.
+ * -> { ok, pct, done, total, missing: [{ key, label, fix }] }   (pct is 100 only when ok)
+ */
+export function profileReadiness(user, answers) {
+  const { missing, total, blocked } = evaluate(user, answers);
+  const done = Math.max(0, total - missing.length - blocked);
+  const ok = missing.length === 0;
+  const pct = ok ? 100 : Math.min(99, Math.floor((done / total) * 100));
+  return { ok, pct, done, total, missing: missingPayload(missing).map((m) => ({ ...m, fix: fixLinkFor(m.key) })) };
 }

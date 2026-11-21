@@ -42,6 +42,9 @@ export const aaKeys = {
     inboxCompanies: ['aa', 'inbox-companies'],
     interviews: ['aa', 'interviews'],
     accounts: ['aa', 'accounts'],
+    replyStats: ['aa', 'stats', 'replies'],
+    adminHealth: ['aa', 'admin', 'health'],
+    companySuggest: (q, kind) => ['aa', 'company-suggest', q, kind],
 }
 
 function useUid() {
@@ -177,6 +180,52 @@ export function useMarkAllRead() {
 export function useInterviews() {
     const uid = useUid()
     return useQuery({ queryKey: [...aaKeys.interviews, uid], queryFn: () => aa('/interviews'), enabled: !!uid, refetchInterval: 120_000 })
+}
+
+/** Reply rates (last 90 days) per company and per role family. */
+export function useReplyStats() {
+    const uid = useUid()
+    return useQuery({ queryKey: [...aaKeys.replyStats, uid], queryFn: () => aa('/stats/replies'), enabled: !!uid, staleTime: 5 * 60_000 })
+}
+
+/** Admin only: aa_health heartbeats. */
+export function useAdminHealth({ enabled = true } = {}) {
+    const uid = useUid()
+    return useQuery({
+        queryKey: [...aaKeys.adminHealth, uid],
+        queryFn: () => aa('/admin/health'),
+        enabled: !!uid && enabled,
+        refetchInterval: 30_000,
+        retry: (n, err) => err?.status !== 403 && n < 2,
+    })
+}
+
+/** Company names from open jobs for the must-apply autocomplete (q >= 2 chars). */
+export function useCompanySuggest(q, kind) {
+    const uid = useUid()
+    const term = String(q || '').trim()
+    return useQuery({
+        queryKey: [...aaKeys.companySuggest(term.toLowerCase(), kind || ''), uid],
+        queryFn: () => aa(`/companies/suggest?q=${encodeURIComponent(term)}${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`),
+        enabled: !!uid && term.length >= 2,
+        staleTime: 5 * 60_000,
+        placeholderData: (prev) => prev,
+    })
+}
+
+/** A 5-minute signed URL for the proof screenshot of one applied task. */
+export const fetchTaskProof = (batchId, taskId) =>
+    aa(`/batches/${encodeURIComponent(batchId)}/tasks/${encodeURIComponent(taskId)}/proof`)
+
+export function useSetMustCompanies() {
+    const qc = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, companies }) => aa(`/batches/${encodeURIComponent(id)}/must-companies`, { method: 'PUT', json: { must_companies: companies } }),
+        onSuccess: (_d, { id }) => {
+            qc.invalidateQueries({ queryKey: aaKeys.batch(id) })
+            qc.invalidateQueries({ queryKey: aaKeys.batches })
+        },
+    })
 }
 
 // Web push endpoints (see usePush.js)

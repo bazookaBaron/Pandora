@@ -32,14 +32,28 @@ import { sendPushForMail, vapidConfig } from "../lib/autoapply/push.js";
 import { cleanupExpiredMail, sendDailyAlerts } from "../lib/autoapply/mailJobs.js";
 import { NOTIFY_CATEGORIES } from "../lib/autoapply/classify.js";
 import { processRefunds } from "../lib/autoapply/refunds.js";
-import { profileCheck } from "../lib/autoapply/profileGate.js";
+import { profileCheck, profileReadiness } from "../lib/autoapply/profileGate.js";
+import { normMustCompanies } from "../lib/autoapply/companies.js";
+import { chargeSummary, matchConfirmationMails, replyStats, STATS_WINDOW_DAYS } from "../lib/autoapply/insights.js";
+import { healthSummary, isAdminUser } from "../lib/autoapply/health.js";
+import { sendInterviewReminders } from "../lib/autoapply/reminders.js";
 import { extractText, draftFromText, maybeEnrichWithAi } from "../lib/autoapply/resumeParse.js";
 
 export { AAError, handleAutoApplyWebhook };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
-const TASK_FIELDS = "id, company, title, ats, status, reason_code, score, submitted_at, apply_url";
+const TASK_FIELDS = "id, company, title, ats, status, reason_code, score, submitted_at, apply_url, confirmation_text, proof_path, not_charged";
+const PROOF_BUCKET = "aa-proof";
+const PROOF_URL_TTL_S = 300; // signed proof URLs live 5 minutes
+const EDITABLE_BATCH = ["paid", "shortlisting", "review", "running", "paused", "waiting_supply", "waiting_profile"];
+const CONFIRM_MAIL_FIELDS = "id, subject, sender, from_name, company, received_at, category";
+
+/** Task row for the client: proof_path is replaced by has_proof (the path itself is only used server-side). */
+function publicTask(t) {
+  const { proof_path, ...rest } = t;
+  return { ...rest, has_proof: !!proof_path };
+}
 const MAX_JSON_BYTES = 100 * 1024;
 const RESUME_MAX_BYTES = 5 * 1024 * 1024;
 const RESUME_TYPES = {
@@ -284,6 +298,9 @@ export function createAutoApplyRouter(deps = {}) {
         usage,
         // same rules as the scheduler's gate (saas/profile_gate.py): a paid batch waits in 'waiting_profile' until ok
         profile_check: profileCheck(prof, answers),
+        // same items as a percentage, each missing item with the Setup link that fixes it
+        readiness: profileReadiness(prof, answers),
+        is_admin: isAdminUser(req.user, getEnv),
         config: AUTO_APPLY,
       });
     }),
@@ -490,7 +507,14 @@ export function createAutoApplyRouter(deps = {}) {
     "/orders",
     checkoutLimiter,
     wrap("orders", async (req, res) => {
-      res.json(await createAutoApplyOrder({ db, razorpay, getUserPlan, userId: req.user.id, body: req.body, now: now() }));
+      const must = normMustCompanies(req.body && req.body.must_companies);
+      if (!must.ok) throw bad(must.message);
+      const order = await createAutoApplyOrder({ db, razorpay, getUserPlan, userId: req.user.id, body: req.body, now: now() });
+      if (must.value.length) {
+        const { error } = await db.from("aa_batches").update({ must_companies: must.value }).eq("id", order.batch_id).eq("user_id", req.user.id);
+        if (error) throw error;
+      }
+      res.json({ ...order, must_companies: must.value });
     }),
   );
 
@@ -531,9 +555,29 @@ export function createAutoApplyRouter(deps = {}) {
         .order("score", { ascending: false })
         .limit(2000);
       if (error) throw error;
+      const rows = data || [];
       const counts = {};
-      for (const t of data || []) counts[t.status] = (counts[t.status] || 0) + 1;
-      res.json({ batch, counts, tasks: data || [] });
+      for (const t of rows) counts[t.status] = (counts[t.status] || 0) + 1;
+      // the 'received' mail that confirms each applied task, if one arrived (mail db; never fails the page)
+      let confirm = new Map();
+      const submits = rows.filter((t) => t.status === "applied" && t.submitted_at).map((t) => Date.parse(t.submitted_at)).filter((n) => !Number.isNaN(n));
+      if (submits.length) {
+        const { data: mails, error: mErr } = await mailDb
+          .from("aa_mail_events")
+          .select(CONFIRM_MAIL_FIELDS)
+          .eq("user_id", req.user.id)
+          .eq("category", "received")
+          .gte("received_at", new Date(Math.min(...submits) - 10 * 60 * 1000).toISOString())
+          .order("received_at", { ascending: true })
+          .limit(2000);
+        if (mErr) console.warn("[autoapply/batch] confirmation mail lookup failed:", mErr.message || mErr);
+        else confirm = matchConfirmationMails(rows, mails || []);
+      }
+      const tasks = rows.map((t) => {
+        const m = confirm.get(t.id);
+        return { ...publicTask(t), confirmation_mail: m ? { id: m.id, subject: m.subject || null, from_name: m.from_name || null, received_at: m.received_at } : null };
+      });
+      res.json({ batch, counts, charge: chargeSummary(rows), tasks });
     }),
   );
 
@@ -607,6 +651,76 @@ export function createAutoApplyRouter(deps = {}) {
     }),
   );
 
+  // Proof of application: a 5-minute signed URL for the screenshot the worker saved after submitting
+  // ('aa-proof/<user_id>/<task_id>.png', private bucket, service-role storage client).
+  router.get(
+    "/batches/:id/tasks/:taskId/proof",
+    wrap("task/proof", async (req, res) => {
+      const uid = req.user.id;
+      const batch = await ownBatch(uid, req.params.id);
+      if (!UUID_RE.test(String(req.params.taskId))) throw notFound("Task not found.");
+      const { data: task, error } = await db
+        .from("aa_tasks")
+        .select("id, user_id, batch_id, proof_path")
+        .eq("id", req.params.taskId)
+        .eq("batch_id", batch.id)
+        .eq("user_id", uid)
+        .maybeSingle();
+      if (error) throw error;
+      if (!task) throw notFound("Task not found.");
+      const path = String(task.proof_path || "");
+      // belt and braces: the object must sit under the owner's folder
+      if (!path || !path.startsWith(`${uid}/`) || path.includes("..")) throw notFound("No proof saved for this application.");
+      const { data: signed, error: sErr } = await db.storage.from(PROOF_BUCKET).createSignedUrl(path, PROOF_URL_TTL_S);
+      if (sErr || !signed || !signed.signedUrl) {
+        if (sErr) console.warn("[autoapply/proof] sign failed:", sErr.message || sErr);
+        throw notFound("No proof saved for this application.");
+      }
+      res.set("Cache-Control", "no-store");
+      res.json({ url: signed.signedUrl, expires_in: PROOF_URL_TTL_S });
+    }),
+  );
+
+  // Must-apply companies of a batch (<= 10); the scheduler shortlists their matching jobs first.
+  router.put(
+    "/batches/:id/must-companies",
+    writeLimiter,
+    wrap("batch/must-companies", async (req, res) => {
+      const batch = await ownBatch(req.user.id, req.params.id);
+      const must = normMustCompanies(req.body && req.body.must_companies);
+      if (!must.ok) throw bad(must.message);
+      const updated = await updateBatchIf(batch, EDITABLE_BATCH, { must_companies: must.value });
+      res.json({ batch: updated });
+    }),
+  );
+
+  // Company names for the must-apply autocomplete (open jobs only).
+  router.get(
+    "/companies/suggest",
+    wrap("companies/suggest", async (req, res) => {
+      const term = companyTerm(req.query.q).slice(0, 80);
+      if (term.length < 2) return res.json({ companies: [] });
+      let qb = db.from("aa_jobs").select("company").is("closed_at", null).ilike("company", `%${term}%`);
+      const kind = req.query.kind ? String(req.query.kind) : "";
+      if (kind) {
+        if (!["service", "product"].includes(kind)) throw bad("kind must be 'service' or 'product'.");
+        qb = qb.eq("company_kind", kind);
+      }
+      const { data, error } = await qb.limit(500);
+      if (error) throw error;
+      const seen = new Map();
+      const want = term.toLowerCase();
+      for (const r of data || []) {
+        const c = r.company && String(r.company).trim();
+        if (c && !seen.has(c.toLowerCase())) seen.set(c.toLowerCase(), c);
+      }
+      const companies = [...seen.values()]
+        .sort((a, b) => Number(!a.toLowerCase().startsWith(want)) - Number(!b.toLowerCase().startsWith(want)) || a.localeCompare(b))
+        .slice(0, 10);
+      res.json({ companies });
+    }),
+  );
+
   router.post(
     "/batches/:id/tasks/:taskId/remove",
     writeLimiter,
@@ -626,10 +740,10 @@ export function createAutoApplyRouter(deps = {}) {
       if (!data || !data[0]) {
         const { data: t } = await db.from("aa_tasks").select(TASK_FIELDS).eq("id", req.params.taskId).eq("batch_id", batch.id).maybeSingle();
         if (!t) throw notFound("Task not found.");
-        if (t.status === "removed") return res.json({ task: t });
+        if (t.status === "removed") return res.json({ task: publicTask(t) });
         throw new AAError(409, "invalid_state", `Task is '${t.status}'; only shortlisted jobs can be removed.`);
       }
-      res.json({ task: data[0] });
+      res.json({ task: publicTask(data[0]) });
     }),
   );
 
@@ -934,6 +1048,35 @@ export function createAutoApplyRouter(deps = {}) {
     }),
   );
 
+  // Reply rates over the last 90 days, per company and per role family (tasks: main db; mail + interviews: mail db).
+  router.get(
+    "/stats/replies",
+    wrap("stats/replies", async (req, res) => {
+      const uid = req.user.id;
+      const at = now();
+      const since = new Date(at.getTime() - STATS_WINDOW_DAYS * 86400000).toISOString();
+      const [t, m, iv] = await Promise.all([
+        db.from("aa_tasks").select("id, company, title, status, submitted_at").eq("user_id", uid).eq("status", "applied").gte("submitted_at", since).limit(10000),
+        mailDb.from("aa_mail_events").select("id, company, category, kind, received_at").eq("user_id", uid).in("category", ["rejected", "important", "other"]).gte("received_at", since).limit(10000),
+        mailDb.from("aa_interviews").select("mail_event_id, company").eq("user_id", uid).gte("created_at", since).limit(5000),
+      ]);
+      for (const r of [t, m, iv]) if (r.error) throw r.error;
+      res.json(replyStats({ tasks: t.data || [], mails: m.data || [], interviews: iv.data || [], now: at }));
+    }),
+  );
+
+  // Admin only (AA_ADMIN_EMAILS / AA_ADMIN_USER_IDS): heartbeats of discovery / scheduler / workers (aa_health).
+  router.get(
+    "/admin/health",
+    wrap("admin/health", async (req, res) => {
+      if (!isAdminUser(req.user, getEnv)) throw new AAError(403, "forbidden", "Admins only.");
+      const { data, error } = await db.from("aa_health").select("component, last_seen, status, stats, updated_at").order("component", { ascending: true }).limit(500);
+      if (error) throw error;
+      res.set("Cache-Control", "no-store");
+      res.json(healthSummary(data || [], now()));
+    }),
+  );
+
   // Accounts
   router.get(
     "/accounts",
@@ -1008,7 +1151,9 @@ export function createInboundHandler(deps = {}) {
       return res.status(400).json({ error: { code: "invalid_json", message: "Body must be JSON." } });
     }
     try {
-      const { event, profile, category } = await storeInbound({ db, mailDb, payload });
+      const { event, profile, category, duplicate } = await storeInbound({ db, mailDb, payload });
+      // A retried delivery of a mail already stored: 200 so the worker stops retrying, and no second push.
+      if (duplicate) return res.status(200).json({ ok: true, duplicate: true });
       res.status(200).json({ ok: true });
       // After the response: push an alert for interview / assessment / offer / rejection / important mail.
       // Mail is never forwarded anywhere.
@@ -1029,6 +1174,11 @@ export function runAutoApplyRefunds(deps = {}) {
 /** Daily: delete expired mail from the mail db. */
 export function runMailCleanup(deps = {}) {
   return cleanupExpiredMail({ mailDb: deps.mailDb || realMailDb, now: deps.now });
+}
+
+/** Every 5 min: push reminders 24 h and 1 h before each interview (idempotent, see lib/autoapply/reminders.js). */
+export function runInterviewReminders(deps = {}) {
+  return sendInterviewReminders({ db: deps.db || supabaseAdmin, mailDb: deps.mailDb || realMailDb, now: deps.now, send: deps.send, env: deps.env, webpush: deps.webpush });
 }
 
 /** Daily ~7 PM IST: one short alert email per user with new important mail. */

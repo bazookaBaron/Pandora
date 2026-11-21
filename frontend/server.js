@@ -67,6 +67,7 @@ import {
   runAutoApplyRefunds,
   runMailCleanup,
   runDailyMailAlerts,
+  runInterviewReminders,
 } from "./routes/autoapply.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -4590,6 +4591,8 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY && razorpay.isEnabled()) {
 if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.AUTOAPPLY_ENABLED === "1") {
   cron.schedule("40 3 * * *", () => runMailCleanup().then((r) => console.log("[autoapply] mail cleanup", r), (e) => console.error("[autoapply] mail cleanup failed:", (e && e.message) || e)), { timezone: "Asia/Kolkata" });
   cron.schedule("0 19 * * *", () => runDailyMailAlerts({ baseUrl: APP_BASE_URL }).then((r) => console.log("[autoapply] daily mail alerts", r), (e) => console.error("[autoapply] daily mail alerts failed:", (e && e.message) || e)), { timezone: "Asia/Kolkata" });
+  // Interview reminders: push 24 h and 1 h before each aa_interviews.starts_at (claimed per row, never sent twice).
+  cron.schedule("*/5 * * * *", () => runInterviewReminders().then((r) => { if (r.sent || r.skipped) console.log("[autoapply] interview reminders", r); }, (e) => console.error("[autoapply] interview reminders failed:", (e && e.message) || e)), { timezone: "Asia/Kolkata" });
 } else {
   console.warn("[autoapply] mail cleanup + alert crons disabled (AUTOAPPLY_ENABLED!=1 or no SUPABASE_SERVICE_ROLE_KEY)");
 }

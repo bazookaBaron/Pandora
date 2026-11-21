@@ -36,6 +36,8 @@ const AutoApplyNeedsYou = lazy(() => import('./pages/autoapply/NeedsYouPage'))
 const AutoApplyInbox = lazy(() => import('./pages/autoapply/InboxPage'))
 const AutoApplyInterviews = lazy(() => import('./pages/autoapply/InterviewsPage'))
 const AutoApplyAccounts = lazy(() => import('./pages/autoapply/AccountsPage'))
+const AutoApplyStats = lazy(() => import('./pages/autoapply/StatsPage'))
+const AutoApplyHealth = lazy(() => import('./pages/autoapply/HealthPage'))
 
 const TermsPage = lazy(() => import('./pages/LegalPages').then(m => ({ default: m.TermsPage })))
 const PrivacyPage = lazy(() => import('./pages/LegalPages').then(m => ({ default: m.PrivacyPage })))
@@ -164,6 +166,8 @@ export default function App() {
                         <Route path="/autoapply/inbox" element={<ProtectedRoute><AutoApplyInbox /></ProtectedRoute>} />
                         <Route path="/autoapply/interviews" element={<ProtectedRoute><AutoApplyInterviews /></ProtectedRoute>} />
                         <Route path="/autoapply/accounts" element={<ProtectedRoute><AutoApplyAccounts /></ProtectedRoute>} />
+                        <Route path="/autoapply/stats" element={<ProtectedRoute><AutoApplyStats /></ProtectedRoute>} />
+                        <Route path="/autoapply/admin/health" element={<ProtectedRoute><AutoApplyHealth /></ProtectedRoute>} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                     </Suspense>

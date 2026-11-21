@@ -10,7 +10,8 @@ const UNIQUE = {
   aa_batches: [["id"], ["razorpay_order_id"], ["razorpay_payment_id"]],
   aa_credit_ledger: [["id"], { cols: ["batch_id"], where: (r) => r.reason === "purchase" }, { cols: ["task_id"], where: (r) => r.reason === "capture" }],
   aa_tasks: [["id"]],
-  aa_mail_events: [["id"]],
+  aa_mail_events: [["id"], ["dedupe_key"]],
+  aa_health: [["component"]],
   aa_interviews: [["id"], ["mail_event_id"]],
   aa_push_subscriptions: [["id"], ["endpoint"]],
   aa_needs_you: [["id"]],
@@ -165,6 +166,7 @@ export function createFakeDb(seed = {}) {
         const made = [];
         for (const raw of list) {
           const existing = rows.find((r) => keys.every((k) => r[k] === raw[k]));
+          if (existing && opts.ignoreDuplicates) continue; // ON CONFLICT DO NOTHING: no row returned
           if (existing) {
             const next = { ...existing, ...clone(raw) };
             const v = violates(table, next, existing);
@@ -209,6 +211,10 @@ export function createFakeDb(seed = {}) {
         return {
           async upload(p, buf, o) { storage.push({ op: "upload", bucket, path: p, size: buf.length, o }); return { data: { path: p }, error: null }; },
           async remove(paths) { storage.push({ op: "remove", bucket, paths }); return { data: [], error: null }; },
+          async createSignedUrl(p, expiresIn) {
+            storage.push({ op: "sign", bucket, path: p, expiresIn });
+            return { data: { signedUrl: `https://storage.test/${bucket}/${p}?token=signed&expires=${expiresIn}` }, error: null };
+          },
         };
       },
     },

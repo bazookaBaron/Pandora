@@ -106,15 +106,20 @@ Workers wait for codes with `LISTEN aa_mail` on the MAIL database (`AA_MAIL_DB_U
 
 | Method + path | Body / query | Response |
 |---|---|---|
-| `GET /api/autoapply/me` | | `{eligible, plan, onboarding_done, profile, prefs, email: {mode, alias, address, contact_email}, alert_prefs: {email, push}, review_before_apply, usage: {month_purchased, month_applied, monthly_cap, remaining_purchasable, today_applied, daily_cap}, profile_check: {ok, missing: [{key, label}]} (same rules as the gate), config: AUTO_APPLY (packs, limits)}` |
+| `GET /api/autoapply/me` | | `{eligible, plan, onboarding_done, profile, prefs, email: {mode, alias, address, contact_email}, alert_prefs: {email, push}, review_before_apply, usage: {month_purchased, month_applied, monthly_cap, remaining_purchasable, today_applied, daily_cap}, profile_check: {ok, missing: [{key, label}]} (same rules as the gate), readiness: {ok, pct, done, total, missing: [{key, label, fix}]} (same items as a %, `fix` = Setup link), is_admin, config: AUTO_APPLY (packs, limits)}` |
 | `PUT /api/autoapply/profile` | `{profile?, prefs?, email_mode?, contact_email?, alert_prefs?: {email?, push?}, review_before_apply?, consent?: true, onboarding_done?}` | `{ok, profile row}`; creates `apply_alias` on first save |
 | `POST /api/autoapply/resume` | multipart `resume` (pdf/docx <= 5 MB) | `{resume_path, parsed: {profile draft}}` |
 | `GET /api/autoapply/answers` / `PUT` | PUT `{answers: {key: value}}` | see above |
 | `GET /api/autoapply/supply` | `?kind=service|product&window_days=1..30` | `{kind, window_days, count, by_ats: {workday: n, ...}, sample: [{company, title, location, posted_at}]}` (from `aa_jobs` matched to the user's prefs) |
-| `POST /api/autoapply/orders` | `{pack_kind, pack_size, window_days}` | `{order_id, amount, currency, key_id, batch_id}`; 403 `not_eligible`, 409 `monthly_cap` |
+| `POST /api/autoapply/orders` | `{pack_kind, pack_size, window_days, must_companies?: [name] (<= 10, each <= 80 chars, trimmed, de-duplicated)}` | `{order_id, amount, currency, key_id, batch_id, must_companies}`; 400 `invalid_input`, 403 `not_eligible`, 409 `monthly_cap` |
 | `POST /api/autoapply/orders/verify` | `{razorpay_order_id, razorpay_payment_id, razorpay_signature}` | `{batch}` (idempotent) |
 | `GET /api/autoapply/batches` | | `{batches: [...]}` |
-| `GET /api/autoapply/batches/:id` | | `{batch, counts: {status: n}, tasks: [{id, company, title, ats, status, reason_code, score, submitted_at, apply_url}]}` |
+| `GET /api/autoapply/batches/:id` | | `{batch, counts: {status: n}, charge: {applied, not_charged, in_progress, by_reason: {failed, captcha, blocked, other}}, tasks: [{id, company, title, ats, status, reason_code, score, submitted_at, apply_url, confirmation_text, not_charged, has_proof, confirmation_mail: {id, subject, from_name, received_at}\|null}]}` (`proof_path` is never sent) |
+| `GET /api/autoapply/batches/:id/tasks/:taskId/proof` | | `{url, expires_in: 300}`: signed URL for `aa-proof/<user_id>/<task_id>.png` (owner only; 404 when no proof) |
+| `PUT /api/autoapply/batches/:id/must-companies` | `{must_companies: [name]}` (same rules as orders) | `{batch}`; active batches only (409 `invalid_state`) |
+| `GET /api/autoapply/companies/suggest` | `?q=<2+ chars>&kind=service\|product` | `{companies: [name]}` (open `aa_jobs`, max 10) |
+| `GET /api/autoapply/stats/replies` | | `{window_days: 90, since, totals, by_company: [row], by_role: [row]}`, row = `{key, label, applied, replies, interviews, rejections, rate, interview_rate}` (rates in %, each applied task counted once) |
+| `GET /api/autoapply/admin/health` | admin only (`AA_ADMIN_EMAILS` / `AA_ADMIN_USER_IDS`), 403 `forbidden` otherwise | `{now, ok, counts: {ok, warn, stale, error}, components: [{component, last_seen, status, stats, interval_s, age_s, stale, level}]}` (stale = older than 2 x `stats.interval_s`) |
 | `POST /api/autoapply/batches/:id/{approve,pause,resume,cancel}` | | `{batch}`; approve: `review`; pause: `paid`, `shortlisting`, `review`, `running`, `waiting_supply`, `waiting_profile`; resume: `paused`; cancel: those + `pending_payment`, `paused` (409 `invalid_state` otherwise) |
 | `POST /api/autoapply/batches/:id/tasks/:taskId/remove` | | `{task}` (only while batch `review`) |
 | `GET /api/autoapply/needs-you` | | `{items: [{id, kind, payload, task_id, batch_id, task: {company, title, apply_url} \| null, created_at}]}` (`task` is null for kind `profile`) |
@@ -130,7 +135,7 @@ Workers wait for codes with `LISTEN aa_mail` on the MAIL database (`AA_MAIL_DB_U
 | `POST /api/autoapply/push/unsubscribe` | `{endpoint}` | `{ok}` |
 | `GET /api/autoapply/accounts` | | `{accounts: [{tenant_host, login_email, status, created_at, last_used_at}]}` |
 | `POST /api/autoapply/accounts/reveal` | `{tenant_host}` | `{password}` (rate-limited, logged) |
-| `POST /api/inbound/email` | HMAC, no auth | `{ok}` |
+| `POST /api/inbound/email` | HMAC, no auth | `{ok}`; `{ok, duplicate: true}` for a retried mail already stored (dedupe key = sha256(recipient + Message-ID), sql/mail/03; no second push) |
 
 Browser live updates: Supabase Realtime `postgres_changes` on `aa_tasks` and `aa_batches` filtered `user_id=eq.<uid>`.
 
@@ -138,6 +143,7 @@ Browser live updates: Supabase Realtime `postgres_changes` on `aa_tasks` and `aa
 
 Web/API (Railway): `AA_VAULT_KEY`, `AA_INBOUND_SECRET`, `AA_MAIL_DOMAIN=apply.vloombox.in`, existing `RAZORPAY_*`, `RESEND_API_KEY`, `SUPABASE_*`, `APP_BASE_URL` (links in alert emails), plus:
 - `AA_MAIL_SUPABASE_URL`, `AA_MAIL_SUPABASE_SERVICE_ROLE_KEY`: the separate mail project (unset -> falls back to the main project).
-- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT=mailto:support.vloombox@gmail.com`: web push (unset -> push off). Generate once with `npx web-push generate-vapid-keys` (in `frontend/`).
+- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT=mailto:support.vloombox@gmail.com`: web push (unset -> push off). Generate once with `npx web-push generate-vapid-keys` (in `frontend/`). Also used by the interview reminder cron (every 5 min: push 24 h and 1 h before `aa_interviews.starts_at`; needs `reminder_24h_at` / `reminder_1h_at`, sql/mail/04 + sql/26).
+- `AA_ADMIN_EMAILS`, `AA_ADMIN_USER_IDS`: comma-separated admin allowlist for `/autoapply/admin/health` (unset -> nobody).
 Email Worker (Cloudflare): `AA_INBOUND_SECRET`, `AA_API_BASE`; optional R2 binding `AA_MAIL`; optional D1 binding `AA_PENDING` (durable retry, see `email-worker/README.md`).
 Python scheduler/workers: `SUPABASE_DB_URL` (main db, direct Postgres, port 5432, not the transaction pooler), `AA_MAIL_DB_URL` (the MAIL project's direct Postgres connection string, port 5432; LISTEN needs a session. If unset, workers use `SUPABASE_DB_URL`), `AA_VAULT_KEY`, `AA_MAIL_DOMAIN`, `OLLAMA_URL`, `R2_*` (optional; local disk if unset), `AA_WORKER_ID`.

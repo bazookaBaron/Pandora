@@ -40,6 +40,28 @@ export function parseAlias(to) {
   return { local, alias, tag };
 }
 
+/**
+ * Dedupe key for one stored mail (aa_mail_events.dedupe_key, unique: sql/mail/03_mail_dedupe.sql).
+ * The Email Worker retries a delivery whose response it never saw (timeout, 5xx after the insert, the D1 retry
+ * cron), always with the SAME payload. Key = sha256(recipient local part + Message-ID); a mail without a
+ * Message-ID falls back to sha256 of the payload fields that a retry repeats verbatim (raw_key is a fresh R2 key
+ * per received mail, so two genuinely different mails never collide). Per recipient: the same message sent to
+ * two aliases is two mails.
+ */
+export function mailDedupeKey(payload) {
+  const p = payload || {};
+  const { local } = parseAlias(p.to);
+  const mid = String(p.message_id || "").trim().replace(/^<|>$/g, "").toLowerCase();
+  const material = mid
+    ? `mid\n${local}\n${mid}`
+    : `raw\n${local}\n${String(p.from || "").toLowerCase()}\n${p.subject ?? ""}\n${p.received_at ?? ""}\n${p.raw_key ?? ""}\n${String(p.text_excerpt ?? "").slice(0, 500)}`;
+  return crypto.createHash("sha256").update(material, "utf8").digest("hex");
+}
+
+// The column / unique index is not there yet (main-db fallback, or sql/mail/03 not applied): store without it.
+const isMissingDedupe = (err) =>
+  !!err && (["PGRST204", "42703", "42P10"].includes(err.code) || /dedupe_key|no unique or exclusion constraint/i.test(String(err.message || "")));
+
 const strArr = (v, max, len) =>
   (Array.isArray(v) ? v : []).filter((x) => typeof x === "string" && x).slice(0, max).map((x) => x.slice(0, len));
 
@@ -47,8 +69,9 @@ const strArr = (v, max, len) =>
 /**
  * Store one inbound mail. The alias is resolved against the MAIN db (aa_profiles); the mail row goes to the
  * MAIL db (`mailDb`, defaults to `db`) with a category, kind and expires_at (NULL = kept), plus an aa_interviews
- * row for an interview mail. Returns { event, profile, category, kind, interview }
- * (profile null for an unknown alias). Mail is never forwarded anywhere; alerts are the caller's job.
+ * row for an interview mail. Returns { event, profile, category, kind, interview, duplicate }
+ * (profile null for an unknown alias; duplicate true + event null when this mail was already stored, see
+ * mailDedupeKey). Mail is never forwarded anywhere; alerts are the caller's job and must skip duplicates.
  */
 export async function storeInbound({ db, mailDb = db, payload }) {
   const p = payload || {};
@@ -94,8 +117,23 @@ export async function storeInbound({ db, mailDb = db, payload }) {
   // Only received / rejected mail expires (30 days); retention counts from arrival at Vloombox, so a late
   // retry from the worker is not deleted at once. Everything else keeps expires_at NULL = never deleted.
   row.expires_at = expiresAtFor(category, new Date());
-  const { data: event, error } = await mailDb.from("aa_mail_events").insert(row).select("*").single();
+  row.dedupe_key = mailDedupeKey(p);
+  // INSERT ... ON CONFLICT (dedupe_key) DO NOTHING: a retried delivery inserts nothing and returns no row.
+  let { data: inserted, error } = await mailDb
+    .from("aa_mail_events")
+    .upsert(row, { onConflict: "dedupe_key", ignoreDuplicates: true })
+    .select("*");
+  if (error && isMissingDedupe(error)) {
+    console.warn("[autoapply/inbound] dedupe_key unavailable, storing without it:", error.message || error.code);
+    const { dedupe_key: _k, ...plain } = row;
+    ({ data: inserted, error } = await mailDb.from("aa_mail_events").insert(plain).select("*"));
+  }
   if (error) throw error;
+  const event = inserted && inserted[0];
+  if (!event) {
+    // Already stored by an earlier delivery of the same mail: no interview row, no notify, no push.
+    return { event: null, profile: profile || null, category, kind, interview: null, duplicate: true };
+  }
 
   let interview = null;
   if (kind === "interview" && event.user_id) {
@@ -112,5 +150,5 @@ export async function storeInbound({ db, mailDb = db, payload }) {
     const { error: nErr } = await mailDb.rpc("aa_notify_mail", { p_user: profile.user_id, p_event: event.id });
     if (nErr) console.warn("[autoapply/inbound] aa_notify_mail failed:", nErr.message || nErr);
   }
-  return { event, profile: profile || null, category, kind, interview };
+  return { event, profile: profile || null, category, kind, interview, duplicate: false };
 }

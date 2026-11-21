@@ -1,4 +1,18 @@
 import { Link } from 'react-router-dom'
+import { buildIcs, googleCalendarUrl, icsFileName } from '../../../lib/autoapply/calendar.js'
+
+function downloadIcs(iv) {
+    const text = buildIcs(iv)
+    if (!text) return
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/calendar;charset=utf-8' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = icsFileName(iv)
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
 
 export const MEETING_LABEL = {
     zoom: 'Zoom', google_meet: 'Google Meet', teams: 'Microsoft Teams', webex: 'Webex', chime: 'Amazon Chime', skype: 'Skype', hirevue: 'HireVue',
@@ -39,6 +53,7 @@ export default function InterviewCard({ iv, showMailLink = true, past = false })
     const join = safeHref(iv.meeting_url)
     const schedule = safeHref(iv.schedule_url)
     const when = fmtWhen(iv.starts_at)
+    const gcal = !past && when ? googleCalendarUrl(iv) : null
     const facts = [iv.round, TYPE_LABEL[iv.interview_type], MODE_LABEL[iv.mode], iv.duration_min ? `${iv.duration_min} min` : null].filter(Boolean)
     return (
         <article className={`aa-card aa-stack aa-iv${past ? ' is-past' : ' is-pop'}`} style={{ gap: 8 }} aria-label={`Interview${iv.company ? ` with ${iv.company}` : ''}`}>
@@ -80,6 +95,12 @@ export default function InterviewCard({ iv, showMailLink = true, past = false })
                 )}
                 {schedule && (
                     <a className="aa-btn" href={schedule} target="_blank" rel="noopener noreferrer nofollow" title={schedule}>Pick a time ↗</a>
+                )}
+                {gcal && (
+                    <a className="aa-btn" href={gcal} target="_blank" rel="noopener noreferrer" aria-label="Add this interview to Google Calendar">Add to Google Calendar ↗</a>
+                )}
+                {gcal && (
+                    <button type="button" className="aa-btn" onClick={() => downloadIcs(iv)} aria-label="Download a calendar file (.ics) for this interview">Download .ics</button>
                 )}
                 {showMailLink && iv.mail_event_id && (
                     <Link className="aa-btn" to={`/autoapply/inbox?mail=${encodeURIComponent(iv.mail_event_id)}`}>Open the mail</Link>

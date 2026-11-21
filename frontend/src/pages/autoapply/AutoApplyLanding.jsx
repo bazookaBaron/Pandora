@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { ErrorState, LoadingState } from '../../components/shared/states'
 import { useAutoApplyMe, useBatches, useNeedsYou } from '../../lib/useAutoApply'
 import {
-    AALayout, ACTIVE_BATCH, BatchStatusPill, PACK_KINDS, PACK_SIZES, PageHeader, Progress, UpgradeCard,
+    AALayout, ACTIVE_BATCH, BatchStatusPill, PACK_KINDS, PACK_SIZES, PageHeader, Progress, ReadinessCard, UpgradeCard,
     num, packPrice, rupees,
 } from './ui'
 
@@ -59,6 +59,7 @@ function MyStatus({ me }) {
                     <Link to="/autoapply/needs-you" className="aa-btn is-warm">Open</Link>
                 </div>
             )}
+            <ReadinessCard readiness={me.readiness} compact />
             <div className="aa-grid">
                 <div className="aa-card">
                     <div className="aa-stat-value">{num(u.month_applied)}</div>
@@ -95,6 +96,7 @@ function MyStatus({ me }) {
             <div className="aa-row">
                 <Link to="/autoapply/buy" className="aa-btn is-primary">Buy a pack</Link>
                 <Link to="/autoapply/batches" className="aa-btn">All batches</Link>
+                <Link to="/autoapply/stats" className="aa-btn">Reply rates</Link>
             </div>
         </section>
     )

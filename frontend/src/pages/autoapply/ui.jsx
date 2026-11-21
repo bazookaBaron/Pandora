@@ -117,6 +117,93 @@ export function ProfileMissing({ missing, lead = 'We start applying as soon as y
     )
 }
 
+// ── readiness score (/me readiness: same items as the gate, as a percentage) ──
+export function ReadinessCard({ readiness, title = 'Profile readiness', compact = false, style }) {
+    if (!readiness) return null
+    const { ok, pct = 0, missing = [] } = readiness
+    return (
+        <section className={`aa-card${ok ? '' : ' is-warm'}`} style={style} aria-labelledby="aa-ready-h">
+            <div className="aa-spread" style={{ alignItems: 'baseline' }}>
+                <h2 id="aa-ready-h" className="aa-h2" style={{ margin: 0 }}>{title}</h2>
+                <span className="aa-stat-value" style={{ fontSize: '1.3rem' }}>{pct}% ready</span>
+            </div>
+            <div className="aa-progress" role="progressbar" aria-label="Profile readiness" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} style={{ marginTop: 10 }}>
+                <span style={{ width: `${pct}%` }} />
+            </div>
+            {ok ? (
+                <p className="aa-muted" style={{ margin: '10px 0 0' }}>Your profile is complete. We can apply as soon as a batch starts.</p>
+            ) : (
+                <>
+                    <p className="aa-muted" style={{ margin: '10px 0 6px' }}>
+                        {missing.length} item{missing.length === 1 ? '' : 's'} left. A paid batch waits (no credit used) until these are done:
+                    </p>
+                    <ul className="aa-list" style={{ margin: 0 }}>
+                        {(compact ? missing.slice(0, 5) : missing).map((m) => (
+                            <li key={m.key} className="aa-spread" style={{ padding: '6px 0', borderBottom: '1px solid var(--subtle)', gap: 10 }}>
+                                <span>{m.label}</span>
+                                <Link to={m.fix || `/autoapply/setup?step=${setupStepFor(m.key)}`} className="aa-btn" aria-label={`Fix: ${m.label}`}>Fix</Link>
+                            </li>
+                        ))}
+                    </ul>
+                    {compact && missing.length > 5 && (
+                        <p className="aa-faint" style={{ margin: '6px 0 0' }}>and {missing.length - 5} more · <Link to={setupLinkFor(missing)} style={{ color: 'var(--pop)' }}>open setup</Link></p>
+                    )}
+                </>
+            )}
+        </section>
+    )
+}
+
+// ── must-apply companies (<= 10; the server trims / validates again) ──
+export const MUST_MAX = 10
+export const MUST_MAX_LEN = 80
+
+export function MustCompaniesInput({ value, onChange, suggestions = [], query, onQuery, disabled, idPrefix = 'must' }) {
+    const list = Array.isArray(value) ? value : []
+    const full = list.length >= MUST_MAX
+    function add(raw) {
+        const name = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, MUST_MAX_LEN)
+        if (!name || full || list.some((c) => c.toLowerCase() === name.toLowerCase())) { onQuery(''); return }
+        onChange([...list, name])
+        onQuery('')
+    }
+    return (
+        <div className="aa-stack" style={{ gap: 8 }}>
+            {list.length > 0 && (
+                <div className="aa-chips" aria-label="Must-apply companies">
+                    {list.map((c) => (
+                        <span key={c} className="aa-chip">
+                            {c}
+                            <button type="button" className="aa-chip-x" onClick={() => onChange(list.filter((x) => x !== c))} disabled={disabled} aria-label={`Remove ${c}`}
+                                style={{ marginLeft: 6, background: 'none', border: 0, color: 'inherit', cursor: 'pointer', padding: 0 }}>×</button>
+                        </span>
+                    ))}
+                </div>
+            )}
+            <div className="aa-row" style={{ gap: 8 }}>
+                <input
+                    id={`${idPrefix}-input`}
+                    className="input-field"
+                    style={{ flex: '1 1 220px', minWidth: 0 }}
+                    list={`${idPrefix}-suggest`}
+                    value={query}
+                    maxLength={MUST_MAX_LEN}
+                    placeholder={full ? `Up to ${MUST_MAX} companies` : 'Type a company, e.g. Stripe'}
+                    disabled={disabled || full}
+                    onChange={(e) => onQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(query) } }}
+                    aria-label="Add a must-apply company"
+                />
+                <datalist id={`${idPrefix}-suggest`}>
+                    {suggestions.map((s) => <option key={s} value={s} />)}
+                </datalist>
+                <button type="button" className="aa-btn" onClick={() => add(query)} disabled={disabled || full || !String(query || '').trim()}>Add</button>
+            </div>
+            <div className="field-hint">{list.length} / {MUST_MAX} · We apply to matching jobs at these companies first, when they have open roles that fit your preferences.</div>
+        </div>
+    )
+}
+
 function Pill({ map, status }) {
     const [label, tone, live] = map[status] || [String(status || 'unknown').replace(/_/g, ' '), 't-muted']
     return (
@@ -144,6 +231,8 @@ const REASONS = {
     daily_cap: 'Daily limit reached, will retry',
     company_cap: 'Company limit reached this week',
     site_budget: 'Site busy today, will retry',
+    batch_cancelled: 'Batch cancelled',
+    removed_by_user: 'You removed it',
 }
 export const reasonText = (code) => (code ? REASONS[code] || code.replace(/_/g, ' ') : '')
 
@@ -215,11 +304,13 @@ const TABS = [
     { to: '/autoapply/buy', label: 'Buy' },
     { to: '/autoapply/inbox', label: 'Inbox', unread: true },
     { to: '/autoapply/interviews', label: 'Interviews' },
+    { to: '/autoapply/stats', label: 'Stats' },
     { to: '/autoapply/accounts', label: 'Accounts' },
     { to: '/autoapply/setup', label: 'Setup' },
+    { to: '/autoapply/admin/health', label: 'Health', admin: true },
 ]
 
-function SubNav({ showBadge }) {
+function SubNav({ showBadge, isAdmin }) {
     const { pathname } = useLocation()
     const needs = useNeedsYou()
     const unread = useInboxUnread({ enabled: !!showBadge })
@@ -227,7 +318,7 @@ function SubNav({ showBadge }) {
     const unreadCount = showBadge ? (unread.data?.count || 0) : 0
     return (
         <nav className="aa-subnav" aria-label="AutoApply">
-            {TABS.map((t) => {
+            {TABS.filter((t) => !t.admin || isAdmin).map((t) => {
                 const active = t.exact ? pathname === t.to : pathname.startsWith(t.to)
                 return (
                     <Link key={t.to} to={t.to} className={`nav-pill${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined}>
@@ -256,7 +347,7 @@ export function AALayout({ children, gate = false, showNav = true }) {
         <>
             <Navbar />
             <main className="wrap aa-wrap">
-                {showNav && <SubNav showBadge={eligible} />}
+                {showNav && <SubNav showBadge={eligible} isAdmin={!!me.data?.is_admin} />}
                 {body}
             </main>
         </>

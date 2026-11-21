@@ -52,7 +52,12 @@ export function pushPayload(event) {
  * Push one notification to every subscription of the user. Dead subscriptions (404/410) are removed.
  * @returns {Promise<{sent: number, removed: number, skipped?: string}>}
  */
-export async function sendPushForMail({ db, event, userId, prefs, env = process.env, webpush }) {
+export function sendPushForMail({ db, event, userId, prefs, env = process.env, webpush }) {
+  return sendPushToUser({ db, userId, payload: pushPayload(event), prefs, env, webpush });
+}
+
+/** Push any {title, body, url, tag} payload to every subscription of the user (interview reminders use this). */
+export async function sendPushToUser({ db, userId, payload, prefs, env = process.env, webpush }) {
   try {
     if (!userId) return { sent: 0, removed: 0, skipped: "no_user" };
     if (prefs && prefs.push === false) return { sent: 0, removed: 0, skipped: "opted_out" };
@@ -60,7 +65,7 @@ export async function sendPushForMail({ db, event, userId, prefs, env = process.
     if (!wp) return { sent: 0, removed: 0, skipped: "disabled" };
     const { data: subs, error } = await db.from("aa_push_subscriptions").select("id, endpoint, p256dh, auth").eq("user_id", userId);
     if (error) throw error;
-    const body = JSON.stringify(pushPayload(event));
+    const body = JSON.stringify(payload);
     let sent = 0;
     const dead = [];
     for (const s of subs || []) {
