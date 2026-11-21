@@ -1,18 +1,18 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 
 // Light/dark theme. The grayscale palette lives in index.css under
-// :root (dark, default) and :root[data-theme="light"]. This just flips the
+// :root (dark) and :root[data-theme="light"]. This just flips the
 // attribute on <html> and persists the choice. A tiny inline script in
 // index.html applies the saved value before React mounts (no flash).
 
-const ThemeContext = createContext({ theme: 'dark', toggleTheme: () => {} })
+const ThemeContext = createContext({ theme: 'light', toggleTheme: () => {} })
 
 function readInitial() {
     try {
         const saved = localStorage.getItem('theme')
         if (saved === 'light' || saved === 'dark') return saved
     } catch { /* private mode / disabled storage */ }
-    return 'dark'
+    return 'light' // new visitors start in light
 }
 
 export function ThemeProvider({ children }) {

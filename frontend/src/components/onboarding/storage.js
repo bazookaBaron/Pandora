@@ -2,8 +2,9 @@
 // missing or throw (private mode, blocked site data), so every access is guarded
 // and callers get a sane default.
 
-export const WELCOME_KEY = 'vb_onboarded_v1'
-export const OPEN_GUIDE_EVENT = 'vb:open-guide'
+export const WELCOME_KEY = 'vb_onboarded_v1' // quick-setup finished/skipped (value 'setup-done')
+export const TOUR_KEY = 'vb_tour_v1' // guided tour finished/skipped
+export const GOALS_KEY = 'vb_goals_v1' // what the user is here for (orders tour emphasis only)
 
 export function readFlag(key) {
     try {
@@ -23,12 +24,14 @@ export function writeFlag(key, value) {
 }
 
 export const welcomeKeyFor = (uid) => `${WELCOME_KEY}:${uid}`
+export const tourKeyFor = (uid) => `${TOUR_KEY}:${uid}`
+export const goalsKeyFor = (uid) => `${GOALS_KEY}:${uid}`
 
-/** Reopen the first-run welcome from anywhere (Navbar "Guide" link). */
-export function openGuide() {
+export function readGoals(uid) {
     try {
-        window.dispatchEvent(new CustomEvent(OPEN_GUIDE_EVENT))
+        const v = JSON.parse(readFlag(goalsKeyFor(uid)) || '[]')
+        return Array.isArray(v) ? v.filter((g) => typeof g === 'string') : []
     } catch {
-        // very old browsers: no-op
+        return []
     }
 }

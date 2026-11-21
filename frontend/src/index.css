@@ -8,7 +8,7 @@
 }
 
 /* ── Design Tokens ──────────────────────────────────────────────────── */
-/* Dark is the default. `data-theme="light"` on <html> flips the grayscale
+/* :root is the dark palette; light is the default (set via data-theme on <html>) and flips the grayscale
    ramp; accent hues (pop/warm/green/red) are shared. Components reference
    these tokens (directly or via the hex→token map applied across the app),
    so a palette swap here re-themes everything. */

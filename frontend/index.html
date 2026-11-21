@@ -18,11 +18,13 @@
        inline event handlers). -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..900&display=swap" />
   <script>
-    // Apply saved theme before first paint (no flash-of-dark on light users).
+    // Apply saved theme before first paint; no saved choice means light (the default).
+    var t = 'light';
     try {
-      var t = localStorage.getItem('theme');
-      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      var s = localStorage.getItem('theme');
+      if (s === 'light' || s === 'dark') t = s;
     } catch (e) {}
+    document.documentElement.setAttribute('data-theme', t);
   </script>
 </head>
 

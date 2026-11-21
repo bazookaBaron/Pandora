@@ -4,7 +4,6 @@ import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAvatarUrl } from '../lib/useAvatar'
 import { useMediaQuery } from '../lib/useMediaQuery'
-import { GuideLink } from './onboarding/WelcomeHost'
 
 function ThemeToggle({ full = false }) {
     const { theme, toggleTheme } = useTheme()
@@ -12,7 +11,8 @@ function ThemeToggle({ full = false }) {
     return (
         <button
             type="button"
-            className={full ? 'nav-pill' : 'nav-pill'}
+            className="nav-pill"
+            data-tour="theme"
             onClick={toggleTheme}
             aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
             title={isDark ? 'Light theme' : 'Dark theme'}
@@ -73,6 +73,9 @@ const TILE_LINKS = [
 ]
 const TILE_ROUTES = TILE_LINKS.map(l => l.to)
 
+// data-tour anchors for the first-run guided tour (see onboarding/GuidedTour.jsx)
+const tourId = (to) => ({ '/': 'jobs', '/autoapply': 'autoapply', '/referrals': 'referrals', '/dsa': 'dsa', '/lld': 'lld', '/hld': 'hld' })[to]
+
 function MobileTileBar({ isActive }) {
     return (
         <div className="mobile-tilebar" role="navigation" aria-label="Sections">
@@ -80,6 +83,7 @@ function MobileTileBar({ isActive }) {
                 <Link
                     key={link.to}
                     to={link.to}
+                    data-tour={tourId(link.to)}
                     className={'tile-chip' + (isActive(link.to) ? ' active' : '')}
                 >
                     {link.label}
@@ -209,6 +213,7 @@ export default function Navbar() {
                                 <Link
                                     key={link.to}
                                     to={link.to}
+                                    data-tour={tourId(link.to)}
                                     onClick={() => setMenuOpen(false)}
                                     className={`nav-pill${isActive(link.to) ? ' active' : ''}`}
                                     style={{ width: '100%', justifyContent: 'flex-start' }}
@@ -221,6 +226,7 @@ export default function Navbar() {
                                 <>
                                     <Link
                                         to="/profile"
+                                        data-tour="profile"
                                         onClick={() => setMenuOpen(false)}
                                         className={`nav-pill${isActive('/profile') ? ' active' : ''}`}
                                         style={{ width: '100%', justifyContent: 'flex-start' }}
@@ -228,8 +234,6 @@ export default function Navbar() {
                                         {avatar}
                                         {profileLabel}
                                     </Link>
-
-                                    <GuideLink onClick={() => setMenuOpen(false)} style={{ width: '100%', justifyContent: 'flex-start' }} />
 
                                     <button
                                         type="button"
@@ -258,17 +262,15 @@ export default function Navbar() {
             ) : (
                 <div className="nav-actions">
                     {NAV_LINKS.map(link => (
-                        <Link key={link.to} to={link.to} className={`nav-pill${isActive(link.to) ? ' active' : ''}`}>
+                        <Link key={link.to} to={link.to} data-tour={tourId(link.to)} className={`nav-pill${isActive(link.to) ? ' active' : ''}`}>
                             {link.label}
                         </Link>
                     ))}
 
-                    {user && <GuideLink />}
-
                     <ThemeToggle />
 
                     {user ? (
-                        <Link to="/profile" className={`nav-pill${isActive('/profile') ? ' active' : ''}`}>
+                        <Link to="/profile" data-tour="profile" className={`nav-pill${isActive('/profile') ? ' active' : ''}`}>
                             {avatar}
                             {profileLabel}
                         </Link>

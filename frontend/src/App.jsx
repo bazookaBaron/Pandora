@@ -7,7 +7,7 @@ import CommandPalette from './components/shared/CommandPalette'
 import Footer from './components/Footer'
 import { RouteErrorBoundary } from './components/shared/ErrorBoundary'
 import SessionExpiredBanner from './components/shared/SessionExpiredBanner'
-import WelcomeHost from './components/onboarding/WelcomeHost'
+import FirstRunHost from './components/onboarding/FirstRunHost'
 import { usePlanChangeRefetch } from './lib/useEntitlements'
 import { trackPageview } from './lib/analytics'
 import { createMutationCache } from './lib/mutationCache'
@@ -135,7 +135,7 @@ export default function App() {
                     <PlanChangeRefetch />
                     <CommandPalette />
                     <SessionExpiredBanner />
-                    <WelcomeHost />
+                    <FirstRunHost />
                     <RouteErrorBoundary>
                     <Suspense fallback={<RouteFallback />}>
                     <Routes>
