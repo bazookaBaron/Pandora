@@ -408,7 +408,7 @@ function HLDWorkspaceInner() {
         if (!problem || tierLocked || frNfr.fr || frNfrLoading) return
         if (prog?.state?.frNfr?.fr) return
         setFrNfrLoading(true)
-        apiFetch('/api/hld/generate', { json: { description: problem.description || problem.title } })
+        apiFetch('/api/hld/generate', { json: { description: problem.description || problem.title }, timeout: 120_000 })
             .then(d => { if (d?.fr) setFrNfr({ fr: d.fr, nfr: d.nfr || '' }) })
             .catch(err => {
                 if (isUsageLimit(err)) setUsageLimitInfo({ used: err.used, limit: err.limit, resetsAt: err.resetsAt })
@@ -528,6 +528,7 @@ function HLDWorkspaceInner() {
             const imgData = await toPng(canvasRef.current, { backgroundColor: bg, pixelRatio: 1.5 })
             const result = await apiFetch('/api/hld/judge', {
                 json: { image_base64: imgData.split(',')[1], frNfr, apiEndpoints: endpoints, title: problem?.title || '' },
+                timeout: 120_000,
             })
             setJudgeResult(result)
             if (problem?.id) {
@@ -545,7 +546,7 @@ function HLDWorkspaceInner() {
 
     const regenerateFrNfr = () => {
         setFrNfr({ fr: '', nfr: '' }); setFrNfrLoading(true)
-        apiFetch('/api/hld/generate', { json: { description: problem.description || problem.title } })
+        apiFetch('/api/hld/generate', { json: { description: problem.description || problem.title }, timeout: 120_000 })
             .then(d => { if (d?.fr) setFrNfr({ fr: d.fr, nfr: d.nfr || '' }) })
             .catch(err => { if (isUsageLimit(err)) setUsageLimitInfo({ used: err.used, limit: err.limit, resetsAt: err.resetsAt }) })
             .finally(() => setFrNfrLoading(false))

@@ -4,8 +4,15 @@ import './index.css'
 import App from './App.jsx'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { initAnalytics } from './lib/analytics'
+import { ToastProvider } from './components/shared/Toaster'
 
-initAnalytics()
+// Analytics is non-critical: init once the main thread is idle so the
+// posthog-js chunk never competes with first paint.
+if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    window.requestIdleCallback(() => initAnalytics(), { timeout: 4000 })
+} else {
+    setTimeout(initAnalytics, 1500)
+}
 
 // This module executing at all means the current index.html + entry chunk
 // loaded fine — clear ErrorBoundary's one-shot reload guard so a LATER,
@@ -18,7 +25,9 @@ try { sessionStorage.removeItem('eb:chunk-reload-attempted') } catch { /* privat
 createRoot(document.getElementById('root')).render(
     <StrictMode>
         <ThemeProvider>
-            <App />
+            <ToastProvider>
+                <App />
+            </ToastProvider>
         </ThemeProvider>
     </StrictMode>,
 )

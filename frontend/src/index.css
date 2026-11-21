@@ -1371,3 +1371,73 @@ h3 {
         padding-top: 104px !important;
     }
 }
+
+/* ── Toasts (components/shared/Toaster.jsx) ─────────────────────────── */
+.toast-stack {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: min(380px, calc(100vw - 32px));
+    pointer-events: none;
+}
+.toast-region { display: flex; flex-direction: column; gap: 8px; }
+.toast {
+    pointer-events: auto;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--panel);
+    color: var(--bright);
+    border: 1px solid var(--subtle-strong);
+    border-left: 3px solid var(--pop);
+    border-radius: var(--radius);
+    font-size: 13px;
+    line-height: 1.45;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    animation: toastIn 0.16s ease-out;
+}
+.toast-success { border-left-color: var(--green); }
+.toast-error { border-left-color: var(--red); }
+.toast-icon {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--pop-dim);
+    color: var(--pop);
+}
+.toast-success .toast-icon { background: var(--green-bg); color: var(--green); }
+.toast-error .toast-icon { background: var(--red-bg); color: var(--red); }
+.toast-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast-action, .toast-close {
+    flex: none;
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font: inherit;
+    padding: 0 2px;
+}
+.toast-action { color: var(--pop); text-decoration: underline; }
+.toast-close { font-size: 16px; line-height: 1; }
+.toast-close:hover, .toast-action:hover { color: var(--bright); }
+@keyframes toastIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+}
+@media (max-width: 520px) {
+    .toast-stack { left: 16px; right: 16px; max-width: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .toast { animation: none; }
+}

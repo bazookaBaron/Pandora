@@ -570,6 +570,7 @@ export default function LLDProblemPage() {
                             try {
                                 data = await apiFetch('/api/run', {
                                     json: { language: lang, version: '*', files },
+                                    timeout: 60_000,
                                 })
                             } catch (err) {
                                 data = {

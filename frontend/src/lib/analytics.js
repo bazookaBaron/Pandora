@@ -8,7 +8,9 @@
 //    long strings before they leave the browser. Do not pass resume text, JD
 //    text, code, answers, passwords, tokens, or emails in event properties.
 
-import posthog from 'posthog-js'
+// posthog-js is loaded lazily (dynamic import) from initAnalytics(), which
+// main.jsx calls on requestIdleCallback, so it stays out of the entry chunk.
+let posthog = null
 
 export const EVENTS = {
     SIGNUP: 'signup',
@@ -37,23 +39,43 @@ const HOST = import.meta.env.VITE_POSTHOG_HOST || 'https://us.i.posthog.com'
 const DEV = import.meta.env.DEV
 
 let ready = false
+let loading = false
+// Calls made before posthog finished loading (e.g. identify on the first
+// auth event) are replayed once it is ready. Bounded so a blocked script
+// can't grow this forever.
+const pending = []
+const MAX_PENDING = 50
+function later(fn) {
+    if (ready) return fn()
+    if (!KEY) return undefined
+    if (pending.length < MAX_PENDING) pending.push(fn)
+    return undefined
+}
 
 export function initAnalytics() {
-    if (ready || !KEY) return
-    try {
-        posthog.init(KEY, {
-            api_host: HOST,
-            capture_pageview: false,      // we send pricing_viewed etc. explicitly
-            capture_pageleave: true,
-            autocapture: false,           // meaningful events only
-            disable_session_recording: true,
-            person_profiles: 'identified_only',
-            loaded: () => { ready = true },
+    if (ready || loading || !KEY) return
+    loading = true
+    import('posthog-js')
+        .then((mod) => {
+            posthog = mod.default || mod
+            posthog.init(KEY, {
+                api_host: HOST,
+                capture_pageview: false,      // we send pricing_viewed etc. explicitly
+                capture_pageleave: true,
+                autocapture: false,           // meaningful events only
+                disable_session_recording: true,
+                person_profiles: 'identified_only',
+            })
+            ready = true
+            for (const fn of pending.splice(0)) {
+                try { fn() } catch { /* ignore */ }
+            }
         })
-        ready = true
-    } catch (e) {
-        if (DEV) console.warn('[analytics] init failed', e)
-    }
+        .catch((e) => {
+            pending.length = 0
+            if (DEV) console.warn('[analytics] init failed', e)
+        })
+        .finally(() => { loading = false })
 }
 
 export function isEnabled() {
@@ -63,7 +85,8 @@ export function isEnabled() {
 // Tie events to the Supabase user id. `traits` is optional and MUST NOT contain
 // PII — pass non-sensitive facts only (e.g. { plan: 'pro' }).
 export function identifyUser(userId, traits) {
-    if (!isEnabled() || !userId) return
+    if (!KEY || !userId) return
+    if (!ready) return later(() => identifyUser(userId, traits))
     try {
         posthog.identify(String(userId), sanitize(traits))
     } catch (e) {
@@ -72,7 +95,7 @@ export function identifyUser(userId, traits) {
 }
 
 export function resetAnalytics() {
-    if (!isEnabled()) return
+    if (!ready) { pending.length = 0; return }
     try { posthog.reset() } catch { /* ignore */ }
 }
 
@@ -81,7 +104,8 @@ export function track(event, properties) {
         if (DEV) console.warn(`[analytics] ignored unknown event "${event}" — add it to EVENTS if intentional`)
         return
     }
-    if (!isEnabled()) return
+    if (!KEY) return
+    if (!ready) return later(() => track(event, properties))
     try {
         posthog.capture(event, sanitize(properties))
     } catch (e) {
@@ -92,7 +116,8 @@ export function track(event, properties) {
 // Manual pageview helper for the router (only where a page-level event isn't
 // already firing something more specific).
 export function trackPageview() {
-    if (!isEnabled()) return
+    if (!KEY) return
+    if (!ready) return later(trackPageview)
     // No property override: posthog-js reads the full current URL itself, so
     // $host / $pathname / referrer stay correct for web-analytics reports.
     try { posthog.capture('$pageview') } catch { /* ignore */ }
