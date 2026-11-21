@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
@@ -7,6 +7,22 @@ import {
     AALayout, BatchStatusPill, InlineConfirm, MustCompaniesInput, PACK_KINDS, PageHeader, ProfileMissing, Progress, TASK_STATUS_ORDER, TaskStatusPill,
     fmtDate, num, reasonText, rupees, taskStatusLabel,
 } from './ui'
+
+// Ticks every second on its own, so only this <strong> re-renders, not the
+// whole page (and its task table).
+function Countdown({ iso, fallback }) {
+    const text = useCountdown(iso)
+    return <>{text || fallback}</>
+}
+
+function useDebounced(value, ms) {
+    const [v, setV] = useState(value)
+    useEffect(() => {
+        const t = setTimeout(() => setV(value), ms)
+        return () => clearTimeout(t)
+    }, [value, ms])
+    return v
+}
 
 function useCountdown(iso) {
     const [now, setNow] = useState(Date.now())
@@ -33,7 +49,8 @@ const CONFIRM_COPY = {
 }
 
 function Controls({ batch }) {
-    const action = useBatchAction()
+    // error shows inline under the buttons; success toasts globally
+    const action = useBatchAction({ meta: { inlineError: true } })
     const [pending, setPending] = useState(null)
     const [err, setErr] = useState(null)
     const s = batch.status
@@ -61,15 +78,15 @@ function Controls({ batch }) {
                     confirmLabel={CONFIRM_COPY[pending][1]}
                     tone={CONFIRM_COPY[pending][2]}
                     busy={action.isPending}
-                    onConfirm={() => run(pending)}
-                    onCancel={() => setPending(null)}
+                    onConfirm={() => { if (!action.isPending) run(pending) }}
+                    onCancel={() => { if (!action.isPending) setPending(null) }}
                 />
             ) : (
                 <div className="aa-row">
-                    {can.approve && <button type="button" className="aa-btn is-primary" onClick={() => setPending('approve')}>Approve now</button>}
-                    {can.pause && <button type="button" className="aa-btn" onClick={() => setPending('pause')}>Pause</button>}
-                    {can.resume && <button type="button" className="aa-btn is-primary" onClick={() => setPending('resume')}>Resume</button>}
-                    {can.cancel && <button type="button" className="aa-btn is-danger" onClick={() => setPending('cancel')}>Cancel batch</button>}
+                    {can.approve && <button type="button" className="aa-btn is-primary" disabled={action.isPending} onClick={() => setPending('approve')}>Approve now</button>}
+                    {can.pause && <button type="button" className="aa-btn" disabled={action.isPending} onClick={() => setPending('pause')}>Pause</button>}
+                    {can.resume && <button type="button" className="aa-btn is-primary" disabled={action.isPending} onClick={() => setPending('resume')}>Resume</button>}
+                    {can.cancel && <button type="button" className="aa-btn is-danger" disabled={action.isPending} onClick={() => setPending('cancel')}>Cancel batch</button>}
                 </div>
             )}
             {err && <ErrorState compact message={errorText(err)} />}
@@ -145,7 +162,7 @@ function MustCompaniesEditor({ batch }) {
     const [editing, setEditing] = useState(false)
     const [draft, setDraft] = useState(current)
     const [query, setQuery] = useState('')
-    const suggest = useCompanySuggest(query, batch.pack_kind)
+    const suggest = useCompanySuggest(useDebounced(query, 250), batch.pack_kind)
     const editable = ['paid', 'shortlisting', 'review', 'running', 'paused', 'waiting_supply', 'waiting_profile'].includes(batch.status)
     if (!current.length && !editable) return null
     return (
@@ -159,12 +176,11 @@ function MustCompaniesEditor({ batch }) {
                     <MustCompaniesInput idPrefix="batch-must" value={draft} onChange={setDraft} query={query} onQuery={setQuery} suggestions={suggest.data?.companies || []} disabled={save.isPending} />
                     <div className="aa-row">
                         <button type="button" className="aa-btn is-primary" disabled={save.isPending}
-                            onClick={() => save.mutate({ id: batch.id, companies: draft }, { onSuccess: () => setEditing(false) })}>
+                            onClick={() => { if (!save.isPending) save.mutate({ id: batch.id, companies: draft }, { onSuccess: () => setEditing(false) }) }}>
                             {save.isPending ? 'Saving…' : 'Save'}
                         </button>
                         <button type="button" className="aa-btn" onClick={() => setEditing(false)} disabled={save.isPending}>Cancel</button>
                     </div>
-                    {save.isError && <ErrorState compact message={errorText(save.error)} />}
                 </div>
             ) : current.length ? (
                 <div className="aa-chips" style={{ marginTop: 10 }}>{current.map((c) => <span key={c} className="aa-chip">{c}</span>)}</div>
@@ -175,12 +191,15 @@ function MustCompaniesEditor({ batch }) {
     )
 }
 
-function TaskTable({ batch, tasks }) {
+// Memoised: the page re-renders on every realtime/poll update; the table only
+// needs to when its tasks or the batch status change.
+const TaskTable = memo(function TaskTable({ batchId, batchStatus, tasks }) {
+    // optimistic: the row flips to "removed" at once (the Remove button goes
+    // away, so no double click); rolled back with an error toast on failure
     const remove = useRemoveTask()
     const [filter, setFilter] = useState('all')
-    const [removing, setRemoving] = useState(null)
-    const [err, setErr] = useState(null)
-    const inReview = batch.status === 'review'
+    const inReview = batchStatus === 'review'
+    const batch = { id: batchId }
 
     const present = useMemo(() => {
         const set = new Set(tasks.map((t) => t.status))
@@ -189,12 +208,7 @@ function TaskTable({ batch, tasks }) {
     const rows = filter === 'all' ? tasks : tasks.filter((t) => t.status === filter)
 
     function doRemove(taskId) {
-        setErr(null)
-        setRemoving(taskId)
-        remove.mutate({ batchId: batch.id, taskId }, {
-            onError: (e) => setErr(e),
-            onSettled: () => setRemoving(null),
-        })
+        remove.mutate({ batchId, taskId })
     }
 
     if (!tasks.length) {
@@ -210,7 +224,6 @@ function TaskTable({ batch, tasks }) {
                     {present.map((s) => <option key={s} value={s}>{taskStatusLabel(s)} ({tasks.filter((t) => t.status === s).length})</option>)}
                 </select>
             </div>
-            {err && <ErrorState compact message={errorText(err)} />}
             <div className="aa-table-wrap">
                 <table className="aa-table">
                     <caption className="aa-sr">Jobs in this batch</caption>
@@ -256,8 +269,8 @@ function TaskTable({ batch, tasks }) {
                                             </a>
                                         )}
                                         {inReview && t.status === 'shortlisted' && (
-                                            <button type="button" className="aa-btn is-danger" onClick={() => doRemove(t.id)} disabled={removing === t.id} aria-label={`Remove ${t.company} ${t.title}`}>
-                                                {removing === t.id ? 'Removing…' : 'Remove'}
+                                            <button type="button" className="aa-btn is-danger" onClick={() => doRemove(t.id)} aria-label={`Remove ${t.company} ${t.title}`}>
+                                                Remove
                                             </button>
                                         )}
                                     </div>
@@ -269,7 +282,7 @@ function TaskTable({ batch, tasks }) {
             </div>
         </div>
     )
-}
+})
 
 export default function BatchDetailPage() {
     const { id } = useParams()
@@ -278,8 +291,7 @@ export default function BatchDetailPage() {
     const q = useBatch(id, { live })
     const batch = q.data?.batch
     const counts = q.data?.counts || {}
-    const tasks = q.data?.tasks || []
-    const countdown = useCountdown(batch?.status === 'review' ? batch.review_until : null)
+    const tasks = useMemo(() => q.data?.tasks || [], [q.data?.tasks])
 
     return (
         <AALayout gate>
@@ -342,7 +354,7 @@ export default function BatchDetailPage() {
                                 <h2 id="rv-h" className="aa-h2">Review the shortlist</h2>
                                 <p className="aa-muted" style={{ margin: '0 0 12px' }}>
                                     Remove any job you don&rsquo;t want. We start applying in{' '}
-                                    <strong style={{ color: 'var(--bright)' }} aria-live="off">{countdown || 'a few hours'}</strong>
+                                    <strong style={{ color: 'var(--bright)' }} aria-live="off"><Countdown iso={batch.review_until} fallback="a few hours" /></strong>
                                     {batch.review_until && <> (at {fmtDate(batch.review_until)})</>}, or approve now.
                                 </p>
                             </section>
@@ -356,7 +368,7 @@ export default function BatchDetailPage() {
 
                         <section aria-labelledby="tasks-h">
                             <h2 id="tasks-h" className="aa-h2">Jobs</h2>
-                            <TaskTable batch={batch} tasks={tasks} />
+                            <TaskTable batchId={batch.id} batchStatus={batch.status} tasks={tasks} />
                         </section>
                     </div>
                 </>

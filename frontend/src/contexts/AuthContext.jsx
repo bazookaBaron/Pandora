@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -95,7 +95,7 @@ export function AuthProvider({ children }) {
     // stays truthy, and /auth bounces the user straight back to / — the
     // button looks dead. So on any failure, wipe the stored session ourselves
     // and hard-navigate to /auth, which boots a fresh client with no session.
-    const logout = async () => {
+    const logout = useCallback(async () => {
         let ok = false
         try {
             const result = await Promise.race([
@@ -117,10 +117,19 @@ export function AuthProvider({ children }) {
         clearUserState()
         setSession(null)
         window.location.replace('/auth')
-    }
+        // queryClient / navigate are stable; clearUserState only touches refs + them
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    // Memoised so consumers re-render only when the session actually changes,
+    // not on every AuthProvider render.
+    const value = useMemo(
+        () => ({ session, user: session?.user ?? null, loading: session === undefined, logout }),
+        [session, logout],
+    )
 
     return (
-        <AuthContext.Provider value={{ session, user: session?.user ?? null, loading: session === undefined, logout }}>
+        <AuthContext.Provider value={value}>
             {children}
         </AuthContext.Provider>
     )

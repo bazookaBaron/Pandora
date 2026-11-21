@@ -95,9 +95,18 @@ export default function Navbar() {
     const [menuOpen, setMenuOpen] = useState(false)
     const navRef = useRef(null)
 
+    const [signingOut, setSigningOut] = useState(false)
     const handleLogout = async () => {
-        setMenuOpen(false)
-        await logout()
+        if (signingOut) return
+        // keep the menu open so the pending state is visible; it closes on the
+        // route change to /auth
+        setSigningOut(true)
+        try {
+            await logout()
+        } finally {
+            setSigningOut(false)
+            setMenuOpen(false)
+        }
     }
 
     const isActive = (to) => {
@@ -222,10 +231,12 @@ export default function Navbar() {
                                     <button
                                         type="button"
                                         onClick={handleLogout}
+                                        disabled={signingOut}
+                                        aria-busy={signingOut}
                                         className="nav-pill danger"
-                                        style={{ width: '100%', justifyContent: 'flex-start' }}
+                                        style={{ width: '100%', justifyContent: 'flex-start', opacity: signingOut ? 0.6 : 1, cursor: signingOut ? 'wait' : 'pointer' }}
                                     >
-                                        Sign out
+                                        {signingOut ? 'Signing out…' : 'Sign out'}
                                     </button>
                                 </>
                             ) : (

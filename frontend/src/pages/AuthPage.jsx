@@ -172,16 +172,25 @@ export default function AuthPage() {
         }
     }
 
+    const [resetSending, setResetSending] = useState(false)
     const handleForgotPassword = async () => {
+        if (resetSending) return
         if (!loginEmail) { setStatus({ msg: 'Enter your email first.', type: 'error' }); return }
+        setResetSending(true)
         setStatus({ msg: 'Sending reset link…', type: '' })
-        const { error } = await supabase.auth.resetPasswordForEmail(loginEmail, {
-            redirectTo: `${window.location.origin}/auth`,
-        })
-        setStatus(error
-            ? { msg: error.message, type: 'error' }
-            : { msg: 'Password reset email sent!', type: 'ok' }
-        )
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(loginEmail, {
+                redirectTo: `${window.location.origin}/auth`,
+            })
+            setStatus(error
+                ? { msg: error.message, type: 'error' }
+                : { msg: 'Password reset email sent! Check your inbox.', type: 'ok' }
+            )
+        } catch (e) {
+            setStatus({ msg: e?.message || 'Could not send the reset email. Try again.', type: 'error' })
+        } finally {
+            setResetSending(false)
+        }
     }
 
     const handleGoogleLogin = async () => {
@@ -261,8 +270,8 @@ export default function AuthPage() {
                                 </div>
                             </div>
                             <div className="forgot-row">
-                                <button type="button" className="link-btn" onClick={handleForgotPassword}>
-                                    Forgot password?
+                                <button type="button" className="link-btn" onClick={handleForgotPassword} disabled={resetSending || loading} aria-busy={resetSending}>
+                                    {resetSending ? 'Sending reset link…' : 'Forgot password?'}
                                 </button>
                             </div>
                             <button type="submit" className="primary-btn auth-submit-btn" disabled={loading}>

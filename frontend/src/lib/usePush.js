@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchPushKey, pushSubscribe, pushUnsubscribe } from './useAutoApply'
+import { toast } from './toast'
 
 // Web push for the AutoApply inbox. Status: 'unsupported' | 'unavailable' (server has no VAPID keys)
 // | 'denied' | 'off' | 'on' | 'working'. Every browser API call is guarded; this never throws into the UI.
@@ -19,8 +20,17 @@ async function registration() {
 }
 
 export function usePush() {
-    const [status, setStatus] = useState(supported() ? 'working' : 'unsupported')
-    const [error, setError] = useState(null)
+    const [status, setStatusRaw] = useState(supported() ? 'working' : 'unsupported')
+    const [error, setErrorRaw] = useState(null)
+    // enable()/disable() await permission prompts and network calls; the
+    // component may unmount meanwhile (navigating away), so never setState then.
+    const mounted = useRef(true)
+    useEffect(() => {
+        mounted.current = true
+        return () => { mounted.current = false }
+    }, [])
+    const setStatus = useCallback((v) => { if (mounted.current) setStatusRaw(v) }, [])
+    const setError = useCallback((v) => { if (mounted.current) setErrorRaw(v) }, [])
 
     useEffect(() => {
         if (!supported()) return undefined
@@ -55,11 +65,12 @@ export function usePush() {
                 || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyToUint8(key) }))
             await pushSubscribe(sub.toJSON())
             setStatus('on')
+            toast.success('Notifications are on for this device.')
         } catch (e) {
             setError(e)
             setStatus('off')
         }
-    }, [])
+    }, [setStatus, setError])
 
     const disable = useCallback(async () => {
         setError(null)
@@ -72,11 +83,12 @@ export function usePush() {
                 await sub.unsubscribe()
             }
             setStatus('off')
+            toast.success('Notifications turned off.')
         } catch (e) {
             setError(e)
             setStatus('on')
         }
-    }, [])
+    }, [setStatus, setError])
 
     return { status, error, enable, disable }
 }

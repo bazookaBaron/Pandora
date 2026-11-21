@@ -334,6 +334,9 @@ function HLDWorkspaceInner() {
     // { used, limit, resetsAt }. Drives an inline "monthly limit reached" note.
     const [usageLimitInfo, setUsageLimitInfo] = useState(null)
     const saveTimer = useRef(null)
+    // autosave status chip: 'idle' | 'saving' | 'saved' | 'error'
+    const [saveState, setSaveState] = useState('idle')
+    const lastStateRef = useRef(null)
 
     // Hydration guards: nothing is persisted until the saved row (if any) has
     // been applied once, and the load effect only ever hydrates a single time
@@ -429,11 +432,24 @@ function HLDWorkspaceInner() {
             }
             // notes:undefined -> leave the dedicated `notes` column untouched;
             // the real notes travel inside state.notes.
+            lastStateRef.current = { id: problem.id, state }
+            setSaveState('saving')
             saveNotes(problem.id, undefined, state)
+                .then(() => { if (lastStateRef.current?.state === state) setSaveState('saved') })
+                .catch(() => { if (lastStateRef.current?.state === state) setSaveState('error') })
         }, 1500)
     }, [problem, tierLocked, nodes, edges, frNfr, endpoints, capacity, notesText, rfInstance])
 
     useEffect(() => { persistState() }, [nodes, edges, frNfr, endpoints, capacity, notesText])
+
+    const retrySave = () => {
+        const last = lastStateRef.current
+        if (!last) return
+        setSaveState('saving')
+        saveNotes(last.id, undefined, last.state)
+            .then(() => { if (lastStateRef.current === last) setSaveState('saved') })
+            .catch(() => { if (lastStateRef.current === last) setSaveState('error') })
+    }
 
     // Node rename callback — called by HLDNode when user commits an inline rename
     const renameNode = useCallback((nodeId, newLabel) => {
@@ -866,6 +882,19 @@ function HLDWorkspaceInner() {
                             color: problem.difficulty === 'Easy' ? '#4ade80' : problem.difficulty === 'Hard' ? '#f87171' : '#facc15',
                             border: `1px solid ${problem.difficulty === 'Easy' ? '#4ade80' : problem.difficulty === 'Hard' ? '#f87171' : '#facc15'}44`,
                         }}>{problem.difficulty}</span>
+                    )}
+                    {!tierLocked && saveState !== 'idle' && (
+                        saveState === 'error' ? (
+                            <button type="button" onClick={retrySave} role="alert" style={{
+                                fontSize: '0.65rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4, flexShrink: 0, cursor: 'pointer',
+                                color: '#f87171', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.35)',
+                            }}>Save failed – retry</button>
+                        ) : (
+                            <span role="status" style={{
+                                fontSize: '0.65rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4, flexShrink: 0,
+                                color: saveState === 'saved' ? '#4ade80' : 'var(--muted)', border: '1px solid var(--subtle)',
+                            }}>{saveState === 'saving' ? 'Saving…' : 'Saved'}</span>
+                        )
                     )}
 
                     {/* Mobile pane switcher */}

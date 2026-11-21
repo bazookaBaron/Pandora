@@ -6,6 +6,7 @@ import { ErrorState, LoadingState } from '../../components/shared/states'
 import { useAutoApplyMe, useInboxUnread, useNeedsYou } from '../../lib/useAutoApply'
 import { AUTO_APPLY } from '../../../config/tiers.js'
 import './autoapply.css'
+import { toast } from '../../lib/toast'
 
 // ── shared bits for every AutoApply screen ──────────────────────────
 
@@ -261,24 +262,30 @@ export function Progress({ used = 0, total = 0, label }) {
 
 // ── copy button ─────────────────────────────────────────────────────
 export function CopyButton({ text, label = 'Copy', className = 'aa-btn' }) {
-    const [done, setDone] = useState(false)
+    // 'idle' | 'done' | 'error' — the clipboard API rejects on insecure
+    // origins, denied permission or an unfocused document
+    const [state, setState] = useState('idle')
     useEffect(() => {
-        if (!done) return undefined
-        const t = setTimeout(() => setDone(false), 1600)
+        if (state === 'idle') return undefined
+        const t = setTimeout(() => setState('idle'), state === 'error' ? 3000 : 1600)
         return () => clearTimeout(t)
-    }, [done])
+    }, [state])
     async function copy() {
         try {
             await navigator.clipboard.writeText(text || '')
-            setDone(true)
+            setState('done')
         } catch {
-            setDone(false)
+            setState('error')
+            toast.error('Could not copy. Select the text and copy it manually.')
         }
     }
+    const done = state === 'done'
     return (
-        <button type="button" className={className} onClick={copy} disabled={!text} aria-label={`${label}${done ? ' (copied)' : ''}`}>
+        <button type="button" className={className} onClick={copy} disabled={!text}
+            aria-label={`${label}${done ? ' (copied)' : state === 'error' ? ' (copy failed)' : ''}`}
+            style={state === 'error' ? { color: 'var(--red)' } : undefined}>
             {done ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
-            {done ? 'Copied' : label}
+            {done ? 'Copied' : state === 'error' ? 'Copy failed' : label}
         </button>
     )
 }
@@ -312,7 +319,8 @@ const TABS = [
 
 function SubNav({ showBadge, isAdmin }) {
     const { pathname } = useLocation()
-    const needs = useNeedsYou()
+    // both badges poll only for an eligible (paid) user; others never see them
+    const needs = useNeedsYou({ enabled: !!showBadge })
     const unread = useInboxUnread({ enabled: !!showBadge })
     const count = showBadge ? (needs.data?.items?.length || 0) : 0
     const unreadCount = showBadge ? (unread.data?.count || 0) : 0

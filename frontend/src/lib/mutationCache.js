@@ -13,7 +13,8 @@ export function createMutationCache() {
     return new MutationCache({
         onError: (err, variables, _ctx, mutation) => {
             const meta = mutation?.options?.meta || {}
-            if (meta.silent) return
+            // inlineError: the caller renders the error next to the control
+            if (meta.silent || meta.inlineError) return
             const prefix = typeof meta.error === 'function' ? meta.error(err, variables) : meta.error
             const msg = errorText(err)
             toast.error(prefix ? `${prefix}: ${msg}` : msg)

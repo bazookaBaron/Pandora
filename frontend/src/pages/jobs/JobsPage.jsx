@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import Navbar from '../../components/Navbar'
 import { useJobs, useJobsAnalytics, useJobsTrend, useJobFacet } from '../../lib/useJobs'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
@@ -97,7 +97,7 @@ function SubscribeBell({ slug, companyName }) {
             if (isSubscribed) await unsubscribe.mutateAsync(slug)
             else await subscribe.mutateAsync({ companySlug: slug, companyName: companyName || slug })
         } catch {
-            /* a card has no room for an inline error — the profile page shows the full state */
+            /* the global mutation toast explains the failure (e.g. the plan's alert cap) */
         }
     }
 
@@ -708,21 +708,55 @@ function AnalyticsView() {
 }
 
 // ── Listings tab ───────────────────────────────────────────────────
+// Filters live in the URL (?q=&company=&loc=…&page=) so a reload, back
+// button or shared link keeps them. Every setter resets the page in the same
+// update, so changing a filter never fetches the stale page first.
+const FILTER_PARAMS = { search: 'q', company: 'company', locations: 'loc', locationType: 'type', companyType: 'ctype', source: 'source', seniority: 'level', postedWithin: 'posted', sort: 'sort' }
+
 function ListingsView() {
-    const [search, setSearch] = useState('') // free text — FacetCombobox debounces it
-    const [company, setCompany] = useState('')
-    const [locations, setLocations] = useState([]) // multi-select
-    const [locationType, setLocationType] = useState('')
-    const [companyType, setCompanyType] = useState('')
-    const [source, setSource] = useState('')
-    const [seniority, setSeniority] = useState('')
-    const [postedWithin, setPostedWithin] = useState('')
-    const [sort, setSort] = useState('newest')
-    const [page, setPage] = useState(1)
+    const [params, setParams] = useSearchParams()
+    const search = params.get('q') || ''
+    const company = params.get('company') || ''
+    const locationParam = params.get('loc') || ''
+    const locations = useMemo(() => (locationParam ? locationParam.split(',').filter(Boolean) : []), [locationParam])
+    const locationType = params.get('type') || ''
+    const companyType = params.get('ctype') || ''
+    const source = params.get('source') || ''
+    const seniority = params.get('level') || ''
+    const postedWithin = params.get('posted') || ''
+    const sort = params.get('sort') || 'newest'
+    const page = Math.max(1, Number.parseInt(params.get('page') || '1', 10) || 1)
 
-    const locationParam = locations.join(',')
-
-    useEffect(() => { setPage(1) }, [search, company, locationParam, locationType, companyType, source, seniority, postedWithin, sort])
+    const setFilter = (name) => (value) => {
+        setParams((prev) => {
+            const next = new URLSearchParams(prev)
+            const key = FILTER_PARAMS[name]
+            const v = Array.isArray(value) ? value.join(',') : String(value ?? '')
+            if (!v || (name === 'sort' && v === 'newest')) next.delete(key)
+            else next.set(key, v)
+            next.delete('page')
+            return next
+        }, { replace: true })
+    }
+    const setSearch = setFilter('search')
+    const setCompany = setFilter('company')
+    const setLocations = setFilter('locations')
+    const setLocationType = setFilter('locationType')
+    const setCompanyType = setFilter('companyType')
+    const setSource = setFilter('source')
+    const setSeniority = setFilter('seniority')
+    const setPostedWithin = setFilter('postedWithin')
+    const setSort = setFilter('sort')
+    const setPage = (fn) => {
+        setParams((prev) => {
+            const next = new URLSearchParams(prev)
+            const cur = Math.max(1, Number.parseInt(prev.get('page') || '1', 10) || 1)
+            const n = typeof fn === 'function' ? fn(cur) : fn
+            if (n <= 1) next.delete('page')
+            else next.set('page', String(n))
+            return next
+        })
+    }
 
     const { data, isLoading, isFetching, error, refetch } =
         useJobs({ search, company, location: locationParam, locationType, companyType, source, seniority, postedWithin, sort, page })
