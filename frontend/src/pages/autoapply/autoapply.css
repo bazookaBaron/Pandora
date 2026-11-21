@@ -204,3 +204,27 @@
     .aa-tabs.aa-tabs-wrap .aa-tab { flex: 1 1 30%; }
     .aa-inbox-company { flex-basis: 100%; }
 }
+
+/* Overview: pipeline cards, batch rows, needs-you chip */
+.aa-chip-link {
+    display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 999px; text-decoration: none;
+    font-size: 0.72rem; font-weight: 900; color: var(--warm); background: var(--surface); border: 1px solid var(--warm);
+}
+.aa-chip-link:hover { background: var(--pop-dim); }
+.aa-pipe-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.aa-pipe { padding: 12px 14px; }
+.aa-pipe-kind { font-size: 0.7rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; }
+.aa-pipe-blurb { margin: 2px 0 10px; }
+.aa-pipe-price { color: var(--bright); font-weight: 800; font-size: 0.78rem; }
+.aa-batch-row {
+    display: grid; grid-template-columns: 64px auto minmax(60px, 1fr) auto auto; align-items: center; gap: 12px;
+    padding: 10px 14px; text-decoration: none;
+}
+.aa-batch-kind { color: var(--bright); font-weight: 900; font-size: 0.82rem; }
+.aa-batch-count, .aa-batch-date { white-space: nowrap; }
+@media (max-width: 640px) {
+    .aa-pipe-grid { grid-template-columns: 1fr; }
+    .aa-batch-row { grid-template-columns: auto 1fr auto; row-gap: 8px; }
+    .aa-batch-prog { grid-column: 1 / -1; order: 5; }
+    .aa-batch-date { order: 4; }
+}

@@ -1,7 +1,4 @@
-import { Link } from 'react-router-dom'
-import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
 import { useInterviews } from '../../lib/useAutoApply'
-import { AALayout, PageHeader } from './ui'
 import InterviewCard from './InterviewCard'
 
 // An interview stays "upcoming" until 2 hours after it starts (or its end time, when known).
@@ -36,31 +33,16 @@ function Section({ title, items, past = false }) {
     )
 }
 
-export default function InterviewsPage() {
+export default function InterviewsPanel() {
     const q = useInterviews()
     const list = q.data?.interviews || []
     const { upcoming, past, unscheduled } = splitInterviews(list)
+    if (q.isLoading || q.isError || list.length === 0) return null
     return (
-        <AALayout gate>
-            <PageHeader
-                eyebrow="Interviews"
-                title="Your interviews"
-                lead="Interview invites found in your Vloombox mail: when, how to join, and which round. Times are shown in your own time zone; always check the original mail."
-                actions={<Link to="/autoapply/inbox?view=interview" className="aa-btn">Interview mails</Link>}
-            />
-            {q.isLoading ? (
-                <LoadingState label="Loading interviews…" />
-            ) : q.isError ? (
-                <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load interviews" />
-            ) : list.length === 0 ? (
-                <EmptyState icon="📅" title="No interviews yet" message="When a company invites you to an interview, it shows up here with the time and meeting link." />
-            ) : (
-                <>
-                    <Section title="Upcoming" items={upcoming} />
-                    <Section title="Time not set" items={unscheduled} />
-                    <Section title="Past" items={past} past />
-                </>
-            )}
-        </AALayout>
+        <div style={{ marginBottom: 6 }}>
+            <Section title="Upcoming" items={upcoming} />
+            <Section title="Time not set" items={unscheduled} />
+            <Section title="Past" items={past} past />
+        </div>
     )
 }

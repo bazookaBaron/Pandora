@@ -1,0 +1,111 @@
+/* First-run quick setup + guided tour. Tokens come from index.css (light/dark aware).
+   Only the overlay scrims use raw rgba. */
+
+/* ── quick setup card ── */
+.fr-backdrop {
+    position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px;
+    background: rgba(0, 0, 0, 0.5); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    animation: fr-fade 0.18s ease both;
+}
+.fr-card {
+    width: 100%; max-width: 440px; max-height: calc(100vh - 32px); overflow-y: auto;
+    background: var(--panel); color: var(--accent); border: 1px solid var(--subtle); border-radius: 12px;
+    padding: 20px 22px 18px; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.3);
+    animation: fr-rise 0.2s ease both;
+}
+
+/* timeline stepper */
+.fr-steps { list-style: none; margin: 0 0 18px; padding: 0; display: flex; align-items: flex-start; }
+.fr-step { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; position: relative; min-width: 0; }
+.fr-step + .fr-step::before {
+    content: ''; position: absolute; top: 11px; right: 50%; width: 100%; height: 2px; background: var(--subtle); z-index: 0;
+}
+.fr-step.is-done::before, .fr-step.is-now::before { background: var(--pop); }
+.fr-dot {
+    position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+    font-size: 0.68rem; font-weight: 900; background: var(--panel); border: 2px solid var(--subtle-strong); color: var(--muted);
+}
+.fr-step.is-now .fr-dot { border-color: var(--pop); color: var(--pop); }
+.fr-step.is-done .fr-dot { background: var(--pop); border-color: var(--pop); color: var(--surface); }
+.fr-step-label { font-size: 0.66rem; font-weight: 800; color: var(--muted); text-align: center; }
+.fr-step.is-now .fr-step-label { color: var(--bright); }
+
+.fr-title { margin: 0; font-size: 1.12rem; font-weight: 900; color: var(--bright); letter-spacing: -0.02em; outline: none; }
+.fr-sub { margin: 5px 0 14px; font-size: 0.8rem; line-height: 1.5; color: var(--muted); }
+.fr-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; flex: 1; min-width: 0; font-size: 0.72rem; font-weight: 800; color: var(--accent); }
+.fr-field em { font-style: normal; font-weight: 600; color: var(--muted); }
+.fr-row { display: flex; gap: 10px; }
+.fr-input {
+    width: 100%; box-sizing: border-box; padding: 9px 11px; font: inherit; font-size: 0.85rem; font-weight: 500;
+    color: var(--bright); background: var(--surface); border: 1px solid var(--subtle-strong); border-radius: var(--radius);
+}
+.fr-input::placeholder { color: var(--faint); }
+.fr-input:focus-visible { outline: 2px solid var(--pop); outline-offset: 1px; border-color: var(--pop); }
+.fr-err { margin: 0 0 8px; font-size: 0.74rem; color: var(--red); }
+
+.fr-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.fr-chip {
+    font: inherit; font-size: 0.8rem; font-weight: 700; padding: 8px 13px; border-radius: 999px; cursor: pointer;
+    color: var(--accent); background: var(--surface); border: 1px solid var(--subtle-strong);
+    transition: border-color var(--transition), background var(--transition);
+}
+.fr-chip:hover { border-color: var(--accent); }
+.fr-chip.is-on { border-color: var(--pop); background: var(--pop-dim); color: var(--bright); }
+.fr-chip:focus-visible { outline: 2px solid var(--pop); outline-offset: 2px; }
+
+.fr-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 18px; }
+.fr-actions-r { display: flex; gap: 8px; align-items: center; }
+.fr-skip {
+    background: none; border: 0; font: inherit; font-size: 0.74rem; font-weight: 800; color: var(--muted);
+    cursor: pointer; padding: 6px 8px; border-radius: 4px;
+}
+.fr-skip:hover { color: var(--bright); }
+.fr-btn {
+    display: inline-flex; align-items: center; justify-content: center; padding: 8px 14px;
+    font: inherit; font-size: 0.72rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em;
+    border-radius: var(--radius); border: 1px solid var(--subtle-strong); background: var(--surface); color: var(--accent); cursor: pointer;
+}
+.fr-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--bright); }
+.fr-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.fr-btn.is-primary { background: var(--pop); border-color: var(--pop); color: var(--surface); }
+.fr-btn.is-primary:hover:not(:disabled) { opacity: 0.9; color: var(--surface); }
+.fr-btn:focus-visible, .fr-skip:focus-visible { outline: 2px solid var(--pop); outline-offset: 2px; }
+
+/* ── spotlight tour ── */
+.fr-tour { position: fixed; inset: 0; z-index: 1100; }
+.fr-pane {
+    position: fixed; background: rgba(0, 0, 0, 0.5);
+    -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+    animation: fr-fade 0.18s ease both;
+}
+.fr-ring {
+    position: fixed; border-radius: 8px; pointer-events: none;
+    box-shadow: 0 0 0 2px var(--pop);
+    transition: top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease;
+}
+.fr-tip {
+    position: fixed; z-index: 1; width: min(300px, calc(100vw - 24px)); box-sizing: border-box; outline: none;
+    background: var(--panel); color: var(--accent); border: 1px solid var(--subtle-strong); border-radius: 10px;
+    padding: 13px 14px 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+    animation: fr-rise 0.18s ease both;
+}
+.fr-tip.is-center { top: 50%; left: 50%; transform: translate(-50%, -50%); animation-name: fr-fade; }
+.fr-tip-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--bright); font-size: 0.9rem; }
+.fr-tip-text { margin: 5px 0 12px; font-size: 0.8rem; line-height: 1.5; color: var(--muted); }
+.fr-tip-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fr-dots { display: inline-flex; gap: 5px; }
+.fr-pip { width: 6px; height: 6px; border-radius: 50%; background: var(--subtle-strong); }
+.fr-pip.is-on { background: var(--pop); }
+
+@media (max-width: 520px) {
+    .fr-row { flex-direction: column; gap: 0; }
+    .fr-card { padding: 18px 16px 16px; }
+}
+
+@keyframes fr-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fr-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+    .fr-backdrop, .fr-card, .fr-pane, .fr-tip { animation: none; }
+    .fr-ring, .fr-chip { transition: none; }
+}

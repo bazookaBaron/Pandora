@@ -7,7 +7,7 @@ import CommandPalette from './components/shared/CommandPalette'
 import Footer from './components/Footer'
 import { RouteErrorBoundary } from './components/shared/ErrorBoundary'
 import SessionExpiredBanner from './components/shared/SessionExpiredBanner'
-import WelcomeHost from './components/onboarding/WelcomeHost'
+import FirstRunHost from './components/onboarding/FirstRunHost'
 import { usePlanChangeRefetch } from './lib/useEntitlements'
 import { trackPageview } from './lib/analytics'
 import { createMutationCache } from './lib/mutationCache'
@@ -30,15 +30,11 @@ const ReferralsPage = lazy(() => import('./pages/referrals/ReferralsPage'))
 const JobsPage = lazy(() => import('./pages/jobs/JobsPage'))
 const JobsCompanyPage = lazy(() => import('./pages/jobs/JobsCompanyPage'))
 const AutoApplyLanding = lazy(() => import('./pages/autoapply/AutoApplyLanding'))
-const AutoApplySetup = lazy(() => import('./pages/autoapply/SetupPage'))
+const AutoApplyAccount = lazy(() => import('./pages/autoapply/AccountPage'))
 const AutoApplyBuy = lazy(() => import('./pages/autoapply/BuyPage'))
-const AutoApplyBatches = lazy(() => import('./pages/autoapply/BatchesPage'))
 const AutoApplyBatchDetail = lazy(() => import('./pages/autoapply/BatchDetailPage'))
 const AutoApplyNeedsYou = lazy(() => import('./pages/autoapply/NeedsYouPage'))
 const AutoApplyInbox = lazy(() => import('./pages/autoapply/InboxPage'))
-const AutoApplyInterviews = lazy(() => import('./pages/autoapply/InterviewsPage'))
-const AutoApplyAccounts = lazy(() => import('./pages/autoapply/AccountsPage'))
-const AutoApplyStats = lazy(() => import('./pages/autoapply/StatsPage'))
 const AutoApplyHealth = lazy(() => import('./pages/autoapply/HealthPage'))
 
 const TermsPage = lazy(() => import('./pages/LegalPages').then(m => ({ default: m.TermsPage })))
@@ -117,6 +113,12 @@ function PlanChangeRefetch() {
 }
 
 // Shown while a lazy route chunk is in flight. Matches ProtectedRoute's markup.
+// Redirect that keeps ?query and #hash (old /autoapply/setup?step=x#y deep links).
+function RedirectKeep({ to }) {
+    const { search, hash } = useLocation()
+    return <Navigate to={{ pathname: to, search, hash }} replace />
+}
+
 function RouteFallback() {
     return (
         <div className="loading-screen">
@@ -135,7 +137,7 @@ export default function App() {
                     <PlanChangeRefetch />
                     <CommandPalette />
                     <SessionExpiredBanner />
-                    <WelcomeHost />
+                    <FirstRunHost />
                     <RouteErrorBoundary>
                     <Suspense fallback={<RouteFallback />}>
                     <Routes>
@@ -173,16 +175,17 @@ export default function App() {
                         <Route path="/interview" element={<InterviewPage />} />
                         <Route path="/referrals" element={<ReferralsPage />} />
                         <Route path="/autoapply" element={<ProtectedRoute><AutoApplyLanding /></ProtectedRoute>} />
-                        <Route path="/autoapply/setup" element={<ProtectedRoute><AutoApplySetup /></ProtectedRoute>} />
-                        <Route path="/autoapply/profile" element={<Navigate to="/autoapply/setup" replace />} />
+                        <Route path="/autoapply/account" element={<ProtectedRoute><AutoApplyAccount /></ProtectedRoute>} />
+                        <Route path="/autoapply/setup" element={<RedirectKeep to="/autoapply/account" />} />
+                        <Route path="/autoapply/profile" element={<RedirectKeep to="/autoapply/account" />} />
+                        <Route path="/autoapply/accounts" element={<Navigate to="/autoapply/account#sites" replace />} />
+                        <Route path="/autoapply/stats" element={<Navigate to="/autoapply/account#stats" replace />} />
+                        <Route path="/autoapply/batches" element={<Navigate to="/autoapply" replace />} />
+                        <Route path="/autoapply/interviews" element={<Navigate to="/autoapply/inbox?f=interview" replace />} />
                         <Route path="/autoapply/buy" element={<ProtectedRoute><AutoApplyBuy /></ProtectedRoute>} />
-                        <Route path="/autoapply/batches" element={<ProtectedRoute><AutoApplyBatches /></ProtectedRoute>} />
                         <Route path="/autoapply/batches/:id" element={<ProtectedRoute><AutoApplyBatchDetail /></ProtectedRoute>} />
                         <Route path="/autoapply/needs-you" element={<ProtectedRoute><AutoApplyNeedsYou /></ProtectedRoute>} />
                         <Route path="/autoapply/inbox" element={<ProtectedRoute><AutoApplyInbox /></ProtectedRoute>} />
-                        <Route path="/autoapply/interviews" element={<ProtectedRoute><AutoApplyInterviews /></ProtectedRoute>} />
-                        <Route path="/autoapply/accounts" element={<ProtectedRoute><AutoApplyAccounts /></ProtectedRoute>} />
-                        <Route path="/autoapply/stats" element={<ProtectedRoute><AutoApplyStats /></ProtectedRoute>} />
                         <Route path="/autoapply/admin/health" element={<ProtectedRoute><AutoApplyHealth /></ProtectedRoute>} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>

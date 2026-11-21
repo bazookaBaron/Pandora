@@ -4,9 +4,8 @@ import { ErrorState, LoadingState, errorText } from '../../components/shared/sta
 import {
     useAnswers, useAutoApplyMe, useSaveAnswers, useSaveProfile, useUploadResume,
 } from '../../lib/useAutoApply'
-import { AALayout, CopyButton, PageHeader } from './ui'
+import { CopyButton } from './ui'
 import NotifyButton from './NotifyButton'
-import AAProgressGuide from '../../components/onboarding/AAProgressGuide'
 import { toast } from '../../lib/toast'
 
 // Errors render inline next to the step's button, so skip the global error toast.
@@ -43,7 +42,7 @@ function StepNote({ state }) {
     if (state.error?.code === 'consent_required') {
         return (
             <div className="aa-note is-warn" role="alert">
-                {errorText(state.error)} <Link to="/autoapply/setup?step=consent" style={{ color: 'var(--pop)' }}>Go to the Confirm step</Link>
+                {errorText(state.error)} <Link to="/autoapply/account?step=consent" style={{ color: 'var(--pop)' }}>Go to the Confirm step</Link>
             </div>
         )
     }
@@ -508,10 +507,11 @@ function ConsentStep({ me }) {
     )
 }
 
-export default function SetupPage() {
+export default function SetupSection({ initialStep = null }) {
     const me = useAutoApplyMe()
     const [params, setParams] = useSearchParams()
-    const stepId = STEPS.some((s) => s.id === params.get('step')) ? params.get('step') : 'resume'
+    const wanted = params.get('step') || initialStep
+    const stepId = STEPS.some((s) => s.id === wanted) ? wanted : 'resume'
     const idx = STEPS.findIndex((s) => s.id === stepId)
     const [draft, setDraft] = useState(null)
 
@@ -526,9 +526,7 @@ export default function SetupPage() {
     const next = () => { if (idx < STEPS.length - 1) go(STEPS[idx + 1].id) }
 
     return (
-        <AALayout gate>
-            <PageHeader eyebrow="AutoApply setup" title="Set up AutoApply" lead="About five minutes. You can change any of this later." />
-            <AAProgressGuide />
+        <div>
             <ol className="aa-steps" aria-label="Setup steps">
                 {STEPS.map((s, i) => (
                     <li key={s.id}>
@@ -547,6 +545,6 @@ export default function SetupPage() {
                     {stepId === 'consent' && <ConsentStep me={me.data} />}
                 </>
             )}
-        </AALayout>
+        </div>
     )
 }

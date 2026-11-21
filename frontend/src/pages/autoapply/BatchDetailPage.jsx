@@ -300,10 +300,10 @@ export default function BatchDetailPage() {
             ) : q.isError ? (
                 <ErrorState err={q.error} onRetry={() => q.refetch()} title={q.error?.status === 404 ? 'Batch not found' : 'Could not load batch'} />
             ) : !batch ? (
-                <EmptyState title="Batch not found" action={<Link to="/autoapply/batches" className="aa-btn">All batches</Link>} />
+                <EmptyState title="Batch not found" action={<Link to="/autoapply" className="aa-btn">Overview</Link>} />
             ) : (
                 <>
-                    <p style={{ margin: '0 0 10px' }}><Link to="/autoapply/batches" style={{ color: 'var(--pop)', fontSize: '0.76rem', textDecoration: 'none' }}>← All batches</Link></p>
+                    <p style={{ margin: '0 0 10px' }}><Link to="/autoapply" style={{ color: 'var(--pop)', fontSize: '0.76rem', textDecoration: 'none' }}>← Overview</Link></p>
                     <PageHeader
                         eyebrow={live ? 'Live' : 'Batch'}
                         title={`${PACK_KINDS[batch.pack_kind]?.name || batch.pack_kind} · ${batch.pack_size}`}

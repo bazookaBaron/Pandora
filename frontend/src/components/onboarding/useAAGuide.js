@@ -81,29 +81,29 @@ export function useAAGuide() {
             resume: {
                 title: 'Upload your resume',
                 text: 'A PDF or DOCX; we read it to prefill your profile and attach it to every application.',
-                cta: { to: '/autoapply/setup?step=resume', label: 'Upload resume' },
+                cta: { to: '/autoapply/account?step=resume', label: 'Upload resume' },
             },
             answers: {
                 title: 'Answer the screening questions',
                 text: answerGaps.length
                     ? `${answerGaps.length} answer${answerGaps.length === 1 ? '' : 's'} left; career sites ask these on almost every form.`
                     : 'The standard questions career sites ask on almost every form.',
-                cta: { to: firstAnswerFix || '/autoapply/setup?step=answers', label: 'Answer questions' },
+                cta: { to: firstAnswerFix || '/autoapply/account?step=answers', label: 'Answer questions' },
             },
             prefs: {
                 title: 'Set your preferences',
                 text: 'Pick the job titles and cities you want; you choose how fresh the postings are when you buy.',
-                cta: { to: '/autoapply/setup?step=prefs', label: 'Set preferences' },
+                cta: { to: '/autoapply/account?step=prefs', label: 'Set preferences' },
             },
             email: {
                 title: 'Connect your apply email',
                 text: 'Choose where recruiter replies and verification codes go.',
-                cta: { to: '/autoapply/setup?step=email', label: 'Set up email' },
+                cta: { to: '/autoapply/account?step=email', label: 'Set up email' },
             },
             consent: {
                 title: 'Give consent',
                 text: 'Confirm we may apply on your behalf and whether you want to review the shortlist first.',
-                cta: { to: '/autoapply/setup?step=consent', label: 'Confirm' },
+                cta: { to: '/autoapply/account?step=consent', label: 'Confirm' },
             },
             buy: {
                 title: 'Buy a pack',
@@ -123,7 +123,7 @@ export function useAAGuide() {
                 text: skipReview
                     ? 'You chose to skip the review, so we start applying as soon as the shortlist is ready.'
                     : `We'll let you review it for ${reviewHours} hours before applying.`,
-                cta: { to: building ? `/autoapply/batches/${building.id}` : '/autoapply/batches', label: 'Open batch' },
+                cta: { to: building ? `/autoapply/batches/${building.id}` : '/autoapply', label: 'Open batch' },
             },
             track: needCount > 0 ? {
                 title: 'Some applications need you',
@@ -132,7 +132,7 @@ export function useAAGuide() {
             } : {
                 title: 'Track your applications',
                 text: 'Follow progress in Batches; replies, assessments and interview invites land in your Inbox.',
-                cta: { to: '/autoapply/batches', label: 'Open batches' },
+                cta: { to: '/autoapply', label: 'Open batches' },
             },
         }
 
