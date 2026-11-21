@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
 import { useAutoApplyRealtime, useBatches } from '../../lib/useAutoApply'
+import { GuideNextCta } from '../../components/onboarding/AAProgressGuide'
 import { AALayout, BatchStatusPill, PACK_KINDS, PageHeader, Progress, fmtDate, rupees } from './ui'
 
 export default function BatchesPage() {
@@ -21,7 +22,7 @@ export default function BatchesPage() {
             ) : q.isError ? (
                 <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load batches" />
             ) : batches.length === 0 ? (
-                <EmptyState icon="📭" title="No batches yet" message="Buy a pack and we start applying for you." action={<Link to="/autoapply/buy" className="aa-btn is-primary">Buy a pack</Link>} />
+                <EmptyState icon="📭" title="No batches yet. Buy a pack and we start applying for you." action={<GuideNextCta fallback={{ to: '/autoapply/buy', label: 'Buy a pack' }} />} />
             ) : (
                 <ul className="aa-list">
                     {batches.map((b) => (

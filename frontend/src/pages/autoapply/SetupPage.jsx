@@ -6,6 +6,7 @@ import {
 } from '../../lib/useAutoApply'
 import { AALayout, CopyButton, PageHeader } from './ui'
 import NotifyButton from './NotifyButton'
+import AAProgressGuide from '../../components/onboarding/AAProgressGuide'
 import { toast } from '../../lib/toast'
 
 // Errors render inline next to the step's button, so skip the global error toast.
@@ -520,6 +521,7 @@ export default function SetupPage() {
     return (
         <AALayout gate>
             <PageHeader eyebrow="AutoApply setup" title="Set up AutoApply" lead="About five minutes. You can change any of this later." />
+            <AAProgressGuide />
             <ol className="aa-steps" aria-label="Setup steps">
                 {STEPS.map((s, i) => (
                     <li key={s.id}>
