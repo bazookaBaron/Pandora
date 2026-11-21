@@ -77,8 +77,20 @@ function emitAuthExpired() {
     }
 }
 
+// Default per-attempt timeout. Override per call with opts.timeout (ms);
+// 0 disables it. Uploads pass a longer one (see UPLOAD_TIMEOUT_MS).
+export const DEFAULT_TIMEOUT_MS = 20_000
+export const UPLOAD_TIMEOUT_MS = 90_000
+
+export function isTimeout(err) {
+    return err instanceof ApiError && err.code === 'timeout'
+}
+
 // ── apiFetch(path, opts) ────────────────────────────────────────────
-//   opts: { method, json, formData, headers, signal }
+//   opts: { method, json, formData, headers, signal, timeout }
+//   • timeout (ms, default 20 s): aborts a hung request and throws
+//     ApiError{ status: 0, code: 'timeout' }. A caller-supplied `signal`
+//     aborting still rethrows the AbortError untouched.
 //   • Attaches `Authorization: Bearer <supabase token>` when a session exists
 //     (still sends without one — the server answers 401).
 //   • `json`      → JSON.stringify + Content-Type: application/json
@@ -88,6 +100,7 @@ function emitAuthExpired() {
 //   • Throws `ApiError` on !res.ok or on a network failure.
 export async function apiFetch(path, opts = {}) {
     const { json, formData, headers = {}, signal } = opts
+    const timeoutMs = opts.timeout ?? (formData !== undefined ? UPLOAD_TIMEOUT_MS : DEFAULT_TIMEOUT_MS)
     const method = opts.method || (json !== undefined || formData !== undefined ? 'POST' : 'GET')
 
     let body
@@ -106,15 +119,33 @@ export async function apiFetch(path, opts = {}) {
         if (token) finalHeaders.Authorization = `Bearer ${token}`
         if (contentType) finalHeaders['Content-Type'] = contentType
 
-        let res
-        try {
-            res = await fetch(path, { method, headers: finalHeaders, body, signal })
-        } catch (err) {
-            if (err && err.name === 'AbortError') throw err
-            throw new ApiError('Network request failed — is the API server running?', { status: 0, code: 'network' })
+        // Own controller per attempt: the timeout aborts it, and an external
+        // `signal` is forwarded into it.
+        const ctrl = new AbortController()
+        let timedOut = false
+        const timer = timeoutMs > 0 ? setTimeout(() => { timedOut = true; ctrl.abort() }, timeoutMs) : null
+        const forward = () => ctrl.abort()
+        if (signal) {
+            if (signal.aborted) ctrl.abort()
+            else signal.addEventListener('abort', forward, { once: true })
         }
 
-        const text = await res.text()
+        let res
+        let text
+        try {
+            res = await fetch(path, { method, headers: finalHeaders, body, signal: ctrl.signal })
+            text = await res.text()
+        } catch (err) {
+            if (timedOut) {
+                throw new ApiError('The server took too long to respond. Please try again.', { status: 0, code: 'timeout' })
+            }
+            if (err && err.name === 'AbortError') throw err
+            throw new ApiError('Network request failed — is the API server running?', { status: 0, code: 'network' })
+        } finally {
+            if (timer) clearTimeout(timer)
+            if (signal) signal.removeEventListener('abort', forward)
+        }
+
         let parsed = null
         if (text) {
             try { parsed = JSON.parse(text) } catch { parsed = null }

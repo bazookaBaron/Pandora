@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { memo, useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { Lock } from 'lucide-react'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
@@ -117,7 +117,10 @@ function LockedQuestionCard({ isMobile, onClick }) {
     )
 }
 
-function ProblemRow({ p, prog, isMobile, onToggleStatus, onToggleBookmark }) {
+// Memoised: props are stable per row (useProgress's toggles are stable
+// callbacks and untouched rows keep their object identity), so a toggle
+// re-renders only the row that changed.
+const ProblemRow = memo(function ProblemRow({ p, prog, isMobile, onToggleStatus, onToggleBookmark }) {
     const isSolved = prog?.status === 'solved'
     const isBookmarked = prog?.is_bookmarked
 
@@ -183,7 +186,7 @@ function ProblemRow({ p, prog, isMobile, onToggleStatus, onToggleBookmark }) {
             <CompanyBadges companies={p.company || []} />
         </div>
     )
-}
+})
 
 
 export default function DSAListPage({ filterCompany }) {

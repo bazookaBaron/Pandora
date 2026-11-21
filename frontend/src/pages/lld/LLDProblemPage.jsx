@@ -205,6 +205,8 @@ export default function LLDProblemPage() {
     const [activeFile, setActiveFile] = useState(null)
     const [notesOpen, setNotesOpen] = useState(false)
     const [notesText, setNotesText] = useState('')
+    // 'idle' | 'saving' | 'saved' | 'error'
+    const [notesSave, setNotesSave] = useState('idle')
     const [mobileTab, setMobileTab] = useState('requirements') // 'requirements' | 'diagram' | 'code'
     const [treeOpen, setTreeOpen] = useState(false) // mobile: file-tree strip expanded
     const [copyMsg, setCopyMsg] = useState('')
@@ -319,8 +321,12 @@ export default function LLDProblemPage() {
 
     const copyFile = async () => {
         if (!activeFile) return
-        await navigator.clipboard.writeText(activeFile.content || '')
-        setCopyMsg('Copied!')
+        try {
+            await navigator.clipboard.writeText(activeFile.content || '')
+            setCopyMsg('Copied!')
+        } catch {
+            setCopyMsg('Copy failed')
+        }
         setTimeout(() => setCopyMsg(''), 2000)
     }
 
@@ -427,12 +433,24 @@ export default function LLDProblemPage() {
             <div style={{ marginTop: 20, borderTop: '1px solid var(--subtle)', paddingTop: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <span style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Approach Notes</span>
-                    {notesOpen && (
-                        <button onClick={() => { saveNotes(problem.id, notesText); setNotesOpen(false) }}
-                            style={{ fontSize: '0.68rem', padding: '3px 10px', background: '#f472b6', color: 'var(--surface)', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 900 }}>
-                            Save
-                        </button>
-                    )}
+                    {notesOpen ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            {notesSave === 'error' && <span role="alert" style={{ fontSize: '0.66rem', color: '#f87171' }}>Save failed</span>}
+                            <button
+                                disabled={notesSave === 'saving'}
+                                onClick={() => {
+                                    setNotesSave('saving')
+                                    saveNotes(problem.id, notesText)
+                                        .then(() => { setNotesSave('saved'); setNotesOpen(false) })
+                                        .catch(() => setNotesSave('error'))
+                                }}
+                                style={{ fontSize: '0.68rem', padding: '3px 10px', background: '#f472b6', color: 'var(--surface)', border: 'none', borderRadius: 4, cursor: notesSave === 'saving' ? 'wait' : 'pointer', fontWeight: 900, opacity: notesSave === 'saving' ? 0.7 : 1 }}>
+                                {notesSave === 'saving' ? 'Saving…' : notesSave === 'error' ? 'Retry' : 'Save'}
+                            </button>
+                        </span>
+                    ) : notesSave === 'saved' ? (
+                        <span role="status" style={{ fontSize: '0.66rem', color: '#4ade80' }}>Saved</span>
+                    ) : null}
                 </div>
                 {notesOpen ? (
                     <textarea
@@ -448,7 +466,7 @@ export default function LLDProblemPage() {
                         autoFocus
                     />
                 ) : (
-                    <button onClick={() => setNotesOpen(true)} style={{
+                    <button onClick={() => { setNotesSave('idle'); setNotesOpen(true) }} style={{
                         width: '100%', padding: '8px 12px', background: 'var(--panel)', border: '1px dashed var(--subtle)',
                         borderRadius: 6, color: 'var(--faint)', cursor: 'pointer', fontSize: '0.78rem', textAlign: 'left',
                     }}>
@@ -497,7 +515,7 @@ export default function LLDProblemPage() {
                 </span>
                 <div style={{ flex: 1 }} />
                 <button onClick={copyFile} disabled={!activeFile} style={{
-                    padding: '3px 10px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 4, color: copyMsg ? '#4ade80' : 'var(--muted)', cursor: 'pointer', fontSize: '0.68rem',
+                    padding: '3px 10px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 4, color: copyMsg === 'Copy failed' ? '#f87171' : copyMsg ? '#4ade80' : 'var(--muted)', cursor: 'pointer', fontSize: '0.68rem',
                 }}>
                     {copyMsg || 'Copy File'}
                 </button>
@@ -570,6 +588,7 @@ export default function LLDProblemPage() {
                             try {
                                 data = await apiFetch('/api/run', {
                                     json: { language: lang, version: '*', files },
+                                    timeout: 60_000,
                                 })
                             } catch (err) {
                                 data = {

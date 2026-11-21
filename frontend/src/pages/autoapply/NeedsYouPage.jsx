@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ExternalLink } from 'lucide-react'
-import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
+import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
 import { useNeedsYou, useResolveNeedsYou } from '../../lib/useAutoApply'
 import { Link } from 'react-router-dom'
 import { AALayout, InlineConfirm, PageHeader, ProfileMissing, fmtAgo } from './ui'
@@ -15,11 +15,13 @@ const KIND = {
 }
 const ORDER = ['profile', 'question', 'captcha', 'sso', 'account', 'other']
 
+// useResolveNeedsYou removes the item from the cache at once (the card
+// disappears on click), toasts the result, and puts the card back with an
+// error toast if the server rejects it.
 function ProfileItem({ item }) {
     const resolve = useResolveNeedsYou()
     const p = item.payload || {}
     const [confirmDismiss, setConfirmDismiss] = useState(false)
-    const [err, setErr] = useState(null)
     const id = `ny-${item.id}`
     const batchId = item.batch_id || p.batch_id
     return (
@@ -42,11 +44,10 @@ function ProfileItem({ item }) {
                     confirmLabel="Hide"
                     tone="neutral"
                     busy={resolve.isPending}
-                    onConfirm={() => { setErr(null); resolve.mutate({ id: item.id, action: 'dismiss' }, { onError: (e) => { setErr(e); setConfirmDismiss(false) } }) }}
+                    onConfirm={() => resolve.mutate({ id: item.id, action: 'dismiss' }, { onError: () => setConfirmDismiss(false) })}
                     onCancel={() => setConfirmDismiss(false)}
                 />
             )}
-            {err && <ErrorState compact message={errorText(err)} />}
         </li>
     )
 }
@@ -62,13 +63,12 @@ function TaskItem({ item }) {
     const link = p.apply_url || item.task?.apply_url
     const [answer, setAnswer] = useState(p.suggestion ?? '')
     const [confirmDismiss, setConfirmDismiss] = useState(false)
-    const [err, setErr] = useState(null)
     const id = `ny-${item.id}`
     const options = Array.isArray(p.options) ? p.options : null
 
     function act(action, extra) {
-        setErr(null)
-        resolve.mutate({ id: item.id, action, ...extra }, { onError: (e) => { setErr(e); setConfirmDismiss(false) } })
+        if (resolve.isPending) return
+        resolve.mutate({ id: item.id, action, ...extra }, { onError: () => setConfirmDismiss(false) })
     }
 
     return (
@@ -135,7 +135,6 @@ function TaskItem({ item }) {
                     onCancel={() => setConfirmDismiss(false)}
                 />
             )}
-            {err && <ErrorState compact message={errorText(err)} />}
         </li>
     )
 }

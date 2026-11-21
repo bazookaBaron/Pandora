@@ -60,6 +60,7 @@ export async function startRazorpayCheckout({ plan, billingPeriod, user }) {
             handler: async (resp) => {
                 try {
                     const verified = await apiFetch('/api/payments/razorpay/verify', {
+                        timeout: 60_000,
                         json: {
                             razorpay_order_id: resp.razorpay_order_id,
                             razorpay_payment_id: resp.razorpay_payment_id,
@@ -184,6 +185,7 @@ export async function startRazorpaySubscription({ plan, billingPeriod, user }) {
             handler: async (resp) => {
                 try {
                     const verified = await apiFetch('/api/subscriptions/verify', {
+                        timeout: 60_000,
                         json: {
                             razorpay_payment_id: resp.razorpay_payment_id,
                             razorpay_subscription_id: resp.razorpay_subscription_id,

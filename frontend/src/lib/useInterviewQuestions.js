@@ -60,7 +60,7 @@ export function useInterviewAnswer(questionId) {
         queryKey: ['interview-answer', questionId],
         queryFn: async () => {
             try {
-                const data = await apiFetch('/api/catalog/interview/answer/' + encodeURIComponent(questionId))
+                const data = await apiFetch('/api/catalog/interview/answer/' + encodeURIComponent(questionId), { timeout: 60_000 })
                 return data ?? null
             } catch (err) {
                 // 404 = stale/removed id, 403 = outside this plan's unlocked window

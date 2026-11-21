@@ -104,7 +104,7 @@ export default function HomePage() {
             if (name.trim()) form.append('name', name.trim())
             if (companyName.trim()) form.append('companyName', companyName.trim())
 
-            const data = await apiFetch('/api/generate', { formData: form })
+            const data = await apiFetch('/api/generate', { formData: form, timeout: 180_000 })
 
             downloadPdf(data.pdfBase64, data.filename)
             setResults({ metrics: data.metrics, beforeMetrics: data.beforeMetrics, filename: data.filename })

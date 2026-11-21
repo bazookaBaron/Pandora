@@ -10,6 +10,8 @@ import { useCompanyOptions } from '../lib/useReferrals'
 import { useCompanySubscriptions, useUnsubscribeFromCompany } from '../lib/useCompanySubscriptions'
 import { UpgradeButton } from '../components/shared/PaywallGate'
 import Navbar from '../components/Navbar'
+import { toast } from '../lib/toast'
+import { errorText } from '../lib/errorText'
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -101,7 +103,10 @@ function ProgressSection({ user }) {
                 .order('updated_at', { ascending: false })
             return data || []
         },
-        enabled: !!user, staleTime: 0, refetchOnMount: 'always', refetchOnWindowFocus: true,
+        // progress changes only when the user solves something (those pages
+        // write through useProgress, which updates this key), so 30 s is fresh
+        // enough and avoids a refetch storm on every visit/focus.
+        enabled: !!user, staleTime: 30_000, refetchOnWindowFocus: true,
     })
 
     // All catalog-derived aggregates come pre-computed from the server (service
@@ -111,7 +116,6 @@ function ProgressSection({ user }) {
         queryFn: () => apiFetch('/api/stats/overview'),
         enabled: !!user,
         staleTime: 5 * 60 * 1000,
-        refetchOnMount: 'always',
     })
     const totals = overview?.totals || { dsa: 0, lld: 0, hld: 0 }
     const readiness = overview?.readiness || []
@@ -293,9 +297,13 @@ function AvatarEditor({ user }) {
                 const stale = (list || []).map(o => `${user.id}/${o.name}`).filter(p => p !== path)
                 if (stale.length) await supabase.storage.from('avatars').remove(stale)
             } catch { /* best effort */ }
+            // show the new picture at once (navbar shares this key), then reconcile
+            qc.setQueryData(['profile-avatar', user.id], (old) => ({ ...(old || {}), avatar_url: pub.publicUrl }))
             qc.invalidateQueries({ queryKey: ['profile-avatar', user.id] })
+            toast.success('Profile picture updated.')
         } catch (e2) {
             setErr(e2?.message || 'Upload failed.')
+            toast.error(`Could not update your picture: ${errorText(e2, 'Upload failed.')}`)
         } finally {
             setBusy(false)
         }
@@ -586,9 +594,12 @@ function CompanySubscriptionsCard() {
     const used = data?.used ?? subscriptions.length
 
     const handleRemove = async (slug) => {
+        if (removingSlug) return
         setRemovingSlug(slug)
         try {
             await unsubscribe.mutateAsync(slug)
+        } catch {
+            /* rolled back in the hook; the global mutation toast shows why */
         } finally {
             setRemovingSlug(null)
         }
@@ -702,6 +713,7 @@ export default function ProfilePage() {
         if (error) {
             setPwStatus({ msg: error.message, type: 'error' })
         } else {
+            toast.success('Password updated.')
             setPwStatus({ msg: 'Password updated successfully!', type: 'ok' })
             setNewPw('')
         }
@@ -715,14 +727,19 @@ export default function ProfilePage() {
         if (error) {
             setNameStatus({ msg: error.message, type: 'error' })
         } else {
+            // supabase fires USER_UPDATED with the new metadata, so AuthContext
+            // re-renders the name; no reload needed
             setEditNameOpen(false)
             setNameStatus({ msg: '', type: '' })
-            window.location.reload()
+            toast.success('Name updated.')
         }
     }
 
+    const [signingOut, setSigningOut] = useState(false)
     const handleLogout = async () => {
-        await logout()
+        if (signingOut) return
+        setSigningOut(true)
+        try { await logout() } finally { setSigningOut(false) }
     }
 
     const planLabel = plan === 'pro' ? 'Pro Plan' : plan === 'max' ? 'Max Plan' : 'Free Plan'
@@ -876,11 +893,11 @@ export default function ProfilePage() {
                 {/* Session */}
                 <section className="card profile-card">
                     <h2 className="profile-section-title">Session</h2>
-                    <button className="profile-signout-btn" onClick={handleLogout}>
+                    <button className="profile-signout-btn" onClick={handleLogout} disabled={signingOut} aria-busy={signingOut} style={signingOut ? { opacity: 0.6, cursor: 'wait' } : undefined}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
                         </svg>
-                        Sign Out
+                        {signingOut ? 'Signing out…' : 'Sign Out'}
                     </button>
                 </section>
             </main>

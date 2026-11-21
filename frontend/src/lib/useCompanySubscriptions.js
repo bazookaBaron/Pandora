@@ -36,6 +36,10 @@ export function useSubscribeToCompany() {
             apiFetch('/api/company-subscriptions', {
                 json: { company_slug: companySlug, company_name: companyName },
             }),
+        meta: {
+            success: (_d, { companySlug, companyName }) => `Alerts on for ${companyName || companySlug}.`,
+            error: 'Could not turn on alerts',
+        },
         onMutate: async ({ companySlug, companyName }) => {
             await qc.cancelQueries({ queryKey: KEY })
             const previous = qc.getQueryData(KEY)
@@ -67,6 +71,7 @@ export function useUnsubscribeFromCompany() {
     return useMutation({
         mutationFn: (companySlug) =>
             apiFetch('/api/company-subscriptions/' + encodeURIComponent(companySlug), { method: 'DELETE' }),
+        meta: { success: 'Alerts turned off.', error: 'Could not turn off alerts' },
         onMutate: async (companySlug) => {
             await qc.cancelQueries({ queryKey: KEY })
             const previous = qc.getQueryData(KEY)

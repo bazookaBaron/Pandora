@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { UsageMeter, UpgradeButton } from './PaywallGate'
+import { errorText as libErrorText } from '../../lib/errorText'
 
 // ── Reusable UX states (dark-mono) ─────────────────────────────────
 // One place for loading / error / empty / usage-limit presentation so every
@@ -24,7 +25,7 @@ export function errorText(err) {
     if (err.status === 401 || err.code === 'auth required') {
         return 'Your session expired. Please sign in again.'
     }
-    return err.message || 'Unexpected error.'
+    return libErrorText(err, 'Unexpected error.')
 }
 
 function isAuthErr(err) {

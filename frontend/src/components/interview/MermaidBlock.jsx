@@ -1,11 +1,24 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
-// Load + configure mermaid exactly once for the whole module.
-// securityLevel 'strict' sanitises rendered SVG; theme matches the dark UI.
-const mermaidReady = import('mermaid').then(({ default: mermaid }) => {
-    mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' })
-    return mermaid
-})
+// Load + configure mermaid lazily, exactly once, on the first render of a
+// diagram (not when this module is imported), so pages that merely include
+// this component never download the ~600 kB mermaid chunk unless a diagram
+// is actually shown. securityLevel 'strict' sanitises rendered SVG.
+let mermaidReady = null
+function loadMermaid() {
+    if (!mermaidReady) {
+        mermaidReady = import('mermaid')
+            .then(({ default: mermaid }) => {
+                mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' })
+                return mermaid
+            })
+            .catch((e) => {
+                mermaidReady = null // let a later render retry (e.g. chunk load after a deploy)
+                throw e
+            })
+    }
+    return mermaidReady
+}
 
 export default function MermaidBlock({ code }) {
     const ref = useRef(null)
@@ -20,7 +33,7 @@ export default function MermaidBlock({ code }) {
         const node = ref.current
         setError(null)
 
-        mermaidReady
+        loadMermaid()
             .then((mermaid) => mermaid.render(renderId, code))
             .then(({ svg }) => {
                 if (cancelled || !node) return

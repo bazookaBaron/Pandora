@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
-import { ApiError, apiFetch } from './apiClient'
+import { ApiError, UPLOAD_TIMEOUT_MS, apiFetch } from './apiClient'
 import { supabase } from './supabase'
 
 // ── AutoApply API hooks ─────────────────────────────────────────────
@@ -101,12 +101,12 @@ export function useBatch(id, { live = false } = {}) {
     })
 }
 
-export function useNeedsYou() {
+export function useNeedsYou({ enabled = true } = {}) {
     const uid = useUid()
     return useQuery({
         queryKey: [...aaKeys.needsYou, uid],
         queryFn: () => aa('/needs-you'),
-        enabled: !!uid,
+        enabled: !!uid && enabled,
         refetchInterval: 30_000,
     })
 }
@@ -134,19 +134,40 @@ export function useInbox({ tab = 'all', q = '', category = '', kind = '', compan
     })
 }
 
-/** Opening a mail marks it read on the server, so the unread badge and lists refresh after it loads. */
+/** Opening a mail marks it read on the server; the list row and unread badge are patched once it loads. */
 export function useInboxMail(id) {
     const uid = useUid()
     const qc = useQueryClient()
-    return useQuery({
+    const q = useQuery({
         queryKey: [...aaKeys.inboxMail(id), uid],
-        queryFn: async () => {
-            const r = await aa('/inbox/' + encodeURIComponent(id))
-            qc.invalidateQueries({ queryKey: aaKeys.inboxUnread })
-            return r
-        },
+        queryFn: () => aa('/inbox/' + encodeURIComponent(id)),
         enabled: !!uid && !!id,
     })
+    const mail = q.data && q.data.mail
+    const readAt = mail && mail.read_at
+    useEffect(() => {
+        if (!mail || !readAt) return
+
+        qc.setQueriesData({ queryKey: ['aa', 'inbox'] }, (old) => {
+            if (!old || !Array.isArray(old.pages)) return old
+            return {
+                ...old,
+                pages: old.pages.map((pg) => {
+                    if (!pg || !Array.isArray(pg.mails)) return pg
+                    return {
+                        ...pg,
+                        mails: pg.mails.map((m) => {
+                            if (m.id !== mail.id || m.read_at) return m
+
+                            return { ...m, read_at: readAt }
+                        }),
+                    }
+                }),
+            }
+        })
+        qc.invalidateQueries({ queryKey: aaKeys.inboxUnread })
+    }, [qc, mail, readAt])
+    return q
 }
 
 /** { count, by_kind } of unread interview / assessment / offer / rejection / important mail (nav badge). */
@@ -166,14 +187,29 @@ export function useInboxCompanies() {
     return useQuery({ queryKey: [...aaKeys.inboxCompanies, uid], queryFn: () => aa('/inbox/companies'), enabled: !!uid, staleTime: 60_000 })
 }
 
-export function useMarkAllRead() {
+export function useMarkAllRead({ meta: metaOverride } = {}) {
     const qc = useQueryClient()
     return useMutation({
         mutationFn: () => aa('/inbox/read-all', { method: 'POST' }),
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: aaKeys.inboxUnread })
-            qc.invalidateQueries({ queryKey: ['aa', 'inbox'] })
+        meta: { success: 'All mail marked as read.', ...metaOverride },
+        onMutate: async () => {
+            await qc.cancelQueries({ queryKey: ['aa', 'inbox'] })
+            await qc.cancelQueries({ queryKey: aaKeys.inboxUnread })
+            const snap = [...qc.getQueriesData({ queryKey: ['aa', 'inbox'] }), ...qc.getQueriesData({ queryKey: aaKeys.inboxUnread })]
+            const at = new Date().toISOString()
+            qc.setQueriesData({ queryKey: ['aa', 'inbox'] }, (old) =>
+                old && Array.isArray(old.pages)
+                    ? { ...old, pages: old.pages.map((pg) => (pg && Array.isArray(pg.mails) ? { ...pg, mails: pg.mails.map((m) => (m.read_at ? m : { ...m, read_at: at })) } : pg)) }
+                    : old,
+            )
+            qc.setQueriesData({ queryKey: aaKeys.inboxUnread }, (old) => (old ? { ...old, count: 0, by_kind: {} } : old))
+            return { snap }
         },
+        onError: (_e, _v, ctx) => { for (const [k, d] of ctx?.snap || []) qc.setQueryData(k, d) },
+        onSuccess: () => Promise.all([
+            qc.invalidateQueries({ queryKey: aaKeys.inboxUnread }),
+            qc.invalidateQueries({ queryKey: ['aa', 'inbox'] }),
+        ]),
     })
 }
 
@@ -217,19 +253,19 @@ export function useCompanySuggest(q, kind) {
 export const fetchTaskProof = (batchId, taskId) =>
     aa(`/batches/${encodeURIComponent(batchId)}/tasks/${encodeURIComponent(taskId)}/proof`)
 
-export function useSetMustCompanies() {
-    const qc = useQueryClient()
-    return useMutation({
-        mutationFn: ({ id, companies }) => aa(`/batches/${encodeURIComponent(id)}/must-companies`, { method: 'PUT', json: { must_companies: companies } }),
-        onSuccess: (_d, { id }) => {
-            qc.invalidateQueries({ queryKey: aaKeys.batch(id) })
-            qc.invalidateQueries({ queryKey: aaKeys.batches })
-        },
-    })
-}
-
 // Web push endpoints (see usePush.js)
-export const fetchPushKey = () => aa('/push/key')
+// The VAPID key never changes within a session: fetch it once and share the
+// promise (a failure clears it so the next call retries).
+let pushKeyPromise = null
+export const fetchPushKey = () => {
+    if (!pushKeyPromise) {
+        pushKeyPromise = aa('/push/key').catch((err) => {
+            pushKeyPromise = null
+            throw err
+        })
+    }
+    return pushKeyPromise
+}
 export const pushSubscribe = (sub) => aa('/push/subscribe', { method: 'POST', json: sub })
 export const pushUnsubscribe = (endpoint) => aa('/push/unsubscribe', { method: 'POST', json: { endpoint } })
 
@@ -239,91 +275,267 @@ export function useAccounts() {
 }
 
 // ── writes ─────────────────────────────────────────────────────────
-export function useSaveProfile() {
-    const qc = useQueryClient()
-    return useMutation({
-        mutationFn: (body) => aa('/profile', { method: 'PUT', json: body }),
-        onSuccess: () => qc.invalidateQueries({ queryKey: aaKeys.me }),
+// Every write patches the cache from the server's response (or optimistically
+// in onMutate, rolled back on error) so the button state flips at once, then
+// returns the invalidate promise so isPending lasts until data is fresh.
+// Errors toast globally (lib/mutationCache.js); meta.success adds a toast.
+
+// /me shape from a PUT /profile row ({ ok, profile: <aa_profiles row> })
+function mePatchFromRow(row) {
+    if (!row || typeof row !== 'object') return {}
+    const patch = {}
+    if (row.profile !== undefined) patch.profile = row.profile || {}
+    if (row.prefs !== undefined) patch.prefs = row.prefs || {}
+    if (row.resume_path !== undefined) patch.resume_path = row.resume_path || null
+    if (row.consent_at !== undefined) patch.consent_at = row.consent_at || null
+    if (row.onboarding_done !== undefined) patch.onboarding_done = !!row.onboarding_done
+    if (row.review_before_apply !== undefined) patch.review_before_apply = row.review_before_apply !== false
+    if (row.alert_prefs) patch.alert_prefs = row.alert_prefs
+    return patch
+}
+
+function patchMe(qc, patch, emailPatch) {
+    qc.setQueriesData({ queryKey: aaKeys.me }, (old) => {
+        if (!old) return old
+        const next = { ...old, ...patch }
+        if (emailPatch) next.email = { ...(old.email || {}), ...emailPatch }
+        return next
     })
 }
 
-export function useUploadResume() {
+// Merge a returned batch row into the detail cache and the batches list.
+function patchBatch(qc, batch) {
+    if (!batch || !batch.id) return
+    qc.setQueriesData({ queryKey: aaKeys.batch(batch.id) }, (old) => (old ? { ...old, batch: { ...old.batch, ...batch } } : old))
+    qc.setQueriesData({ queryKey: aaKeys.batches }, (old) =>
+        old && Array.isArray(old.batches)
+            ? { ...old, batches: old.batches.map((b) => (b.id === batch.id ? { ...b, ...batch } : b)) }
+            : old,
+    )
+}
+
+const snapshot = (qc, queryKey) => qc.getQueriesData({ queryKey })
+function restore(qc, snap) {
+    for (const [key, data] of snap || []) qc.setQueryData(key, data)
+}
+
+export function useSaveProfile({ meta } = {}) {
+    const qc = useQueryClient()
     return useMutation({
-        mutationFn: (file) => {
-            const fd = new FormData()
-            fd.append('resume', file)
-            return aa('/resume', { method: 'POST', formData: fd })
+        mutationFn: (body) => aa('/profile', { method: 'PUT', json: body }),
+        meta,
+        onSuccess: (d, body) => {
+            const row = d && d.profile
+            const emailPatch = {}
+            const src = row || body || {}
+            if (src.email_mode !== undefined) emailPatch.mode = src.email_mode || 'inbox'
+            if (src.contact_email !== undefined) emailPatch.contact_email = src.contact_email
+            if (row && row.apply_alias) emailPatch.alias = row.apply_alias
+            patchMe(qc, mePatchFromRow(src), Object.keys(emailPatch).length ? emailPatch : null)
+            return qc.invalidateQueries({ queryKey: aaKeys.me })
         },
     })
 }
 
-export function useSaveAnswers() {
+export function useUploadResume({ meta } = {}) {
+    const qc = useQueryClient()
+    return useMutation({
+        mutationFn: (file) => {
+            const fd = new FormData()
+            fd.append('resume', file)
+            return aa('/resume', { method: 'POST', formData: fd, timeout: UPLOAD_TIMEOUT_MS })
+        },
+        meta: { success: 'Resume uploaded.', ...meta },
+        onSuccess: (d) => {
+            if (d && d.resume_path) patchMe(qc, { resume_path: d.resume_path })
+            return qc.invalidateQueries({ queryKey: aaKeys.me })
+        },
+    })
+}
+
+export function useSaveAnswers({ meta } = {}) {
     const qc = useQueryClient()
     return useMutation({
         mutationFn: (answers) => aa('/answers', { method: 'PUT', json: { answers } }),
-        onSuccess: () => qc.invalidateQueries({ queryKey: aaKeys.answers }),
+        meta,
+        onSuccess: (d) => {
+            if (d && d.answers) qc.setQueriesData({ queryKey: aaKeys.answers }, (old) => ({ ...(old || {}), ...d }))
+            // readiness / profile_check on /me depend on the answers
+            return Promise.all([
+                qc.invalidateQueries({ queryKey: aaKeys.answers }),
+                qc.invalidateQueries({ queryKey: aaKeys.me }),
+            ])
+        },
     })
 }
 
 export function useCreateOrder() {
-    return useMutation({ mutationFn: (body) => aa('/orders', { json: body }) })
+    // BuyPage renders order errors inline
+    return useMutation({ mutationFn: (body) => aa('/orders', { json: body }), meta: { inlineError: true } })
 }
 
 export function useVerifyOrder() {
     const qc = useQueryClient()
     return useMutation({
-        mutationFn: (body) => aa('/orders/verify', { json: body }),
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: aaKeys.batches })
-            qc.invalidateQueries({ queryKey: aaKeys.me })
+        mutationFn: (body) => aa('/orders/verify', { json: body, timeout: 60_000 }),
+        meta: { inlineError: true },
+        onSuccess: (d) => {
+            if (d && d.batch && d.batch.id) {
+                qc.setQueriesData({ queryKey: aaKeys.batches }, (old) =>
+                    old && Array.isArray(old.batches) && !old.batches.some((b) => b.id === d.batch.id)
+                        ? { ...old, batches: [d.batch, ...old.batches] }
+                        : old,
+                )
+            }
+            return Promise.all([
+                qc.invalidateQueries({ queryKey: aaKeys.batches }),
+                qc.invalidateQueries({ queryKey: aaKeys.me }),
+            ])
         },
     })
+}
+
+export function useSetMustCompanies({ meta: metaOverride } = {}) {
+    const qc = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, companies }) => aa(`/batches/${encodeURIComponent(id)}/must-companies`, { method: 'PUT', json: { must_companies: companies } }),
+        meta: { success: 'Must-apply companies saved.', ...metaOverride },
+        onMutate: async ({ id, companies }) => {
+            await qc.cancelQueries({ queryKey: aaKeys.batch(id) })
+            const snap = snapshot(qc, aaKeys.batch(id))
+            qc.setQueriesData({ queryKey: aaKeys.batch(id) }, (old) =>
+                old ? { ...old, batch: { ...old.batch, must_companies: companies } } : old,
+            )
+            return { snap }
+        },
+        onError: (_e, _v, ctx) => restore(qc, ctx?.snap),
+        onSuccess: (d, { id }) => {
+            if (d && d.batch) patchBatch(qc, d.batch)
+            return Promise.all([
+                qc.invalidateQueries({ queryKey: aaKeys.batch(id) }),
+                qc.invalidateQueries({ queryKey: aaKeys.batches }),
+            ])
+        },
+    })
+}
+
+// Optimistic status guess only; the server's { batch } replaces it.
+const OPTIMISTIC_STATUS = { pause: 'paused', cancel: 'cancelled' }
+const ACTION_DONE = {
+    approve: 'Batch approved. Applying starts shortly.',
+    pause: 'Batch paused.',
+    resume: 'Batch resumed.',
+    cancel: 'Batch cancelled.',
 }
 
 // action: 'approve' | 'pause' | 'resume' | 'cancel'
-export function useBatchAction() {
+export function useBatchAction({ meta: metaOverride } = {}) {
     const qc = useQueryClient()
     return useMutation({
         mutationFn: ({ id, action }) => aa(`/batches/${encodeURIComponent(id)}/${action}`, { method: 'POST' }),
-        onSuccess: (_d, { id }) => {
-            qc.invalidateQueries({ queryKey: aaKeys.batch(id) })
-            qc.invalidateQueries({ queryKey: aaKeys.batches })
-            qc.invalidateQueries({ queryKey: aaKeys.me })
+        meta: { success: (_d, { action }) => ACTION_DONE[action] || 'Done.', ...metaOverride },
+        onMutate: async ({ id, action }) => {
+            const status = OPTIMISTIC_STATUS[action]
+            if (!status) return {}
+            await qc.cancelQueries({ queryKey: aaKeys.batch(id) })
+            const snap = [...snapshot(qc, aaKeys.batch(id)), ...snapshot(qc, aaKeys.batches)]
+            patchBatch(qc, { id, status })
+            return { snap }
+        },
+        onError: (_e, _v, ctx) => restore(qc, ctx?.snap),
+        onSuccess: (d, { id }) => {
+            if (d && d.batch) patchBatch(qc, d.batch)
+            return Promise.all([
+                qc.invalidateQueries({ queryKey: aaKeys.batch(id) }),
+                qc.invalidateQueries({ queryKey: aaKeys.batches }),
+                qc.invalidateQueries({ queryKey: aaKeys.me }),
+            ])
         },
     })
 }
 
-export function useRemoveTask() {
+export function useRemoveTask({ meta: metaOverride } = {}) {
     const qc = useQueryClient()
     return useMutation({
         mutationFn: ({ batchId, taskId }) =>
             aa(`/batches/${encodeURIComponent(batchId)}/tasks/${encodeURIComponent(taskId)}/remove`, { method: 'POST' }),
-        onSuccess: (_d, { batchId }) => qc.invalidateQueries({ queryKey: aaKeys.batch(batchId) }),
+        meta: { success: 'Job removed from this batch.', ...metaOverride },
+        onMutate: async ({ batchId, taskId }) => {
+            await qc.cancelQueries({ queryKey: aaKeys.batch(batchId) })
+            const snap = snapshot(qc, aaKeys.batch(batchId))
+            qc.setQueriesData({ queryKey: aaKeys.batch(batchId) }, (old) => {
+                if (!old || !Array.isArray(old.tasks)) return old
+                const prev = old.tasks.find((t) => t.id === taskId)
+                if (!prev || prev.status === 'removed') return old
+                const counts = { ...(old.counts || {}) }
+                counts[prev.status] = Math.max(0, (counts[prev.status] || 0) - 1)
+                counts.removed = (counts.removed || 0) + 1
+                return {
+                    ...old,
+                    counts,
+                    tasks: old.tasks.map((t) => (t.id === taskId ? { ...t, status: 'removed', reason_code: 'removed_by_user' } : t)),
+                }
+            })
+            return { snap }
+        },
+        onError: (_e, _v, ctx) => restore(qc, ctx?.snap),
+        onSuccess: (d, { batchId, taskId }) => {
+            if (d && d.task) {
+                qc.setQueriesData({ queryKey: aaKeys.batch(batchId) }, (old) =>
+                    old && Array.isArray(old.tasks)
+                        ? { ...old, tasks: old.tasks.map((t) => (t.id === taskId ? { ...t, ...d.task } : t)) }
+                        : old,
+                )
+            }
+            return qc.invalidateQueries({ queryKey: aaKeys.batch(batchId) })
+        },
     })
 }
 
+const NEEDS_DONE = { done: 'Marked as done.', answer: 'Answer saved. We will retry this job.', dismiss: 'Dismissed.' }
+
 // action: 'done' | 'answer' | 'dismiss'
-export function useResolveNeedsYou() {
+export function useResolveNeedsYou({ meta: metaOverride } = {}) {
     const qc = useQueryClient()
     return useMutation({
         mutationFn: ({ id, action, answer }) =>
             aa(`/needs-you/${encodeURIComponent(id)}`, { json: answer !== undefined ? { action, answer } : { action } }),
+        meta: { success: (_d, { action }) => NEEDS_DONE[action] || 'Done.', ...metaOverride },
+        onMutate: async ({ id }) => {
+            await qc.cancelQueries({ queryKey: aaKeys.needsYou })
+            const snap = snapshot(qc, aaKeys.needsYou)
+            qc.setQueriesData({ queryKey: aaKeys.needsYou }, (old) =>
+                old && Array.isArray(old.items) ? { ...old, items: old.items.filter((i) => i.id !== id) } : old,
+            )
+            return { snap }
+        },
+        onError: (_e, _v, ctx) => restore(qc, ctx?.snap),
         onSuccess: () => {
-            qc.invalidateQueries({ queryKey: aaKeys.needsYou })
             qc.invalidateQueries({ queryKey: ['aa', 'batch'] })
+            qc.invalidateQueries({ queryKey: aaKeys.me })
+            return qc.invalidateQueries({ queryKey: aaKeys.needsYou })
         },
     })
 }
 
 export function useRevealPassword() {
-    return useMutation({ mutationFn: (tenant_host) => aa('/accounts/reveal', { json: { tenant_host } }) })
+    return useMutation({ mutationFn: (tenant_host) => aa('/accounts/reveal', { json: { tenant_host } }), meta: { inlineError: true } })
 }
 
 // ── live updates ───────────────────────────────────────────────────
 // Supabase Realtime postgres_changes on aa_tasks + aa_batches filtered by the
-// user. Any change invalidates the batch queries. Returns `live` = true while
-// the channel is SUBSCRIBED; callers pass it to useBatches/useBatch so the
-// 15 s polling fallback only runs when realtime is down.
+// user. Each event patches the changed row straight into the cache (so the
+// table updates instantly) and schedules a throttled refetch (at most one per
+// key every ~2 s) for derived data like counts and charge. A running batch can
+// emit dozens of task events a second; refetching the whole batch on every
+// one hammered the API and made rows flicker. Returns `live` = true while the
+// channel is SUBSCRIBED; callers pass it to useBatches/useBatch so the 15 s
+// polling fallback only runs when realtime is down.
+const REALTIME_REFETCH_MS = 2000
+
+// Fields the realtime row may carry that are safe to merge into a public task.
+const TASK_LIVE_FIELDS = ['status', 'reason_code', 'reason_detail', 'submitted_at', 'not_before', 'attempts', 'updated_at', 'score']
+
 export function useAutoApplyRealtime() {
     const uid = useUid()
     const qc = useQueryClient()
@@ -332,15 +544,42 @@ export function useAutoApplyRealtime() {
     useEffect(() => {
         if (!uid) return undefined
         let channel
+        const timers = new Map()
+        const refetchSoon = (queryKey) => {
+            const k = JSON.stringify(queryKey)
+            if (timers.has(k)) return
+            timers.set(k, setTimeout(() => {
+                timers.delete(k)
+                qc.invalidateQueries({ queryKey })
+            }, REALTIME_REFETCH_MS))
+        }
         try {
             const filter = `user_id=eq.${uid}`
             const bump = (payload) => {
                 const row = payload?.new || payload?.old || {}
-                qc.invalidateQueries({ queryKey: aaKeys.batches })
-                const batchId = payload?.table === 'aa_batches' ? row.id : row.batch_id
-                if (batchId) qc.invalidateQueries({ queryKey: aaKeys.batch(batchId) })
-                else qc.invalidateQueries({ queryKey: ['aa', 'batch'] })
-                if (row.status === 'needs_you') qc.invalidateQueries({ queryKey: aaKeys.needsYou })
+                const isBatch = payload?.table === 'aa_batches'
+                const batchId = isBatch ? row.id : row.batch_id
+                if (payload?.new && batchId) {
+                    if (isBatch) {
+                        qc.setQueriesData({ queryKey: aaKeys.batch(batchId) }, (old) => (old ? { ...old, batch: { ...old.batch, ...payload.new } } : old))
+                        qc.setQueriesData({ queryKey: aaKeys.batches }, (old) =>
+                            old && Array.isArray(old.batches)
+                                ? { ...old, batches: old.batches.map((b) => (b.id === batchId ? { ...b, ...payload.new } : b)) }
+                                : old,
+                        )
+                    } else if (row.id) {
+                        const patch = {}
+                        for (const f of TASK_LIVE_FIELDS) if (payload.new[f] !== undefined) patch[f] = payload.new[f]
+                        qc.setQueriesData({ queryKey: aaKeys.batch(batchId) }, (old) =>
+                            old && Array.isArray(old.tasks)
+                                ? { ...old, tasks: old.tasks.map((t) => (t.id === row.id ? { ...t, ...patch } : t)) }
+                                : old,
+                        )
+                    }
+                }
+                refetchSoon(aaKeys.batches)
+                refetchSoon(batchId ? aaKeys.batch(batchId) : ['aa', 'batch'])
+                if (row.status === 'needs_you') refetchSoon(aaKeys.needsYou)
             }
             channel = supabase
                 .channel(`aa-live-${uid}`)
@@ -352,6 +591,8 @@ export function useAutoApplyRealtime() {
         }
         return () => {
             setLive(false)
+            for (const t of timers.values()) clearTimeout(t)
+            timers.clear()
             if (channel) supabase.removeChannel(channel)
         }
     }, [uid, qc])

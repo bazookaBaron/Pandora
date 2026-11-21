@@ -605,6 +605,7 @@ function MineCard({ r }) {
             await cancel.mutateAsync(r.id)
             setConfirming(false)
         } catch (err) {
+            setConfirming(false)
             if (err instanceof ApiError && err.code === 'not_open_or_not_owner') {
                 setCancelErr('This request can no longer be cancelled.')
             } else {

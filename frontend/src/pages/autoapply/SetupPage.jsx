@@ -6,6 +6,10 @@ import {
 } from '../../lib/useAutoApply'
 import { AALayout, CopyButton, PageHeader } from './ui'
 import NotifyButton from './NotifyButton'
+import { toast } from '../../lib/toast'
+
+// Errors render inline next to the step's button, so skip the global error toast.
+const INLINE = { meta: { inlineError: true } }
 
 const STEPS = [
     { id: 'resume', label: 'Resume' },
@@ -87,8 +91,8 @@ function DraftField({ k, value, onChange }) {
 }
 
 function ResumeStep({ me, onNext, draft, setDraft }) {
-    const upload = useUploadResume()
-    const save = useSaveProfile()
+    const upload = useUploadResume(INLINE)
+    const save = useSaveProfile(INLINE)
     const fileRef = useRef(null)
     const [fileErr, setFileErr] = useState('')
     const [note, setNote] = useState(null)
@@ -110,7 +114,8 @@ function ResumeStep({ me, onNext, draft, setDraft }) {
     function saveDraft() {
         setNote(null)
         save.mutate({ profile: draft }, {
-            onSuccess: () => { setNote({ ok: 'Profile saved.' }); onNext() },
+            // the step unmounts on onNext, so confirm with a toast, not a note
+            onSuccess: () => { toast.success('Profile saved.'); onNext() },
             onError: (error) => setNote({ error }),
         })
     }
@@ -201,7 +206,7 @@ const draftToFields = {
 
 function AnswersStep({ onNext, draft }) {
     const answersQ = useAnswers()
-    const save = useSaveAnswers()
+    const save = useSaveAnswers(INLINE)
     const [values, setValues] = useState({})
     const [note, setNote] = useState(null)
     const seeded = useRef(false)
@@ -245,7 +250,7 @@ function AnswersStep({ onNext, draft }) {
         const out = {}
         for (const q of qs) if (values[q.key] !== undefined && values[q.key] !== '') out[q.key] = String(values[q.key])
         save.mutate(out, {
-            onSuccess: () => { setNote({ ok: 'Answers saved.' }); onNext() },
+            onSuccess: () => { toast.success('Answers saved.'); onNext() },
             onError: (error) => setNote({ error }),
         })
     }
@@ -308,15 +313,36 @@ function ChipInput({ id, label, values, onChange, placeholder, hint }) {
     )
 }
 
+const scoreOf = (p) => (p && p.min_score !== undefined && Number.isFinite(Number(p.min_score)) ? Number(p.min_score) : 60)
+
 function PrefsStep({ me, onNext }) {
-    const save = useSaveProfile()
+    const save = useSaveProfile(INLINE)
     const init = prefsJson(me)
-    const [titles, setTitles] = useState(init.titles || [])
-    const [locations, setLocations] = useState(init.locations || [])
-    const [minScore, setMinScore] = useState(Number.isFinite(Number(init.min_score)) && init.min_score !== undefined ? Number(init.min_score) : 60)
-    const [blocked, setBlocked] = useState(init.blocked_companies || [])
-    const [employer, setEmployer] = useState(init.current_employer || '')
+    const [titles, setTitlesRaw] = useState(init.titles || [])
+    const [locations, setLocationsRaw] = useState(init.locations || [])
+    const [minScore, setMinScoreRaw] = useState(scoreOf(init))
+    const [blocked, setBlockedRaw] = useState(init.blocked_companies || [])
+    const [employer, setEmployerRaw] = useState(init.current_employer || '')
     const [note, setNote] = useState(null)
+    // Until the user edits, follow /me: the cached copy may be stale on mount
+    // and a background refetch brings the saved values.
+    const dirty = useRef(false)
+    const edit = (fn) => (v) => { dirty.current = true; fn(v) }
+    const setTitles = edit(setTitlesRaw)
+    const setLocations = edit(setLocationsRaw)
+    const setMinScore = edit(setMinScoreRaw)
+    const setBlocked = edit(setBlockedRaw)
+    const setEmployer = edit(setEmployerRaw)
+    const prefsKey = JSON.stringify(prefsJson(me))
+    useEffect(() => {
+        if (dirty.current) return
+        const p = JSON.parse(prefsKey)
+        setTitlesRaw(p.titles || [])
+        setLocationsRaw(p.locations || [])
+        setMinScoreRaw(scoreOf(p))
+        setBlockedRaw(p.blocked_companies || [])
+        setEmployerRaw(p.current_employer || '')
+    }, [prefsKey])
 
     function submit(e) {
         e.preventDefault()
@@ -325,7 +351,7 @@ function PrefsStep({ me, onNext }) {
         save.mutate({
             prefs: { titles, locations, min_score: minScore, blocked_companies: blocked, current_employer: employer.trim() },
         }, {
-            onSuccess: () => { setNote({ ok: 'Preferences saved.' }); onNext() },
+            onSuccess: () => { toast.success('Preferences saved.'); onNext() },
             onError: (error) => setNote({ error }),
         })
     }
@@ -356,12 +382,22 @@ function PrefsStep({ me, onNext }) {
 
 // ── Step 4: email ─────────────────────────────────────────────────
 function EmailStep({ me, onNext }) {
-    const save = useSaveProfile()
+    const save = useSaveProfile(INLINE)
     const email = me?.email || {}
     const prefs = me?.alert_prefs || { email: true, push: true }
-    const [contact, setContact] = useState(email.contact_email || '')
-    const [alertEmail, setAlertEmail] = useState(prefs.email !== false)
+    const [contact, setContactRaw] = useState(email.contact_email || '')
+    const [alertEmail, setAlertEmailRaw] = useState(prefs.email !== false)
     const [note, setNote] = useState(null)
+    const dirty = useRef(false)
+    const setContact = (v) => { dirty.current = true; setContactRaw(v) }
+    const setAlertEmail = (v) => { dirty.current = true; setAlertEmailRaw(v) }
+    const freshContact = email.contact_email || ''
+    const freshAlert = prefs.email !== false
+    useEffect(() => {
+        if (dirty.current) return
+        setContactRaw(freshContact)
+        setAlertEmailRaw(freshAlert)
+    }, [freshContact, freshAlert])
     const address = email.address || (email.alias ? `${email.alias}@apply.vloombox.in` : '')
 
     function submit(e) {
@@ -369,7 +405,7 @@ function EmailStep({ me, onNext }) {
         setNote(null)
         if (contact && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) { setNote({ error: new Error('Enter a valid email address.') }); return }
         save.mutate({ email_mode: 'inbox', contact_email: contact.trim() || null, alert_prefs: { email: alertEmail } }, {
-            onSuccess: () => { setNote({ ok: 'Email settings saved.' }); onNext() },
+            onSuccess: () => { toast.success('Email settings saved.'); onNext() },
             onError: (error) => setNote({ error }),
         })
     }
@@ -421,7 +457,7 @@ function EmailStep({ me, onNext }) {
 
 // ── Step 5: review + consent ──────────────────────────────────────
 function ConsentStep({ me }) {
-    const save = useSaveProfile()
+    const save = useSaveProfile(INLINE)
     const navigate = useNavigate()
     const [review, setReview] = useState(me?.review_before_apply ?? true)
     const [consent, setConsent] = useState(false)
@@ -433,7 +469,7 @@ function ConsentStep({ me }) {
         setNote(null)
         if (!consent) { setNote({ error: new Error('Tick the consent box to continue.') }); return }
         save.mutate({ review_before_apply: review, consent: true, onboarding_done: true }, {
-            onSuccess: () => navigate('/autoapply/buy'),
+            onSuccess: () => { toast.success('Setup complete.'); navigate('/autoapply/buy') },
             onError: (error) => setNote({ error }),
         })
     }

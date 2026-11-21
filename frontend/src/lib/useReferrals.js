@@ -38,9 +38,9 @@ export function usePostReferral() {
     const qc = useQueryClient()
     return useMutation({
         mutationFn: (formData) => apiFetch('/api/referrals', { formData }),
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ['referrals-mine'] })
-        },
+        // the form renders its own error text (usage limit, validation)
+        meta: { success: 'Referral request posted.', inlineError: true },
+        onSuccess: () => qc.invalidateQueries({ queryKey: ['referrals-mine'] }),
     })
 }
 
@@ -48,10 +48,11 @@ export function useAcceptReferral() {
     const qc = useQueryClient()
     return useMutation({
         mutationFn: (id) => apiFetch('/api/referrals/' + id + '/accept', { method: 'POST' }),
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ['referrals-open'] })
-            qc.invalidateQueries({ queryKey: ['referrals-mine'] })
-        },
+        meta: { success: 'Accepted. The candidate has your contact info.', inlineError: true },
+        onSuccess: () => Promise.all([
+            qc.invalidateQueries({ queryKey: ['referrals-open'] }),
+            qc.invalidateQueries({ queryKey: ['referrals-mine'] }),
+        ]),
     })
 }
 
@@ -59,19 +60,47 @@ export function useCancelReferral() {
     const qc = useQueryClient()
     return useMutation({
         mutationFn: (id) => apiFetch('/api/referrals/' + id + '/cancel', { method: 'POST' }),
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ['referrals-open'] })
-            qc.invalidateQueries({ queryKey: ['referrals-mine'] })
+        meta: { success: 'Request cancelled.', inlineError: true },
+        // optimistic: the card shows "cancelled" at once; rolled back on error
+        onMutate: async (id) => {
+            await qc.cancelQueries({ queryKey: ['referrals-mine'] })
+            const previous = qc.getQueryData(['referrals-mine'])
+            qc.setQueryData(['referrals-mine'], (old) =>
+                old && Array.isArray(old.requests)
+                    ? { ...old, requests: old.requests.map((r) => (r.id === id ? { ...r, status: 'cancelled' } : r)) }
+                    : old,
+            )
+            return { previous }
         },
+        onError: (_e, _id, ctx) => {
+            if (ctx?.previous !== undefined) qc.setQueryData(['referrals-mine'], ctx.previous)
+        },
+        onSuccess: () => Promise.all([
+            qc.invalidateQueries({ queryKey: ['referrals-open'] }),
+            qc.invalidateQueries({ queryKey: ['referrals-mine'] }),
+        ]),
     })
 }
 
-// Fetch a short-lived signed URL for a request's resume and open it in a new
-// tab. The URL is never returned to callers or stored — it lives only for the
-// window.open call.
+// Open a request's resume. The tab is opened synchronously inside the click
+// (popup blockers only allow window.open in the user gesture), then pointed
+// at the short-lived signed URL once it arrives. The URL is never returned
+// to callers or stored.
 export async function fetchResumeUrl(id) {
-    const { url } = await apiFetch('/api/referrals/' + id + '/resume')
-    if (url) window.open(url, '_blank', 'noopener')
+    const w = window.open('', '_blank')
+    try {
+        const { url } = await apiFetch('/api/referrals/' + id + '/resume')
+        if (!url) throw new Error('No resume on file for this request.')
+        if (w) {
+            w.opener = null
+            w.location.href = url
+        } else {
+            window.location.assign(url)
+        }
+    } catch (err) {
+        if (w) w.close()
+        throw err
+    }
 }
 
 // ── Optional work-email verification (badge + higher accept limit) ────

@@ -4,7 +4,9 @@ import './index.css'
 import App from './App.jsx'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { initAnalytics } from './lib/analytics'
+import { ToastProvider } from './components/shared/Toaster'
 
+// initAnalytics defers itself to requestIdleCallback and lazy-loads posthog-js.
 initAnalytics()
 
 // This module executing at all means the current index.html + entry chunk
@@ -18,7 +20,9 @@ try { sessionStorage.removeItem('eb:chunk-reload-attempted') } catch { /* privat
 createRoot(document.getElementById('root')).render(
     <StrictMode>
         <ThemeProvider>
-            <App />
+            <ToastProvider>
+                <App />
+            </ToastProvider>
         </ThemeProvider>
     </StrictMode>,
 )

@@ -9,6 +9,7 @@ import { RouteErrorBoundary } from './components/shared/ErrorBoundary'
 import SessionExpiredBanner from './components/shared/SessionExpiredBanner'
 import { usePlanChangeRefetch } from './lib/useEntitlements'
 import { trackPageview } from './lib/analytics'
+import { createMutationCache } from './lib/mutationCache'
 
 // Phase 1.5: every page component is code-split behind React.lazy so the
 // production entry chunk no longer ships reactflow / monaco / jszip /
@@ -66,6 +67,7 @@ function KeyedHLDWorkspace() {
 }
 
 const queryClient = new QueryClient({
+    mutationCache: createMutationCache(),
     defaultOptions: {
         queries: {
             retry: 1,
