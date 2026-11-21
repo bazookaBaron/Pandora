@@ -6,6 +6,7 @@ import { LoadingState, ErrorState, EmptyState } from '../../components/shared/st
 import { useAuth } from '../../contexts/AuthContext'
 import { useEntitlements } from '../../lib/useEntitlements'
 import { useCompanySubscriptions, useSubscribeToCompany, useUnsubscribeFromCompany } from '../../lib/useCompanySubscriptions'
+import { relTime, postedTime, isFreshJob, jobLinks, sourceLabel } from '../../lib/jobUtils'
 import { UpgradeButton } from '../../components/shared/PaywallGate'
 
 // "Subscribe to <Company>" — job-alert subscriptions are a Pro/Max feature
@@ -159,32 +160,52 @@ export default function JobsCompanyPage() {
                     )}
                     {!isLoading && !error && postings.length > 0 && (
                         <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {postings.map((job) => (
-                                <li key={job.id} style={{
-                                    border: '1px solid var(--subtle)', borderRadius: 10, padding: '14px 16px',
-                                    background: 'var(--panel)', display: 'flex', flexWrap: 'wrap',
-                                    alignItems: 'center', justifyContent: 'space-between', gap: 10,
-                                }}>
-                                    <div style={{ minWidth: 0 }}>
-                                        <div style={{ fontWeight: 800, color: 'var(--bright)', fontSize: '0.92rem' }}>{job.title}</div>
-                                        <div style={{ color: 'var(--muted)', fontSize: '0.76rem', marginTop: 2 }}>
-                                            {[job.location, job.locationType, job.seniority].filter(Boolean).join(' · ')}
+                            {postings.map((job) => {
+                                const { primary, alts } = jobLinks(job)
+                                const when = relTime(postedTime(job))
+                                const src = sourceLabel(job.source)
+                                const meta = [job.location, job.locationType, job.seniority, when, src].filter(Boolean).join(' · ')
+                                return (
+                                    <li key={job.id} style={{
+                                        border: '1px solid var(--subtle)', borderRadius: 10, padding: '14px 16px',
+                                        background: 'var(--panel)', display: 'flex', flexWrap: 'wrap',
+                                        alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                                    }}>
+                                        <div style={{ minWidth: 0 }}>
+                                            <div style={{ fontWeight: 800, color: 'var(--bright)', fontSize: '0.92rem' }}>
+                                                {job.title}
+                                                {isFreshJob(job) && <span style={{ marginLeft: 8, fontSize: '0.58rem', fontWeight: 900, letterSpacing: '0.09em', color: '#fbbf24' }}>NEW</span>}
+                                                {job.isReposted && <span style={{ marginLeft: 8, fontSize: '0.58rem', fontWeight: 900, letterSpacing: '0.09em', color: '#a78bfa' }}>REPOSTED</span>}
+                                            </div>
+                                            <div style={{ color: 'var(--muted)', fontSize: '0.76rem', marginTop: 2 }}>
+                                                {meta}
+                                            </div>
                                         </div>
-                                    </div>
-                                    <a
-                                        href={job.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer nofollow"
-                                        style={{
-                                            flexShrink: 0, padding: '6px 14px', borderRadius: 6,
-                                            border: '1px solid var(--subtle)', color: '#22d3ee',
-                                            fontSize: '0.78rem', fontWeight: 700, textDecoration: 'none',
-                                        }}
-                                    >
-                                        View & Apply →
-                                    </a>
-                                </li>
-                            ))}
+                                        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                                            {primary && (
+                                                <a
+                                                    href={primary}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer nofollow"
+                                                    style={{
+                                                        padding: '6px 14px', borderRadius: 6,
+                                                        border: '1px solid var(--subtle)', color: '#22d3ee',
+                                                        fontSize: '0.78rem', fontWeight: 700, textDecoration: 'none',
+                                                    }}
+                                                >
+                                                    View & Apply →
+                                                </a>
+                                            )}
+                                            {alts.slice(0, 1).map((a) => (
+                                                <a key={a.href} href={a.href} target="_blank" rel="noopener noreferrer nofollow"
+                                                    style={{ fontSize: '0.68rem', color: 'var(--muted)', textDecoration: 'none' }}>
+                                                    also on {a.label}
+                                                </a>
+                                            ))}
+                                        </div>
+                                    </li>
+                                )
+                            })}
                         </ul>
                     )}
                 </div>

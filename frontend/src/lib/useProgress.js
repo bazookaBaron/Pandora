@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { supabase } from './supabase'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -26,75 +26,128 @@ export function useProgress(problemType) {
         refetchOnWindowFocus: false, // tab switch must NOT race the in-flight write
     })
 
-    // Build a map: problem_id -> row
-    const progressMap = Object.fromEntries((rows || []).map(r => [r.problem_id, r]))
+    // Build a map: problem_id -> row (memoised so consumers get a stable reference)
+    const progressMap = useMemo(
+        () => Object.fromEntries((rows || []).map(r => [r.problem_id, r])),
+        [rows]
+    )
 
-    // Debounce map: problem_id -> timeout ref
-    const debounceTimers = useRef({})
+    // ids that exist server-side (from the last fetch) — a row not in here is an
+    // INSERT, where we must supply the not-null columns' values explicitly.
+    const serverIds = useRef(new Set())
+    useEffect(() => { serverIds.current = new Set((rows || []).map(r => r.problem_id)) }, [rows])
 
+    const queryKey = useMemo(() => ['progress', user?.id, problemType], [user?.id, problemType])
+
+    // Writes send ONLY the changed fields (a partial upsert only touches the
+    // supplied columns), so a stale snapshot can never clobber a concurrent edit.
     const upsert = useCallback(async (problemId, patch) => {
         if (!user) return
-        const existing = progressMap[problemId]
         const payload = {
             user_id: user.id,
             problem_type: problemType,
             problem_id: problemId,
-            status: existing?.status ?? 'unsolved',
-            is_bookmarked: existing?.is_bookmarked ?? false,
-            notes: existing?.notes ?? null,
             updated_at: new Date().toISOString(),
             ...patch,
+        }
+        if (!serverIds.current.has(problemId)) {
+            // First write for this problem: fill required columns from the latest cache.
+            const cached = (queryClient.getQueryData(['progress', user.id, problemType]) || [])
+                .find(r => r.problem_id === problemId)
+            if (payload.status === undefined) payload.status = cached?.status ?? 'unsolved'
+            if (payload.is_bookmarked === undefined) payload.is_bookmarked = cached?.is_bookmarked ?? false
         }
         const { error } = await supabase
             .from('user_problem_progress')
             .upsert(payload, { onConflict: 'user_id,problem_type,problem_id' })
         if (error) throw error
-    }, [user, problemType, progressMap])
+    }, [user, problemType, queryClient])
 
-    // Optimistic toggle status (cycles unsolved → attempted → solved → unsolved, or binary)
+    // Always read the freshest cached row at call time (not a render snapshot).
+    const getRow = useCallback((problemId) => {
+        const cached = queryClient.getQueryData(queryKey) || []
+        return cached.find(r => r.problem_id === problemId)
+    }, [queryClient, queryKey])
+
+    // Debounced status writes: problem_id -> { timer, next }
+    const pending = useRef({})
+    const upsertRef = useRef(upsert)
+    upsertRef.current = upsert
+    const keyRef = useRef(queryKey)
+    keyRef.current = queryKey
+
+    const flushOne = useCallback(async (problemId) => {
+        const entry = pending.current[problemId]
+        if (!entry) return
+        clearTimeout(entry.timer)
+        delete pending.current[problemId]
+        try {
+            await entry.upsert(problemId, { status: entry.next })
+            queryClient.invalidateQueries({ queryKey: entry.key })
+        } catch (err) {
+            console.error('Progress save failed:', err)
+            // Roll back the optimistic update by re-syncing from the DB
+            queryClient.invalidateQueries({ queryKey: entry.key })
+        }
+    }, [queryClient])
+
+    const flushAll = useCallback(() => {
+        Object.keys(pending.current).forEach(id => { flushOne(id) })
+    }, [flushOne])
+
+    // Flush pending debounced writes when the tab is hidden / closed / unmounted.
+    useEffect(() => {
+        const onHide = () => { if (document.visibilityState === 'hidden') flushAll() }
+        const onPageHide = () => flushAll()
+        document.addEventListener('visibilitychange', onHide)
+        window.addEventListener('pagehide', onPageHide)
+        return () => {
+            document.removeEventListener('visibilitychange', onHide)
+            window.removeEventListener('pagehide', onPageHide)
+            flushAll()
+        }
+    }, [flushAll])
+
+    // Optimistic toggle status (solved <-> unsolved)
     const toggleStatus = useCallback((problemId, currentStatus) => {
         const next = currentStatus === 'solved' ? 'unsolved' : 'solved'
+        const now = new Date().toISOString()
 
-        // Optimistic update in cache
-        queryClient.setQueryData(['progress', user?.id, problemType], (old = []) => {
+        queryClient.setQueryData(queryKey, (old = []) => {
             const existing = old.find(r => r.problem_id === problemId)
             if (existing) {
-                return old.map(r => r.problem_id === problemId ? { ...r, status: next, updated_at: new Date().toISOString() } : r)
+                return old.map(r => r.problem_id === problemId ? { ...r, status: next, updated_at: now } : r)
             }
             return [...old, {
                 problem_id: problemId, user_id: user?.id, problem_type: problemType,
-                status: next, is_bookmarked: false, notes: null, updated_at: new Date().toISOString()
+                status: next, is_bookmarked: false, notes: null, updated_at: now
             }]
         })
 
         // Debounced write (400ms trailing)
-        clearTimeout(debounceTimers.current[problemId])
-        debounceTimers.current[problemId] = setTimeout(async () => {
-            try {
-                await upsert(problemId, { status: next })
-                // Re-sync from DB after write succeeds (doesn't race — write is already done)
-                queryClient.invalidateQueries({ queryKey: ['progress', user?.id, problemType] })
-            } catch (err) {
-                console.error('Progress save failed:', err)
-                // Rollback optimistic update on error
-                queryClient.invalidateQueries({ queryKey: ['progress', user?.id, problemType] })
-            }
-        }, 400)
-    }, [user, problemType, queryClient, upsert])
+        const prev = pending.current[problemId]
+        if (prev) clearTimeout(prev.timer)
+        pending.current[problemId] = {
+            next,
+            key: queryKey,
+            upsert: upsertRef.current,
+            timer: setTimeout(() => { flushOne(problemId) }, 400),
+        }
+    }, [user?.id, problemType, queryClient, queryKey, flushOne])
 
     const toggleBookmark = useCallback((problemId) => {
-        const existing = progressMap[problemId]
+        const existing = getRow(problemId)
         const next = !(existing?.is_bookmarked ?? false)
 
-        queryClient.setQueryData(['progress', user?.id, problemType], (old = []) => {
+        queryClient.setQueryData(queryKey, (old = []) => {
             const e = old.find(r => r.problem_id === problemId)
             if (e) return old.map(r => r.problem_id === problemId ? { ...r, is_bookmarked: next } : r)
             return [...old, { problem_id: problemId, user_id: user?.id, problem_type: problemType, status: 'unsolved', is_bookmarked: next, notes: null, updated_at: new Date().toISOString() }]
         })
         upsert(problemId, { is_bookmarked: next }).catch(() => {
-            queryClient.invalidateQueries(['progress', user?.id, problemType])
+            queryClient.invalidateQueries({ queryKey })
         })
-    }, [user, problemType, queryClient, progressMap, upsert])
+    }, [user?.id, problemType, queryClient, queryKey, getRow, upsert])
 
     // Partial write for the `notes` / `state` columns.
     // Contract: pass `undefined` for any argument you want left untouched — only

@@ -12,7 +12,12 @@
   <link rel="apple-touch-icon" href="/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <!-- One request for Inter via the variable weight axis (400-900 covers every
+       weight the UI uses; 900 was previously synthesised from 800). display=swap
+       shows fallback text immediately; the media=print/onload swap makes the
+       stylesheet non-render-blocking. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..900&display=swap" media="print" onload="this.media='all'" />
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..900&display=swap" /></noscript>
   <script>
     // Apply saved theme before first paint (no flash-of-dark on light users).
     try {

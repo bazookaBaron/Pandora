@@ -105,20 +105,46 @@ export async function getUserPlan(userId) {
     return "free";
   }
 
+  return effectivePlanFromRow(row);
+}
+
+/**
+ * Pure plan resolution for a subscriptions row (exported for tests).
+ * Any paid row that carries a current_period_end is only honoured while that
+ * instant is in the future - including status 'active' / 'on_trial', so a
+ * missed webhook can never leave a lapsed user on a paid plan forever.
+ * An active paid row with NO period end is honoured (manual grants and
+ * provider rows whose webhook carried no period alike) and logged.
+ */
+export function effectivePlanFromRow(row, now = Date.now()) {
+  if (!row) return "free";
   const plan = isValidPlan(row.plan) ? row.plan : "free";
   if (plan === "free") return "free";
 
+  const end = row.current_period_end
+    ? new Date(row.current_period_end).getTime()
+    : null;
+  const hasEnd = end !== null && !Number.isNaN(end);
   const status = row.status;
-  if (status === "active" || status === "on_trial") return plan;
 
-  if (status === "cancelled" || status === "past_due") {
-    const end = row.current_period_end
-      ? new Date(row.current_period_end).getTime()
-      : 0;
-    return end > Date.now() ? plan : "free";
+  if (status === "active" || status === "on_trial") {
+    if (hasEnd) return end > now ? plan : "free";
+    // Active with NO period end: honour it. A provider-backed row can lack the
+    // end when a webhook carried no period (or a legacy row predates the
+    // column); dropping a paying user to free would lock them out. Logged so
+    // the row can be repaired.
+    if (row.provider) {
+      console.warn(
+        "[entitlements] active provider-backed subscription without current_period_end; treating as active",
+        String(row.user_id || ""),
+      );
+    }
+    return plan;
   }
-
-  // expired | paused | unknown
+  if (status === "cancelled" || status === "past_due") {
+    return hasEnd && end > now ? plan : "free";
+  }
+  // expired | paused | created | pending | halted | unknown
   return "free";
 }
 
@@ -360,6 +386,136 @@ export async function incrementUsage(userId, feature) {
     summaryCache.delete(userId); // next /api/entitlements/me must reflect the bump
   } catch (e) {
     console.error("[entitlements] incrementUsage fallback failed:", e?.message || e);
+  }
+}
+
+// ── atomic reserve-then-refund (sql/32_usage_reserve.sql) ──────────────────
+/**
+ * Atomically reserve one unit of `feature` BEFORE doing the gated work.
+ * Replaces canAccess() + incrementUsage(), which let N parallel requests all
+ * pass the check. On a successful reservation the caller MUST call
+ * refundUsage(reservation) if the work then fails.
+ *
+ * @returns {Promise<{ allowed: boolean, reservation?: object, plan?: string,
+ *   used?: number, limit?: number|string, remaining?: number, resetsAt?: string,
+ *   reason?: string }>}  Same paywall fields as canAccess().
+ */
+export async function reserveUsage(userId, feature) {
+  if (!METERED_FEATURES.includes(feature)) {
+    throw new Error(`reserveUsage: unknown feature "${feature}"`);
+  }
+  const plan = await getUserPlan(userId);
+  const rawLimit = getLimit(plan, USAGE_LIMIT_KEY[feature]);
+  const period = await getPeriod(userId);
+  const startISO = period.start.toISOString();
+  const endISO = period.end.toISOString();
+  const limit = isUnlimited(rawLimit) ? 2147483647 : rawLimit;
+
+  const rpc = await supabaseAdmin.rpc("reserve_usage", {
+    p_user: userId,
+    p_feature: feature,
+    p_limit: limit,
+    p_period_start: startISO,
+    p_period_end: endISO,
+  });
+
+  if (!rpc.error) {
+    const n = Number(rpc.data);
+    if (n >= 0) {
+      summaryCache.delete(userId);
+      return {
+        allowed: true,
+        plan,
+        used: n,
+        limit: isUnlimited(rawLimit) ? serializeLimit(rawLimit) : rawLimit,
+        resetsAt: endISO,
+        reservation: { userId, feature, periodStart: startISO, atomic: true },
+      };
+    }
+    const used = await readUsageCount(userId, feature, startISO);
+    return {
+      allowed: false,
+      plan,
+      used,
+      limit: rawLimit,
+      remaining: 0,
+      resetsAt: endISO,
+      reason: "usage_limit",
+    };
+  }
+
+  // Degrade to the legacy (racy) path ONLY when reserve_usage() is not deployed
+  // (sql/30 not applied). Any other error (timeout, connection, permission)
+  // fails closed: throwing makes the caller 5xx instead of silently bypassing
+  // the atomic quota.
+  if (!isMissingFunctionError(rpc.error)) {
+    const msg = String(rpc.error.message || rpc.error.code || "");
+    console.error("[entitlements] reserve_usage rpc failed:", msg);
+    const e = new Error("usage reservation unavailable");
+    e.status = 503;
+    e.code = "usage_unavailable";
+    throw e;
+  }
+  if (!_warnedNoReserveRpc) {
+    _warnedNoReserveRpc = true;
+    console.warn("[entitlements] reserve_usage() missing - apply sql/30_usage_reserve.sql; using non-atomic fallback.");
+  }
+  const gate = await canAccess(userId, feature);
+  if (!gate.allowed) return gate;
+  await incrementUsage(userId, feature);
+  return {
+    ...gate,
+    reservation: { userId, feature, periodStart: startISO, atomic: false },
+  };
+}
+
+let _warnedNoReserveRpc = false;
+
+/**
+ * True only for "function does not exist": PostgREST PGRST202 (not in schema
+ * cache) or Postgres 42883 (undefined_function). Exported for tests.
+ */
+export function isMissingFunctionError(err) {
+  if (!err) return false;
+  const code = String(err.code || "");
+  if (code === "PGRST202" || code === "42883") return true;
+  const msg = String(err.message || "");
+  return /could not find the function|function .* does not exist/i.test(msg);
+}
+
+/** Undo a reserveUsage() reservation (gated work failed). Never throws. */
+export async function refundUsage(reservation) {
+  if (!reservation) return;
+  const { userId, feature, periodStart, atomic } = reservation;
+  try {
+    const rpc = await supabaseAdmin.rpc("refund_usage", {
+      p_user: userId,
+      p_feature: feature,
+      p_period_start: periodStart,
+    });
+    if (rpc.error && !atomic) {
+      // legacy best-effort decrement
+      const { data } = await supabaseAdmin
+        .from("usage")
+        .select("usage_count")
+        .eq("user_id", userId)
+        .eq("feature", feature)
+        .eq("period_start", periodStart)
+        .maybeSingle();
+      if (data && data.usage_count > 0) {
+        await supabaseAdmin
+          .from("usage")
+          .update({ usage_count: data.usage_count - 1 })
+          .eq("user_id", userId)
+          .eq("feature", feature)
+          .eq("period_start", periodStart);
+      }
+    } else if (rpc.error) {
+      console.error("[entitlements] refund_usage failed:", rpc.error.message);
+    }
+    summaryCache.delete(userId);
+  } catch (e) {
+    console.error("[entitlements] refundUsage threw:", e?.message || e);
   }
 }
 

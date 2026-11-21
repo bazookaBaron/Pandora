@@ -1,6 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import compression from "compression";
+import helmet from "helmet";
+import expressStaticGzip from "express-static-gzip";
 import cors from "cors";
 import multer from "multer";
 import { rateLimit } from "express-rate-limit";
@@ -21,14 +23,15 @@ import { buildFilename } from "./lib/filename.js";
 import { requireAuth, optionalAuth } from "./lib/requireAuth.js";
 import {
   canAccess,
-  incrementUsage,
+  reserveUsage,
+  refundUsage,
   getRemainingUsage,
   getUserPlan,
   getUserCountry,
   getEntitlementsSummary,
   invalidateUser,
 } from "./lib/entitlements.js";
-import { countryFromIp, currencyForCountry } from "./lib/geo.js";
+import { countryFromRequest, currencyForCountry } from "./lib/geo.js";
 import * as resend from "./services/resend.js";
 import {
   referralRequestCreated,
@@ -36,7 +39,14 @@ import {
   companyJobAlertEmail,
   setEmailAssetBase,
 } from "./lib/referralEmails.js";
-import { canAddCompanySubscription } from "./lib/entitlements.js";
+import {
+  acceptLimitMessage,
+  acceptWindowStart,
+  canViewResume,
+  evaluateAcceptLimit,
+  selectRecipients,
+} from "./lib/referralAccess.js";
+import { canAddCompanySubscription, effectivePlanFromRow } from "./lib/entitlements.js";
 import {
   getLimit,
   isUnlimited,
@@ -69,6 +79,16 @@ import {
   runDailyMailAlerts,
   runInterviewReminders,
 } from "./routes/autoapply.js";
+import { makeLimiter, tokenOrIpKey } from "./lib/rateKeys.js";
+import { registerProfileCompanyRoutes, getVerifiedCompany } from "./routes/profileCompany.js";
+import {
+  computePeriodEnd,
+  claimPayment,
+  releasePayment,
+  recordPaymentPeriodEnd,
+  claimWebhookEvent,
+  releaseWebhookEvent,
+} from "./lib/paymentsStore.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE_DIR = path.join(__dirname, "resume-source");
@@ -83,9 +103,82 @@ const app = express();
 // default ETag turns an unchanged payload into a cheap 304.
 const PLAN_GATED_CACHE = "private, no-cache";
 
-// Behind Railway's proxy: trust the first hop so express-rate-limit sees the
-// real client IP from X-Forwarded-For.
-app.set("trust proxy", 1);
+// Behind Railway's proxy: trust exactly one hop so req.ip is the real client
+// (the right-most X-Forwarded-For entry Railway appended). If you put another
+// proxy/CDN (e.g. Cloudflare) in front, set TRUST_PROXY_HOPS=2.
+app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
+app.disable("x-powered-by");
+
+// Per-request CSP nonce for the few inline <script>s we emit (theme bootstrap,
+// window.__INITIAL_DATA__). Added to the HTML at send time in the SPA handler.
+app.use((_req, res, next) => {
+  res.locals.cspNonce = crypto.randomBytes(16).toString("base64");
+  next();
+});
+
+function originOf(u) {
+  try {
+    return u ? new URL(u).origin : null;
+  } catch {
+    return null;
+  }
+}
+const SUPABASE_ORIGIN = originOf(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
+const POSTHOG_HOST = originOf(process.env.VITE_POSTHOG_HOST) || "https://us.i.posthog.com";
+const POSTHOG_ASSETS = POSTHOG_HOST.replace("//us.i.", "//us-assets.i.").replace("//eu.i.", "//eu-assets.i.");
+const CSP_CONNECT = [
+  "'self'",
+  SUPABASE_ORIGIN,
+  SUPABASE_ORIGIN && SUPABASE_ORIGIN.replace(/^https/, "wss"),
+  "https://*.supabase.co",
+  "wss://*.supabase.co",
+  POSTHOG_HOST,
+  POSTHOG_ASSETS,
+  "https://api.razorpay.com",
+  "https://lumberjack.razorpay.com",
+  "https://cdn.jsdelivr.net",
+].filter(Boolean);
+
+// Security headers. CSP is enforced; set CSP_REPORT_ONLY=true to downgrade it to
+// report-only while debugging a blocked resource in production.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: false,
+      reportOnly: /^(1|true|yes|on)$/i.test(process.env.CSP_REPORT_ONLY || ""),
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        scriptSrc: [
+          "'self'",
+          (_req, res) => `'nonce-${res.locals.cspNonce}'`,
+          "https://checkout.razorpay.com",
+          "https://cdn.jsdelivr.net",
+          POSTHOG_HOST,
+          POSTHOG_ASSETS,
+        ],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"],
+        fontSrc: ["'self'", "data:", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        connectSrc: CSP_CONNECT,
+        frameSrc: ["https://api.razorpay.com", "https://checkout.razorpay.com"],
+        workerSrc: ["'self'", "blob:"],
+        childSrc: ["'self'", "blob:", "https://api.razorpay.com"],
+        mediaSrc: ["'self'", "blob:", "data:"],
+        manifestSrc: ["'self'"],
+      },
+    },
+    strictTransportSecurity: { maxAge: 15552000, includeSubDomains: true },
+    frameguard: { action: "deny" },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    // Razorpay / OAuth open popups that postMessage back to us.
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginEmbedderPolicy: false,
+  }),
+);
 
 // gzip every compressible response (JSON API payloads + the SPA HTML). Placed
 // before any route or static handler so it wraps them all.
@@ -133,51 +226,50 @@ app.post(
   createInboundHandler(),
 );
 
-// Capture the raw request bytes on `req.rawBody` (needed by the Lemon Squeezy
+// Capture the raw request bytes on `req.rawBody` (needed by the Razorpay
 // webhook for HMAC signature verification) while normal JSON parsing continues
-// everywhere. Single body parser — do NOT add a second one.
-app.use(
-  express.json({
-    limit: "12mb",
-    verify: (req, _res, buf) => {
-      req.rawBody = buf;
-    },
-  }),
-);
+// everywhere. Default body limit is 100kb; only routes that truly need more
+// get their own larger parser mounted BEFORE the global one (body-parser skips
+// a request that was already parsed).
+const rawBodyCapture = (req, _res, buf) => {
+  req.rawBody = buf;
+};
+// /api/hld/judge carries a base64 diagram screenshot (<= ~8MB decoded).
+app.use("/api/hld/judge", express.json({ limit: "12mb", verify: rawBodyCapture }));
+// /api/run accepts up to 512KB of file content (asserted in the handler) plus
+// JSON overhead/escaping, so it needs more than the 100kb default.
+app.use("/api/run", express.json({ limit: "600kb", verify: rawBodyCapture }));
+// AutoApply profile payloads are capped at 100KB by the router itself; leave
+// headroom for the envelope so a max-size profile isn't rejected at the parser.
+app.use("/api/autoapply", express.json({ limit: "1mb", verify: rawBodyCapture }));
+app.use(express.json({ limit: "100kb", verify: rawBodyCapture }));
 
 // ── Rate limiting ────────────────────────────────────────────────
-const generalLimiter = rateLimit({
+// Limiters mounted before requireAuth (app.use / global) bucket by IP only;
+// per-route limiters are mounted AFTER requireAuth and bucket by the verified
+// user id - see lib/rateKeys.js (never key on an unverified JWT).
+const generalLimiter = makeLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 120,
-  standardHeaders: true,
-  legacyHeaders: false,
+  max: 600,
+  message: { error: "Too many requests - slow down." },
 });
-const aiLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests — slow down." },
-});
-const catalogLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests — slow down." },
-});
+const aiLimiter = makeLimiter({ windowMs: 60 * 1000, max: 20 });
+const catalogLimiter = makeLimiter({ windowMs: 60 * 1000, max: 60 });
+const referralLimiter = makeLimiter({ windowMs: 60 * 1000, max: 15 });
+const runLimiter = makeLimiter({ windowMs: 60 * 1000, max: 15 });
+const paymentsLimiter = makeLimiter({ windowMs: 60 * 1000, max: 30 });
+const profileWriteLimiter = makeLimiter({ windowMs: 60 * 1000, max: 20 });
 // The subscribe bell is optimistic client-side (instant toggle, no waiting on
 // this request) — cheap to spam-click by design. This caps the actual writes
 // so on/off/on/off doesn't turn into an unbounded insert/delete loop.
-const subscribeLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests — slow down." },
-});
+const subscribeLimiter = makeLimiter({ windowMs: 60 * 1000, max: 20 });
 
 app.use("/api", generalLimiter);
+// Cheap blanket caps on route families that had none.
+app.use("/api/referrals", referralLimiter);
+app.use("/api/payments", paymentsLimiter);
+app.use("/api/subscriptions", paymentsLimiter);
+app.use("/api/profile", profileWriteLimiter);
 
 // Serve the built frontend (Vite `dist/` output) as static files so you only need one server running.
 // `index: false` — never auto-serve dist/index.html for "/"; the SEO-aware
@@ -186,13 +278,19 @@ app.use("/api", generalLimiter);
 // Content-hashed build assets (dist/assets/*) — safe to cache hard + immutable.
 // `fallthrough: false` → a missing /assets/* file 404s instead of falling
 // through to the SPA HTML handler.
+// vite-plugin-compression2 emits .br/.gz siblings at build time; serve them
+// directly (no per-request compression CPU).
 app.use(
   "/assets",
-  express.static(path.join(__dirname, "dist", "assets"), {
-    immutable: true,
-    maxAge: "1y",
-    index: false,
-    fallthrough: false,
+  expressStaticGzip(path.join(__dirname, "dist", "assets"), {
+    enableBrotli: true,
+    orderPreference: ["br", "gz"],
+    serveStatic: {
+      immutable: true,
+      maxAge: "1y",
+      index: false,
+      fallthrough: false,
+    },
   }),
 );
 
@@ -394,7 +492,7 @@ app.post("/api/profile/detect-country", requireAuth, async (req, res) => {
       .maybeSingle();
     if (existing?.country) return res.json({ country: existing.country, updated: false });
 
-    const detected = countryFromIp(req.ip);
+    const detected = await countryFromRequest(req);
     if (!detected) return res.json({ country: null, updated: false });
 
     const { error } = await supabaseAdmin
@@ -408,6 +506,9 @@ app.post("/api/profile/detect-country", requireAuth, async (req, res) => {
   }
 });
 
+// Company ownership + work-email verification (routes/profileCompany.js).
+registerProfileCompanyRoutes(app, { fail });
+
 // ── Resume optimizer ──────────────────────────────────────────
 // Bounds how many /api/generate bodies run the heavy pipeline (2 LLM stages +
 // LaTeX compile + worker-pool PDF parse, each holding a multi-MB PDF buffer) at
@@ -416,8 +517,8 @@ const genGate = makeSemaphore(4);
 
 app.post(
   "/api/generate",
-  aiLimiter,
   requireAuth,
+  aiLimiter,
   upload.single("resume"),
   async (req, res) => {
     try {
@@ -461,11 +562,36 @@ app.post(
       // ── Concurrency cap ──
       // Shed load early: if the semaphore queue is already deep, fast-fail
       // rather than pile on another queued request holding a PDF buffer.
-      if (genGate.pending > 24) {
+      if (genGate.pending > 12) {
         return res.status(503).json({ error: "busy" });
       }
-      await genGate.acquire();
+      // A client that disconnects while queued must not later take a permit.
+      const genAbort = new AbortController();
+      const onGenClose = () => {
+        if (!res.writableEnded) genAbort.abort();
+      };
+      res.on("close", onGenClose);
       try {
+        await genGate.acquire({ signal: genAbort.signal });
+      } catch {
+        res.off("close", onGenClose);
+        return; // client went away while queued
+      }
+      let reservation = null;
+      let genSucceeded = false;
+      try {
+      // Atomic quota reservation (sql/32). Refunded in finally unless the
+      // resume was produced.
+      const reserved = await reserveUsage(req.user.id, "resume_optimizer");
+      if (!reserved.allowed) {
+        return res.status(402).json({
+          error: "usage_limit",
+          feature: "resume_optimizer",
+          ...paywallFields(reserved),
+        });
+      }
+      reservation = reserved.reservation;
+      if (genAbort.signal.aborted) return;
 
       let apiKey;
       try {
@@ -647,16 +773,8 @@ Output ONLY this JSON (no markdown, use \\n for newlines inside string values):
         }
       }
 
-      // Success — meter the use, then respond. A metering failure must not
-      // deny the user the PDF they already generated.
-      try {
-        await incrementUsage(req.user.id, "resume_optimizer");
-      } catch (e) {
-        console.error(
-          "[generate] incrementUsage failed:",
-          redact(e?.message || String(e)),
-        );
-      }
+      // Success - the quota unit was reserved up front; keep it.
+      genSucceeded = true;
 
       res.json({
         filename,
@@ -670,6 +788,8 @@ Output ONLY this JSON (no markdown, use \\n for newlines inside string values):
         // Runs on every exit path from the gated block — success, early
         // return (402/422/…), and thrown errors alike.
         genGate.release();
+        res.off("close", onGenClose);
+        if (!genSucceeded) await refundUsage(reservation);
       }
     } catch (err) {
       fail(res, err, "generate", "Something went wrong generating your resume.");
@@ -697,6 +817,8 @@ function extractJson(raw) {
   return raw.slice(start, end + 1);
 }
 
+const GEMINI_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 45_000;
+
 async function geminiFetch(model, payload) {
   const res = await fetch(GEMINI_ENDPOINT(model), {
     method: "POST",
@@ -705,6 +827,7 @@ async function geminiFetch(model, payload) {
       "x-goog-api-key": process.env.GEMINI_API_KEY,
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
   });
   if (!res.ok) {
     // Log the real upstream body server-side (redacted); never echo it to the client.
@@ -727,7 +850,8 @@ async function callGemini(prompt, model = "gemini-3.1-flash-lite") {
   );
 }
 
-app.post("/api/hld/generate", aiLimiter, requireAuth, async (req, res) => {
+app.post("/api/hld/generate", requireAuth, aiLimiter, async (req, res) => {
+  let reservation = null;
   try {
     const { description } = req.body || {};
     assert(
@@ -739,7 +863,7 @@ app.post("/api/hld/generate", aiLimiter, requireAuth, async (req, res) => {
       return res.status(500).json({ error: "AI service is not configured." });
     }
 
-    const gate = await canAccess(req.user.id, "hld_practice");
+    const gate = await reserveUsage(req.user.id, "hld_practice");
     if (!gate.allowed) {
       return res.status(402).json({
         error: "usage_limit",
@@ -747,6 +871,7 @@ app.post("/api/hld/generate", aiLimiter, requireAuth, async (req, res) => {
         ...paywallFields(gate),
       });
     }
+    reservation = gate.reservation;
 
     const prompt = `You are a senior system design engineer. Given this HLD question/topic:
 ---
@@ -774,22 +899,16 @@ Output ONLY the following JSON (no markdown, no extra text, use \\n for newlines
     }
     const { fr, nfr } = parsed;
 
-    try {
-      await incrementUsage(req.user.id, "hld_practice");
-    } catch (e) {
-      console.error(
-        "[hld/generate] incrementUsage failed:",
-        redact(e?.message || String(e)),
-      );
-    }
-
+    reservation = null; // success: keep the reserved unit
     res.json({ fr, nfr });
   } catch (err) {
+    await refundUsage(reservation);
     fail(res, err, "hld/generate", "AI service error");
   }
 });
 
-app.post("/api/hld/judge", aiLimiter, requireAuth, async (req, res) => {
+app.post("/api/hld/judge", requireAuth, aiLimiter, async (req, res) => {
+  let reservation = null;
   try {
     const { image_base64, frNfr, apiEndpoints, title } = req.body || {};
 
@@ -815,7 +934,7 @@ app.post("/api/hld/judge", aiLimiter, requireAuth, async (req, res) => {
       return res.status(500).json({ error: "AI service is not configured." });
     }
 
-    const gate = await canAccess(req.user.id, "hld_practice");
+    const gate = await reserveUsage(req.user.id, "hld_practice");
     if (!gate.allowed) {
       return res.status(402).json({
         error: "usage_limit",
@@ -823,6 +942,7 @@ app.post("/api/hld/judge", aiLimiter, requireAuth, async (req, res) => {
         ...paywallFields(gate),
       });
     }
+    reservation = gate.reservation;
 
     const frText = frNfr?.fr
       ? `Functional Requirements:\n${frNfr.fr}\n\nNon-Functional Requirements:\n${frNfr.nfr || "N/A"}`
@@ -880,14 +1000,17 @@ Give a structured evaluation. Output ONLY this JSON (no markdown, use \\n for ne
         throw e;
       }
     }
+    reservation = null; // success: judge runs now count toward hld_practice
     res.json(result);
   } catch (err) {
+    await refundUsage(reservation);
     fail(res, err, "hld/judge", "AI service error");
   }
 });
 
 // ── Generic AI explanation (metered: ai_explanation) ─────────────
-app.post("/api/ai/explain", aiLimiter, requireAuth, async (req, res) => {
+app.post("/api/ai/explain", requireAuth, aiLimiter, async (req, res) => {
+  let reservation = null;
   try {
     const { prompt, code, question } = req.body || {};
     const input = [question, prompt, code].find((v) => isNonEmptyString(v));
@@ -899,7 +1022,7 @@ app.post("/api/ai/explain", aiLimiter, requireAuth, async (req, res) => {
       return res.status(500).json({ error: "AI service is not configured." });
     }
 
-    const gate = await canAccess(req.user.id, "ai_explanation");
+    const gate = await reserveUsage(req.user.id, "ai_explanation");
     if (!gate.allowed) {
       return res.status(402).json({
         error: "usage_limit",
@@ -907,6 +1030,7 @@ app.post("/api/ai/explain", aiLimiter, requireAuth, async (req, res) => {
         ...paywallFields(gate),
       });
     }
+    reservation = gate.reservation;
 
     const p = `You are a concise technical tutor helping someone prepare for software-engineering interviews. Explain the following clearly and accurately. Use short paragraphs and a concrete example when it helps.
 
@@ -915,17 +1039,10 @@ ${input}
 ---`;
     const explanation = await callGemini(p);
 
-    try {
-      await incrementUsage(req.user.id, "ai_explanation");
-    } catch (e) {
-      console.error(
-        "[ai/explain] incrementUsage failed:",
-        redact(e?.message || String(e)),
-      );
-    }
-
+    reservation = null; // success: keep the reserved unit
     res.json({ explanation });
   } catch (err) {
+    await refundUsage(reservation);
     fail(res, err, "ai/explain", "AI service error");
   }
 });
@@ -1001,7 +1118,7 @@ function filterSortDsa(list, { search, companies, difficulties, sort }) {
 
 async function fetchAllRows(table, columns, orderCol, ascending) {
   const PAGE = 1000;
-  let all = [];
+  const all = [];
   let from = 0;
   for (;;) {
     const { data, error } = await supabaseAdmin
@@ -1010,11 +1127,39 @@ async function fetchAllRows(table, columns, orderCol, ascending) {
       .order(orderCol, { ascending })
       .range(from, from + PAGE - 1);
     if (error) throw error;
-    all = all.concat(data || []);
+    for (const r of data || []) all.push(r); // push, not concat: O(n) not O(n^2)
     if ((data || []).length < PAGE) break;
     from += PAGE;
   }
   return all;
+}
+
+// Page through a filtered query that PostgREST would otherwise silently cap at
+// 1000 rows. `build` must return a FRESH, deterministically ordered query.
+async function fetchAllPaged(build) {
+  const PAGE = 1000;
+  const all = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build().range(from, from + PAGE - 1);
+    if (error) throw error;
+    for (const r of data || []) all.push(r);
+    if ((data || []).length < PAGE) break;
+  }
+  return all;
+}
+
+// The whole DSA catalog, normalised, cached once for all consumers.
+function getAllDsaRows() {
+  return cached("dsa:all-rows", 600000, async () =>
+    normalizeDsa(
+      await fetchAllRows(
+        "leetcode_company_problems",
+        "id, title, difficulty, link, company, topics",
+        "id",
+        true,
+      ),
+    ),
+  );
 }
 
 // Extracted from the /api/catalog/dsa route so the SSR initial-data embed
@@ -1095,16 +1240,7 @@ async function buildDsaCatalogPayload({ plan, search, companies, difficulties, s
     // The whole table is the same for every filter combo, so it's cached
     // once (10 min) under its own key instead of being re-paged out of
     // Supabase in 1000-row round trips for each new company/sort/search key.
-    const rowsAll = await cached("dsa:all-rows", 600000, async () =>
-      normalizeDsa(
-        await fetchAllRows(
-          "leetcode_company_problems",
-          "id, title, difficulty, link, company, topics",
-          "id",
-          true,
-        ),
-      ),
-    );
+    const rowsAll = await getAllDsaRows();
     const total = rowsAll.length;
 
     // Company-filter freemium: filter the FULL set first, then return 5
@@ -1214,7 +1350,11 @@ app.get("/api/catalog/dsa", catalogLimiter, optionalAuth, async (req, res) => {
         plan,
         search: String(req.query.search || "").slice(0, 200),
         companies: csvParam(req.query.company),
-        difficulties: csvParam(req.query.difficulty),
+        // whitelist: only easy|medium|hard ever reaches the PostgREST .or() filter
+        difficulties: csvParam(req.query.difficulty)
+          .map((d) => d.toLowerCase())
+          .filter((d) => ["easy", "medium", "hard"].includes(d))
+          .map((d) => d.charAt(0).toUpperCase() + d.slice(1)),
         sort: ["alpha", "difficulty", "id"].includes(String(req.query.sort))
           ? String(req.query.sort)
           : "id",
@@ -1763,31 +1903,34 @@ app.get("/api/stats/overview", requireAuth, async (req, res) => {
   try {
     const uid = req.user.id;
 
-    const [dsaRows, lldCount, hldCount, progRes, readinessRes] =
+    const [norm, lldCount, hldCount, progRows, readinessRes] =
       await Promise.all([
-        fetchAllRows(
-          "leetcode_company_problems",
-          "id, difficulty, topics",
-          "id",
-          true,
+        getAllDsaRows(),
+        // Catalog sizes change only on content deploys: cache the head counts
+        // alongside the cached DSA rows instead of two COUNTs per request.
+        cached("stats:lld-count", 600000, async () => {
+          const r = await supabaseAdmin.from("lld_problems").select("*", { count: "exact", head: true });
+          if (r.error) throw r.error;
+          return { count: r.count || 0 };
+        }),
+        cached("stats:hld-count", 600000, async () => {
+          const r = await supabaseAdmin.from("hld_questions").select("*", { count: "exact", head: true });
+          if (r.error) throw r.error;
+          return { count: r.count || 0 };
+        }),
+        fetchAllPaged(() =>
+          supabaseAdmin
+            .from("user_problem_progress")
+            .select("problem_id, status")
+            .eq("user_id", uid)
+            .eq("problem_type", "dsa")
+            .order("problem_id", { ascending: true }),
         ),
-        supabaseAdmin
-          .from("lld_problems")
-          .select("*", { count: "exact", head: true }),
-        supabaseAdmin
-          .from("hld_questions")
-          .select("*", { count: "exact", head: true }),
-        supabaseAdmin
-          .from("user_problem_progress")
-          .select("problem_id, status")
-          .eq("user_id", uid)
-          .eq("problem_type", "dsa"),
         supabaseAdmin.rpc("get_company_readiness", { p_user_id: uid }),
       ]);
 
-    const norm = normalizeDsa(dsaRows);
     const solved = new Set(
-      (progRes.data || [])
+      (progRows || [])
         .filter((r) => r.status === "solved")
         .map((r) => r.problem_id),
     );
@@ -2759,7 +2902,7 @@ app.get("/api/jobs/analytics/trend", catalogLimiter, optionalAuth, async (req, r
 // Emails the operator directly. Rate-limited; body capped.
 const FEEDBACK_TO = process.env.FEEDBACK_TO_EMAIL || "harvardpark239@gmail.com";
 
-app.post("/api/feedback", aiLimiter, requireAuth, async (req, res) => {
+app.post("/api/feedback", requireAuth, aiLimiter, async (req, res) => {
   try {
     const { kind, message } = req.body || {};
     const k = kind === "bug" ? "bug" : "feature";
@@ -2810,17 +2953,34 @@ function escapeLike(s) {
 
 // Resolve an auth.users row to { id, email, name } via the admin API.
 // Never throws; logs redacted and returns null on failure.
+const REF_USER_TTL_MS = 5 * 60 * 1000;
+const REF_USER_MAX = 500;
+/** @type {Map<string, { v: any, exp: number }>} */
+const refUserCache = new Map();
+
 async function referralAuthUser(userId) {
+  const hit = refUserCache.get(userId);
+  if (hit && hit.exp > Date.now()) {
+    refUserCache.delete(userId); // LRU touch
+    refUserCache.set(userId, hit);
+    return hit.v;
+  }
   try {
     const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
     if (error || !data?.user) return null;
     const u = data.user;
     const md = u.user_metadata || {};
-    return {
+    const v = {
       id: u.id,
       email: u.email || null,
       name: md.full_name || md.name || null,
     };
+    if (refUserCache.size >= REF_USER_MAX) {
+      const k = refUserCache.keys().next().value;
+      if (k !== undefined) refUserCache.delete(k);
+    }
+    refUserCache.set(userId, { v, exp: Date.now() + REF_USER_TTL_MS });
+    return v;
   } catch (e) {
     console.error(
       "[referrals] getUserById failed:",
@@ -2835,29 +2995,32 @@ async function referralAuthUser(userId) {
 // sorted, capped at 20. Powers the signup + post-request autocomplete.
 app.get(
   "/api/profiles/companies",
-  catalogLimiter,
   requireAuth,
+  catalogLimiter,
   async (req, res) => {
     try {
       const q = String(req.query.q || "").trim().slice(0, 100);
-      const { data, error } = await supabaseAdmin
-        .from("profiles")
-        .select("company")
-        .not("company", "is", null);
-      if (error) throw error;
-
       const ql = q.toLowerCase();
-      const byLower = new Map();
-      for (const r of data || []) {
-        const c = String(r.company || "").trim();
-        if (!c) continue;
-        if (ql && !c.toLowerCase().startsWith(ql)) continue;
-        const k = c.toLowerCase();
-        if (!byLower.has(k)) byLower.set(k, c);
-      }
-      const companies = [...byLower.values()]
-        .sort((a, b) => a.localeCompare(b))
-        .slice(0, 20);
+      // Prefix match in SQL (never a full-table scan), bounded, and cached.
+      const companies = await cached(`profiles:companies:${ql}`, 60_000, async () => {
+        let qb = supabaseAdmin
+          .from("profiles")
+          .select("company")
+          .not("company", "is", null)
+          .order("company", { ascending: true })
+          .limit(400);
+        if (ql) qb = qb.ilike("company", `${escapeLike(ql)}%`);
+        const { data, error } = await qb;
+        if (error) throw error;
+        const byLower = new Map();
+        for (const r of data || []) {
+          const c = String(r.company || "").trim();
+          if (!c) continue;
+          const k = c.toLowerCase();
+          if (!byLower.has(k)) byLower.set(k, c);
+        }
+        return [...byLower.values()].sort((a, b) => a.localeCompare(b)).slice(0, 20);
+      });
       res.json({ companies });
     } catch (err) {
       fail(res, err, "profiles/companies", "Failed to load companies.");
@@ -2871,8 +3034,11 @@ app.get(
 app.post(
   "/api/referrals",
   requireAuth,
+  referralLimiter,
   upload.single("resume"),
   async (req, res) => {
+    let reservation = null;
+    let keepReservation = false;
     try {
       const { target_company, job_id, job_title } = req.body || {};
 
@@ -2903,7 +3069,7 @@ app.post(
       );
 
       // 1. Quota gate — MUST run before any storage/DB write.
-      const gate = await canAccess(req.user.id, "referral_request");
+      const gate = await reserveUsage(req.user.id, "referral_request");
       if (!gate.allowed) {
         return res.status(402).json({
           error: "usage_limit",
@@ -2913,6 +3079,7 @@ app.post(
           resetsAt: gate.resetsAt,
         });
       }
+      reservation = gate.reservation;
 
       // 2. One open request per user (pre-check; the partial unique index is
       //    the real guard — step 4 handles the race).
@@ -2969,13 +3136,8 @@ app.post(
         throw insErr;
       }
 
-      // 5. Meter the use — never blocks the response.
-      await incrementUsage(req.user.id, "referral_request").catch((e) =>
-        console.error(
-          "[referrals] incrementUsage failed",
-          redact((e && e.message) || String(e)),
-        ),
-      );
+      // 5. The quota unit was reserved atomically up front; keep it.
+      keepReservation = true;
 
       // 6. Respond.
       res.status(201).json({
@@ -2994,19 +3156,24 @@ app.post(
           .eq("id", req.user.id)
           .maybeSingle();
 
+        // Everyone at the company who opted in; verified first, capped at 50.
         const { data: matchRows, error: mErr } = await supabaseAdmin
           .from("profiles")
-          .select("id")
+          .select("id, company_verified")
           .eq("receive_referral_notifications", true)
           .ilike("company", escapeLike(company))
-          .neq("id", req.user.id);
+          .neq("id", req.user.id)
+          .order("company_verified", { ascending: false })
+          .limit(200);
         if (mErr) throw mErr;
 
-        const recipients = [];
+        const cands = [];
         for (const r of matchRows || []) {
           const au = await referralAuthUser(r.id);
-          if (au && au.email) recipients.push(au.email);
+          if (au && au.email) cands.push({ email: au.email, verified: !!r.company_verified });
+          if (cands.length >= 50) break; // rows are verified-first; 50 is the cap
         }
+        const recipients = selectRecipients(cands).map((c) => c.email);
         if (!recipients.length) {
           console.log("[referrals] request", referralId, "-> 0 recipients");
           return;
@@ -3036,6 +3203,8 @@ app.post(
       );
     } catch (err) {
       fail(res, err, "referrals", "Failed to create referral request.");
+    } finally {
+      if (reservation && !keepReservation) await refundUsage(reservation);
     }
   },
 );
@@ -3050,12 +3219,34 @@ app.get("/api/referrals/mine", requireAuth, async (req, res) => {
       .order("created_at", { ascending: false });
     if (error) throw error;
 
+    const accepterIds = [
+      ...new Set(
+        (rows || [])
+          .filter((r) => r.status === "accepted" && r.accepted_by_user_id)
+          .map((r) => r.accepted_by_user_id),
+      ),
+    ];
+    const accepterMap = new Map();
+    await Promise.all(
+      accepterIds.map(async (id) => accepterMap.set(id, await referralAuthUser(id))),
+    );
+    const verifiedMap = new Map();
+    if (accepterIds.length) {
+      const { data: vrows, error: vErr } = await supabaseAdmin
+        .from("profiles")
+        .select("id, company_verified")
+        .in("id", accepterIds);
+      if (vErr) throw vErr;
+      for (const v of vrows || []) verifiedMap.set(v.id, !!v.company_verified);
+    }
     const requests = [];
     for (const r of rows || []) {
       let accepter = null;
+      let referrerVerified = false;
       if (r.status === "accepted" && r.accepted_by_user_id) {
-        const au = await referralAuthUser(r.accepted_by_user_id);
-        accepter = au ? { name: au.name, email: au.email } : null;
+        const au = accepterMap.get(r.accepted_by_user_id);
+        referrerVerified = !!verifiedMap.get(r.accepted_by_user_id);
+        accepter = au ? { name: au.name, email: au.email, verified: referrerVerified } : null;
       }
       requests.push({
         id: r.id,
@@ -3066,6 +3257,7 @@ app.get("/api/referrals/mine", requireAuth, async (req, res) => {
         accepted_at: r.accepted_at,
         created_at: r.created_at,
         expires_at: r.expires_at,
+        referrerVerified,
         accepter,
       });
     }
@@ -3085,28 +3277,26 @@ app.get("/api/referrals/mine", requireAuth, async (req, res) => {
 });
 
 // GET /api/referrals/open → open requests targeting the caller's own company.
-// No poster name/email, no resume path.
+// Verification is optional here (it only adds a badge + a higher accept limit).
+// The list carries NO poster name/email/phone and NO resume path or signed
+// URL; the resume is served only to the accepter (see /resume).
 app.get("/api/referrals/open", requireAuth, async (req, res) => {
   try {
-    const { data: prof, error: pErr } = await supabaseAdmin
-      .from("profiles")
-      .select("company")
-      .eq("id", req.user.id)
-      .maybeSingle();
-    if (pErr) throw pErr;
+    const mine = await getVerifiedCompany(req.user.id);
+    if (!mine.company) return res.json({ requests: [], no_company: true });
+    const myCompany = mine.company;
 
-    const myCompany = String(prof?.company || "").trim();
-    if (!myCompany) return res.json({ requests: [], no_company: true });
-
+    // sql/33: target_company_norm = lower(btrim(target_company)), indexed.
     const { data: rows, error } = await supabaseAdmin
       .from("referral_requests")
       .select(
         "id, target_company, job_id, job_title, created_at, expires_at, poster_user_id",
       )
       .eq("status", "open")
-      .ilike("target_company", escapeLike(myCompany))
+      .eq("target_company_norm", myCompany.toLowerCase())
       .neq("poster_user_id", req.user.id)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(50);
     if (error) throw error;
 
     const posterIds = [...new Set((rows || []).map((r) => r.poster_user_id))];
@@ -3135,7 +3325,7 @@ app.get("/api/referrals/open", requireAuth, async (req, res) => {
         },
       };
     });
-    res.json({ requests });
+    res.json({ requests, company: myCompany, viewerVerified: mine.verified });
   } catch (err) {
     fail(res, err, "referrals/open", "Failed to load open referral requests.");
   }
@@ -3148,15 +3338,32 @@ app.post(
   requireAuth,
   async (req, res) => {
     try {
-      const { data: prof, error: pErr } = await supabaseAdmin
-        .from("profiles")
-        .select("company")
-        .eq("id", req.user.id)
-        .maybeSingle();
-      if (pErr) throw pErr;
+      const mine = await getVerifiedCompany(req.user.id);
+      if (!mine.company) return res.status(403).json({ error: "no_company" });
+      const myCompany = mine.company;
 
-      const myCompany = String(prof?.company || "").trim();
-      if (!myCompany) return res.status(403).json({ error: "no_company" });
+      // Rolling-24h accept cap (3 unverified / 20 verified), enforced here.
+      const { data: recent, error: rcErr } = await supabaseAdmin
+        .from("referral_requests")
+        .select("accepted_at")
+        .eq("accepted_by_user_id", req.user.id)
+        .gte("accepted_at", acceptWindowStart())
+        .limit(100);
+      if (rcErr) throw rcErr;
+      const lim = evaluateAcceptLimit({
+        verified: mine.verified,
+        acceptedAt: (recent || []).map((r) => r.accepted_at),
+      });
+      if (!lim.allowed) {
+        return res.status(429).json({
+          error: "accept_limit",
+          message: acceptLimitMessage({ limit: lim.limit, verified: mine.verified }),
+          limit: lim.limit,
+          used: lim.used,
+          retryAt: lim.retryAt,
+          verified: mine.verified,
+        });
+      }
 
       // Single conditional UPDATE: id + status='open' + company match
       // (case-insensitive) + not self. maybeSingle() → null when nothing matched.
@@ -3169,14 +3376,14 @@ app.post(
         })
         .eq("id", req.params.id)
         .eq("status", "open")
-        .ilike("target_company", escapeLike(myCompany))
+        .eq("target_company_norm", myCompany.toLowerCase())
         .neq("poster_user_id", req.user.id)
         .select()
         .maybeSingle();
       if (error) throw error;
       if (!data) return res.status(409).json({ error: "already_accepted" });
 
-      res.json({ id: data.id, status: "accepted" });
+      res.json({ id: data.id, status: "accepted", referrerVerified: mine.verified });
 
       // Notify the poster (fire-and-forget). This email intentionally carries
       // the accepter's email address.
@@ -3197,6 +3404,7 @@ app.post(
           accepterName: (accepter && accepter.name) || req.user.email || null,
           accepterEmail: req.user.email,
           company: data.target_company,
+          referrerVerified: mine.verified,
         });
         const r = await resend.sendEmail({
           to: poster.email,
@@ -3251,25 +3459,20 @@ app.get(
     try {
       const { data: row, error } = await supabaseAdmin
         .from("referral_requests")
-        .select("poster_user_id, target_company, status, resume_storage_path")
+        .select("poster_user_id, accepted_by_user_id, status, resume_storage_path")
         .eq("id", req.params.id)
         .maybeSingle();
       if (error) throw error;
       if (!row) return res.status(404).json({ error: "not_found" });
 
-      let allowed = row.poster_user_id === req.user.id;
-      if (!allowed && ["open", "accepted"].includes(row.status)) {
-        const { data: prof, error: pErr } = await supabaseAdmin
-          .from("profiles")
-          .select("company")
-          .eq("id", req.user.id)
-          .maybeSingle();
-        if (pErr) throw pErr;
-        const mine = String(prof?.company || "").trim().toLowerCase();
-        allowed =
-          !!mine &&
-          mine === String(row.target_company || "").trim().toLowerCase();
-      }
+      // Only the requester and the user who accepted this request. Company
+      // membership (verified or not) never grants resume access.
+      const allowed = canViewResume({
+        userId: req.user.id,
+        posterUserId: row.poster_user_id,
+        acceptedByUserId: row.accepted_by_user_id,
+        status: row.status,
+      });
       if (!allowed) return res.status(403).json({ error: "forbidden" });
 
       const { data, error: sErr } = await supabaseAdmin.storage
@@ -3335,7 +3538,7 @@ app.get("/api/company-subscriptions", requireAuth, async (req, res) => {
 // POST /api/company-subscriptions  { company_slug, company_name }
 // Subscribes the caller to a company. Gated by plan (Free: 0 slots) and by
 // the per-plan count-cap; both checked server-side, never trusting the client.
-app.post("/api/company-subscriptions", subscribeLimiter, requireAuth, async (req, res) => {
+app.post("/api/company-subscriptions", requireAuth, subscribeLimiter, async (req, res) => {
   try {
     const { company_slug, company_name } = req.body || {};
     const slug = String(company_slug || "").trim().toLowerCase();
@@ -3402,7 +3605,7 @@ app.post("/api/company-subscriptions", subscribeLimiter, requireAuth, async (req
 
 // DELETE /api/company-subscriptions/:slug — unsubscribe the caller from one
 // company. No quota refund logic needed (this isn't metered usage).
-app.delete("/api/company-subscriptions/:slug", subscribeLimiter, requireAuth, async (req, res) => {
+app.delete("/api/company-subscriptions/:slug", requireAuth, subscribeLimiter, async (req, res) => {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();
     const { data, error } = await supabaseAdmin
@@ -3435,8 +3638,22 @@ const JUDGE0_LANG_IDS = {
 };
 const KNOWN_LANGUAGES = new Set(Object.keys(JUDGE0_LANG_IDS));
 
-app.post("/api/run", requireAuth, async (req, res) => {
+// Code execution is expensive and abusable: per-user concurrency of 1 plus a
+// global cap, on top of runLimiter.
+const runActive = new Set();
+const runGate = makeSemaphore(Number(process.env.RUN_MAX_CONCURRENT) || 6);
+const RUN_TIMEOUT_MS = Number(process.env.RUN_TIMEOUT_MS) || 30_000;
+
+app.post("/api/run", requireAuth, runLimiter, async (req, res) => {
+  if (runActive.has(req.user.id)) {
+    return res.status(429).json({ message: "A run is already in progress." });
+  }
+  if (runGate.pending > 20) return res.status(503).json({ message: "Runner busy, try again." });
+  runActive.add(req.user.id);
+  let gateHeld = false;
   try {
+    await runGate.acquire();
+    gateHeld = true;
     const { language = "java", files = [] } = req.body || {};
 
     assert(
@@ -3467,8 +3684,19 @@ app.post("/api/run", requireAuth, async (req, res) => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ files }),
+          signal: AbortSignal.timeout(RUN_TIMEOUT_MS),
         });
-        const data = await runnerRes.json();
+        const rawText = await runnerRes.text();
+        let data = null;
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          /* non-JSON (e.g. a proxy 502 page) */
+        }
+        if (!data) {
+          console.error("[java-runner proxy] non-JSON", runnerRes.status, redact(rawText.slice(0, 200)));
+          return res.status(502).json({ message: "Code runner is unavailable. Try again shortly." });
+        }
         if (!runnerRes.ok) return res.status(runnerRes.status).json(data);
         return res.json(data);
       } catch (err) {
@@ -3504,6 +3732,7 @@ app.post("/api/run", requireAuth, async (req, res) => {
           cpu_time_limit: 10,
           memory_limit: 256000,
         }),
+        signal: AbortSignal.timeout(RUN_TIMEOUT_MS),
       },
     );
 
@@ -3535,6 +3764,9 @@ app.post("/api/run", requireAuth, async (req, res) => {
     console.error("[run]", redact((err && err.message) || String(err)));
     if (!res.headersSent)
       res.status(500).json({ message: "Code execution failed." });
+  } finally {
+    runActive.delete(req.user.id);
+    if (gateHeld) runGate.release();
   }
 });
 
@@ -3542,13 +3774,7 @@ app.post("/api/run", requireAuth, async (req, res) => {
 // Provider logic: ./services/razorpay.js. One-time orders that grant a plan
 // for a fixed term; when it lapses the entitlements lazy check drops the user
 // to free. DORMANT until RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are set.
-const checkoutLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 12,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests — slow down." },
-});
+const checkoutLimiter = makeLimiter({ windowMs: 60 * 1000, max: 12 });
 
 const PAID_PLANS = ["pro", "max"];
 const PERIODS = ["monthly", "yearly"];
@@ -3576,8 +3802,8 @@ app.get("/api/billing/status", requireAuth, (_req, res) => {
 //   → { order_id, amount, currency, keyId }
 app.post(
   "/api/payments/razorpay/order",
-  checkoutLimiter,
   requireAuth,
+  checkoutLimiter,
   async (req, res) => {
     try {
       if (!razorpay.isEnabled()) {
@@ -3624,8 +3850,8 @@ app.post(
 //   → { ok: true, plan }  (only when the signature is valid)
 app.post(
   "/api/payments/razorpay/verify",
-  checkoutLimiter,
   requireAuth,
+  checkoutLimiter,
   async (req, res) => {
     try {
       if (!razorpay.isEnabled()) {
@@ -3655,53 +3881,89 @@ app.post(
         return res.status(400).json({ error: "signature_mismatch" });
       }
 
-      // Defence-in-depth: pull the order back and confirm it is the one this
-      // user created for this plan/amount (guards against a tampered body).
-      // Fail closed: without Razorpay's own order record the body's plan/period can't be trusted
-      // (the order.paid webhook still grants the plan from the order's notes).
+      // Authoritative re-check against Razorpay. FAIL CLOSED: if the order
+      // cannot be fetched (Razorpay 5xx / network) we must not grant on the
+      // signature alone — the client can retry.
       const order = await razorpay.fetchOrder(razorpay_order_id);
       if (!order) {
-        return res.status(502).json({ error: "order_unverified" });
+        return res.status(503).json({ error: "order_lookup_failed", retryable: true });
       }
-      {
-        const n = order.notes || {};
-        // Trust the order's OWN currency (Razorpay's authoritative record of
-        // what was actually charged), not a freshly-recomputed one — the
-        // user's country is a no-op-once-set value so this can't drift in
-        // practice, but checking against what was actually billed is the
-        // more correct invariant regardless.
-        const expected = expectedAmountFor(order.currency, plan, billingPeriod);
-        if (
-          String(n.user_id || "") !== String(req.user.id) ||
-          String(n.plan || "") !== plan ||
-          String(n.billingPeriod || "") !== billingPeriod ||
-          Number(order.amount) !== expected
-        ) {
-          console.warn("[razorpay/verify] order/claim mismatch", redact(JSON.stringify({ n, amount: order.amount, expected })));
-          return res.status(400).json({ error: "order_mismatch" });
-        }
+      // Payment captured but order not yet flipped to "paid" (Razorpay
+      // moves created -> attempted -> paid): transient, let the client retry
+      // rather than reporting a mismatch.
+      if (String(order.status || "") === "attempted") {
+        return res.status(503).json({ error: "order_not_yet_paid", retryable: true });
+      }
+      const n = order.notes || {};
+      // Trust the order's OWN currency (Razorpay's authoritative record of
+      // what was actually charged), not a freshly-recomputed one.
+      const expected = expectedAmountFor(order.currency, plan, billingPeriod);
+      if (
+        String(order.status || "") !== "paid" ||
+        String(n.user_id || "") !== String(req.user.id) ||
+        String(n.plan || "") !== plan ||
+        String(n.billingPeriod || "") !== billingPeriod ||
+        Number(order.amount) !== expected ||
+        Number(order.amount_paid ?? order.amount) !== expected
+      ) {
+        console.warn("[razorpay/verify] order/claim mismatch", redact(JSON.stringify({ n, status: order.status, amount: order.amount, expected })));
+        return res.status(400).json({ error: "order_mismatch" });
       }
 
-      const now = new Date();
-      const end = new Date(now.getTime() + TERM_DAYS[billingPeriod] * 86400000);
-      const row = {
+      // Exactly-once: the first of verify / order.paid webhook claims the
+      // payment; the loser must not extend the term again (sql/30).
+      const claim = await claimPayment({
+        payment_id: razorpay_payment_id,
+        order_id: razorpay_order_id,
         user_id: req.user.id,
         plan,
-        status: "active",
-        provider: "razorpay",
-        provider_customer_id: null,
-        provider_subscription_id: razorpay_order_id, // UNIQUE — idempotent per order
         billing_period: billingPeriod,
-        current_period_end: end.toISOString(),
-      };
-      const { error } = await supabaseAdmin
-        .from("subscriptions")
-        .upsert(row, { onConflict: "user_id" });
-      if (error) throw error;
+        amount: Number(order.amount),
+        currency: order.currency || null,
+        source: "verify",
+      });
+      if (!claim.claimed) {
+        const { data: prior } = await supabaseAdmin
+          .from("processed_payments")
+          .select("user_id, plan, period_end")
+          .eq("order_id", razorpay_order_id)
+          .maybeSingle();
+        if (prior && String(prior.user_id) === String(req.user.id)) {
+          invalidateUser(req.user.id);
+          return res.json({ ok: true, plan: prior.plan, current_period_end: prior.period_end, alreadyProcessed: true });
+        }
+        return res.status(409).json({ error: "payment_already_used" });
+      }
 
-      invalidateUser(req.user.id); // drop the ~15s plan cache
+      try {
+        const { data: existing } = await supabaseAdmin
+          .from("subscriptions")
+          .select("plan, status, current_period_end")
+          .eq("user_id", req.user.id)
+          .maybeSingle();
+        const end = computePeriodEnd({ termDays: TERM_DAYS[billingPeriod], existing, plan });
+        const row = {
+          user_id: req.user.id,
+          plan,
+          status: "active",
+          provider: "razorpay",
+          provider_customer_id: null,
+          provider_subscription_id: razorpay_order_id, // UNIQUE — idempotent per order
+          billing_period: billingPeriod,
+          current_period_end: end.toISOString(),
+        };
+        const { error } = await supabaseAdmin
+          .from("subscriptions")
+          .upsert(row, { onConflict: "user_id" });
+        if (error) throw error;
+        await recordPaymentPeriodEnd(razorpay_payment_id, row.current_period_end).catch(() => {});
 
-      res.json({ ok: true, plan, current_period_end: row.current_period_end });
+        invalidateUser(req.user.id); // drop the ~15s plan cache
+        res.json({ ok: true, plan, current_period_end: row.current_period_end });
+      } catch (grantErr) {
+        await releasePayment(razorpay_payment_id).catch(() => {});
+        throw grantErr;
+      }
     } catch (err) {
       console.error("[razorpay/verify]", redact((err && (err.stack || err.message)) || String(err)));
       res.status(500).json({ error: "verify_failed" });
@@ -3734,8 +3996,8 @@ app.get("/api/subscriptions/status", requireAuth, (_req, res) => {
 //   → { subscription_id, short_url, keyId }
 app.post(
   "/api/subscriptions/create",
-  checkoutLimiter,
   requireAuth,
+  checkoutLimiter,
   async (req, res) => {
     try {
       if (!razorpay.subscriptionsConfigured()) {
@@ -3747,6 +4009,16 @@ app.post(
 
       const rzpPlanId = razorpay.planId(plan, billingPeriod);
       if (!rzpPlanId) return res.status(400).json({ error: "plan_not_configured" });
+
+      // Never replace a live paid row with a 'created' placeholder.
+      const { data: curSub } = await supabaseAdmin
+        .from("subscriptions")
+        .select("plan, status, provider, current_period_end")
+        .eq("user_id", req.user.id)
+        .maybeSingle();
+      if (curSub && effectivePlanFromRow(curSub) !== "free") {
+        return res.status(409).json({ error: "already_subscribed" });
+      }
 
       // Reuse (or create) one Razorpay customer per user.
       let customerId = null;
@@ -3815,8 +4087,8 @@ app.post(
 //   → { ok, plan, status }   (200 only when the signature is valid)
 app.post(
   "/api/subscriptions/verify",
-  checkoutLimiter,
   requireAuth,
+  checkoutLimiter,
   async (req, res) => {
     try {
       if (!razorpay.isEnabled()) {
@@ -3887,8 +4159,18 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
     return res.status(401).json({ error: "bad_signature" });
   }
 
+  const eventId = String(req.get("x-razorpay-event-id") || "").slice(0, 128) || null;
+  let eventClaimed = false;
   try {
     const event = String(req.body && req.body.event) || "";
+    const eventCreatedMs = Number(req.body && req.body.created_at) * 1000 || null;
+
+    // Retried / replayed deliveries carry the same event id: ack and skip.
+    if (eventId) {
+      const isNew = await claimWebhookEvent(eventId, event);
+      if (!isNew) return res.status(200).json({ ok: true, duplicate: true });
+      eventClaimed = true;
+    }
 
     // AutoApply packs (order notes.kind === 'autoapply'): payment.captured /
     // order.paid -> idempotent batch 'paid' + ledger 'purchase'. null = not ours.
@@ -3897,7 +4179,7 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
 
     // One-time term payments: safety net for a lost browser callback (tab
     // closed right after paying). Grant the plan straight from order.notes —
-    // idempotent with /api/payments/razorpay/verify (same provider_subscription_id).
+    // idempotent with /api/payments/razorpay/verify via processed_payments.
     if (event === "order.paid") {
       const order = req.body?.payload?.order?.entity;
       const n = (order && order.notes) || {};
@@ -3909,20 +4191,46 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
         console.warn("[rzp-webhook] order.paid amount mismatch", redact(JSON.stringify({ id: order.id, paid })));
         return res.status(202).json({ ok: true, note: "amount mismatch" });
       }
-      const end = new Date(Date.now() + TERM_DAYS[n.billingPeriod] * 86400000).toISOString();
-      const { error: upErr } = await supabaseAdmin.from("subscriptions").upsert(
-        {
-          user_id: n.user_id,
-          plan: n.plan,
-          status: "active",
-          provider: "razorpay",
-          provider_subscription_id: order.id, // UNIQUE per order — idempotent
-          billing_period: n.billingPeriod,
-          current_period_end: end,
-        },
-        { onConflict: "user_id" },
-      );
-      if (upErr) throw upErr;
+      const payment = req.body?.payload?.payment?.entity;
+      const paymentId = (payment && payment.id) || `order_${order.id}`;
+      const claim = await claimPayment({
+        payment_id: paymentId,
+        order_id: order.id,
+        user_id: n.user_id,
+        plan: n.plan,
+        billing_period: n.billingPeriod,
+        amount: paid,
+        currency: order.currency || null,
+        source: "webhook",
+      });
+      if (!claim.claimed) {
+        return res.status(200).json({ ok: true, duplicate: true, note: "payment already processed" });
+      }
+      try {
+        const { data: existing } = await supabaseAdmin
+          .from("subscriptions")
+          .select("plan, status, current_period_end")
+          .eq("user_id", n.user_id)
+          .maybeSingle();
+        const end = computePeriodEnd({ termDays: TERM_DAYS[n.billingPeriod], existing, plan: n.plan }).toISOString();
+        const { error: upErr } = await supabaseAdmin.from("subscriptions").upsert(
+          {
+            user_id: n.user_id,
+            plan: n.plan,
+            status: "active",
+            provider: "razorpay",
+            provider_subscription_id: order.id, // UNIQUE per order — idempotent
+            billing_period: n.billingPeriod,
+            current_period_end: end,
+          },
+          { onConflict: "user_id" },
+        );
+        if (upErr) throw upErr;
+        await recordPaymentPeriodEnd(paymentId, end).catch(() => {});
+      } catch (grantErr) {
+        await releasePayment(paymentId).catch(() => {});
+        throw grantErr;
+      }
       invalidateUser(n.user_id);
       return res.status(200).json({ ok: true, granted: n.plan });
     }
@@ -3959,6 +4267,19 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
       return res.status(202).json({ ok: true, note: "no user mapping" });
     }
 
+    // Ignore events older than what we already stored (out-of-order delivery).
+    if (eventCreatedMs) {
+      const { data: stored } = await supabaseAdmin
+        .from("subscriptions")
+        .select("updated_at")
+        .eq("user_id", userId)
+        .eq("provider_subscription_id", subId)
+        .maybeSingle();
+      if (stored && stored.updated_at && new Date(stored.updated_at).getTime() > eventCreatedMs) {
+        return res.status(200).json({ ok: true, ignored: "stale_event" });
+      }
+    }
+
     const status = subStatusFromRazorpay(entity.status);
     const patch = {
       user_id: userId,
@@ -3986,6 +4307,7 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
     invalidateUser(userId);
     res.status(200).json({ ok: true });
   } catch (err) {
+    if (eventClaimed) await releaseWebhookEvent(eventId).catch(() => {});
     console.error("[rzp-webhook]", redact((err && (err.stack || err.message)) || String(err)));
     res.status(500).json({ error: "processing_failed" }); // Razorpay retries
   }
@@ -4240,8 +4562,41 @@ app.get("/sitemap.xml", async (req, res) => {
   res.type("application/xml").set("Cache-Control", "public, max-age=0, s-maxage=600").send(body);
 });
 
+// ── SSR-lite helpers ─────────────────────────────────────────────
+// Rendered HTML is cached per route (pre-nonce) for 2 minutes; the per-request
+// CSP nonce is stamped onto inline <script>s at send time.
+const SSR_TTL_MS = 120_000;
+const SSR_MAX = 300;
+/** @type {Map<string, { html: string, cc: string, exp: number }>} */
+const ssrCache = new Map();
+
+function stampNonce(html, nonce) {
+  if (!nonce) return html;
+  // Inline executable scripts only: no src= and not a JSON data block.
+  return html.replace(/<script(?![^>]*\bsrc=)(?![^>]*type="application\/(?:ld\+)?json")([^>]*)>/g, `<script nonce="${nonce}"$1>`);
+}
+
 app.get(/^(?!\/api).*/, async (req, res, next) => {
   if (!INDEX_TEMPLATE) return next(); // dev / no build
+
+  // A path with a file extension that no static handler claimed is a missing
+  // file, not an SPA route: 404 instead of serving the HTML shell.
+  if (/\.[A-Za-z0-9]{1,8}$/.test(req.path)) {
+    return res.status(404).type("text/plain").send("Not found");
+  }
+
+  // Stamp the CSP nonce on every HTML string sent from this handler.
+  const rawSend = res.send.bind(res);
+  res.send = (body) =>
+    rawSend(typeof body === "string" ? stampNonce(body, res.locals.cspNonce) : body);
+
+  const ssrKey = req.path.length <= 200 ? req.path : null;
+  const ssrHit = ssrKey ? ssrCache.get(ssrKey) : null;
+  if (ssrHit && ssrHit.exp > Date.now()) {
+    res.set("Content-Type", "text/html; charset=utf-8");
+    res.set("Cache-Control", ssrHit.cc);
+    return res.send(ssrHit.html);
+  }
 
   let c = classifyRoute(req.path);
 
@@ -4358,10 +4713,17 @@ app.get(/^(?!\/api).*/, async (req, res, next) => {
   // most of the shared-cache benefit while shrinking that window to
   // something a real deploy essentially never lands inside twice in a row;
   // ErrorBoundary.jsx's chunk-error auto-reload is the remaining backstop.
-  res.set(
-    "Cache-Control",
-    c.kind === "public" ? "public, max-age=0, s-maxage=30, stale-while-revalidate=30" : "no-store",
-  );
+  const cacheControl =
+    c.kind === "public" ? "public, max-age=0, s-maxage=30, stale-while-revalidate=30" : "no-store";
+  res.set("Cache-Control", cacheControl);
+  // Only cache real, indexable public pages (bounded; unknown paths never grow it).
+  if (ssrKey && c.kind === "public") {
+    if (ssrCache.size >= SSR_MAX) {
+      const k = ssrCache.keys().next().value;
+      if (k !== undefined) ssrCache.delete(k);
+    }
+    ssrCache.set(ssrKey, { html, cc: cacheControl, exp: Date.now() + SSR_TTL_MS });
+  }
   res.send(html);
 });
 

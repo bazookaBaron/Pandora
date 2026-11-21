@@ -54,6 +54,7 @@ export async function sendEmail({ to, subject, html, text, tag, from, replyTo })
         text,
         ...(replyTo ? { reply_to: replyTo } : {}),
       }),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!res.ok) {
