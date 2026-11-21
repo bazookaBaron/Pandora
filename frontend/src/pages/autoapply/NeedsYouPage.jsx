@@ -88,12 +88,13 @@ function TaskItem({ item }) {
             </p>
 
             {p.reason === 'verify_submission' ? (
-                // We could not tell whether the final submit landed. 'done'
-                // records it as applied by you; 'dismiss' skips it (no credit).
+                // We could not tell whether the final submit landed.
+                // 'confirm_submitted' records it as applied (one credit);
+                // 'not_submitted' retries it while the pack has credits, else skips it (no credit).
                 <div className="aa-row">
                     {link && <a className="aa-btn" href={link} target="_blank" rel="noopener noreferrer"><ExternalLink size={12} aria-hidden /> Open job</a>}
-                    <button type="button" className="aa-btn is-primary" onClick={() => act('done')} disabled={resolve.isPending}>It was submitted</button>
-                    <button type="button" className="aa-btn" onClick={() => act('dismiss')} disabled={resolve.isPending}>It wasn&rsquo;t</button>
+                    <button type="button" className="aa-btn is-primary" onClick={() => act('confirm_submitted')} disabled={resolve.isPending}>It was submitted</button>
+                    <button type="button" className="aa-btn" onClick={() => act('not_submitted')} disabled={resolve.isPending}>It wasn&rsquo;t</button>
                 </div>
             ) : item.kind === 'question' ? (
                 <form className="aa-stack" onSubmit={(e) => { e.preventDefault(); if (String(answer).trim()) act('answer', { answer: String(answer).trim() }) }}>

@@ -492,9 +492,16 @@ export function useRemoveTask({ meta: metaOverride } = {}) {
     })
 }
 
-const NEEDS_DONE = { done: 'Marked as done.', answer: 'Answer saved. We will retry this job.', dismiss: 'Dismissed.' }
+const NEEDS_DONE = {
+    done: 'Marked as done.',
+    answer: 'Answer saved. We will retry this job.',
+    dismiss: 'Dismissed.',
+    confirm_submitted: 'Recorded as applied.',
+    not_submitted: 'Thanks. We will try this job again if your pack still has credits.',
+}
 
-// action: 'done' | 'answer' | 'dismiss'
+// action: 'done' | 'answer' | 'dismiss' | 'confirm_submitted' | 'not_submitted' (the last two only for
+// verify_submission items: "did this application go through?")
 export function useResolveNeedsYou({ meta: metaOverride } = {}) {
     const qc = useQueryClient()
     return useMutation({

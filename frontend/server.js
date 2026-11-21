@@ -75,6 +75,7 @@ import {
   createInboundHandler,
   handleAutoApplyWebhook,
   runAutoApplyRefunds,
+  runExpirePendingOrders,
   runMailCleanup,
   runDailyMailAlerts,
   runInterviewReminders,
@@ -4944,6 +4945,12 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY && razorpay.isEnabled()) {
   cron.schedule("*/15 * * * *", () => runAutoApplyRefunds(), { timezone: "Asia/Kolkata" });
 } else {
   console.warn("[autoapply] refunds cron disabled (no SUPABASE_SERVICE_ROLE_KEY or Razorpay keys)");
+}
+
+// AutoApply pending orders: pending_payment older than 24 h -> 'cancelled' (a payment that still lands is
+// auto-refunded by markBatchPaid). Hourly.
+if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  cron.schedule("10 * * * *", () => runExpirePendingOrders().then((r) => { if (r.expired) console.log("[autoapply] pending orders expired", r); }, (e) => console.error("[autoapply] pending expiry failed:", (e && e.message) || e)), { timezone: "Asia/Kolkata" });
 }
 
 // AutoApply mail (mail lives only inside Vloombox; see docs/autoapply-contract.md).
