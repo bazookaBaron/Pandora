@@ -50,22 +50,25 @@ function stringToColor(str = '') {
     return colors[Math.abs(hash) % colors.length]
 }
 
+// Shown once VITE_AUTOAPPLY=1 at build time; the /autoapply pages still work by direct link for testing.
+const AUTOAPPLY_LINK = import.meta.env.VITE_AUTOAPPLY === '1' ? [{ to: '/autoapply', label: 'Auto Apply' }] : []
+
 const NAV_LINKS = [
     { to: '/', label: 'Jobs' },
+    ...AUTOAPPLY_LINK,
     { to: '/optimizer', label: 'Optimizer' },
     { to: '/dsa', label: 'DSA' },
     { to: '/lld', label: 'LLD' },
     { to: '/hld', label: 'HLD' },
     { to: '/interview', label: 'Interview' },
     { to: '/referrals', label: 'Referrals' },
-    // Shown once VITE_AUTOAPPLY=1 at build time; the /autoapply pages still work by direct link for testing.
-    ...(import.meta.env.VITE_AUTOAPPLY === '1' ? [{ to: '/autoapply', label: 'AutoApply' }] : []),
 ]
 
 // Mobile: these move OUT of the hamburger menu into the tile bar below the nav.
 // Optimizer, Referrals (and Profile) stay in the menu.
 const TILE_LINKS = [
     { to: '/', label: 'Jobs' },
+    ...AUTOAPPLY_LINK,
     { to: '/dsa', label: 'DSA' },
     { to: '/lld', label: 'LLD' },
     { to: '/hld', label: 'HLD' },

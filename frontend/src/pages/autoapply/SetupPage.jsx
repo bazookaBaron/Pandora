@@ -7,6 +7,7 @@ import {
 import { CopyButton } from './ui'
 import NotifyButton from './NotifyButton'
 import { toast } from '../../lib/toast'
+import { ROLE_SUGGESTIONS } from '../../lib/roleSuggestions'
 
 // Errors render inline next to the step's button, so skip the global error toast.
 const INLINE = { meta: { inlineError: true } }
@@ -286,7 +287,7 @@ function AnswersStep({ onNext, draft }) {
 }
 
 // ── Step 3: preferences ───────────────────────────────────────────
-function ChipInput({ id, label, values, onChange, placeholder, hint }) {
+function ChipInput({ id, label, values, onChange, placeholder, hint, suggestions }) {
     const [text, setText] = useState('')
     function add(raw) {
         const parts = raw.split(',').map((s) => s.trim()).filter(Boolean)
@@ -304,7 +305,9 @@ function ChipInput({ id, label, values, onChange, placeholder, hint }) {
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(text) } }}
                 onBlur={() => add(text)}
                 aria-describedby={`${id}-hint`}
+                list={suggestions ? `${id}-list` : undefined} autoComplete={suggestions ? 'off' : undefined}
             />
+            {suggestions && <datalist id={`${id}-list`}>{suggestions.map((r) => <option key={r} value={r} />)}</datalist>}
             <div id={`${id}-hint`} className="field-hint">{hint || 'Press Enter or comma to add.'}</div>
             {values.length > 0 && (
                 <div className="aa-chips" style={{ marginTop: 8 }}>
@@ -366,7 +369,7 @@ function PrefsStep({ me, onNext }) {
     return (
         <form className="aa-card aa-stack" onSubmit={submit} aria-labelledby="st-prefs" noValidate>
             <h2 id="st-prefs" className="aa-h2">Preferences</h2>
-            <ChipInput id="pf-titles" label="Job titles" values={titles} onChange={setTitles} placeholder="e.g. Backend Engineer" />
+            <ChipInput id="pf-titles" label="Job titles" values={titles} onChange={setTitles} placeholder="e.g. Backend Engineer" suggestions={ROLE_SUGGESTIONS} />
             <ChipInput id="pf-locs" label="Locations" values={locations} onChange={setLocations} placeholder="e.g. Bengaluru, Remote India" />
             <div className="aa-field">
                 <label className="field-label" htmlFor="pf-score">Minimum match score: <span style={{ color: 'var(--pop)' }}>{minScore}</span></label>
