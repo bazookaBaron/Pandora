@@ -5,6 +5,7 @@ import {
     AALayout, ACTIVE_BATCH, BatchStatusPill, PACK_KINDS, PACK_SIZES, PageHeader, Progress, ReadinessCard, UpgradeCard,
     num, packPrice, rupees,
 } from './ui'
+import AAProgressGuide from '../../components/onboarding/AAProgressGuide'
 
 const HOW = [
     ['Set up once', 'Upload your resume, answer the standard application questions and pick the roles and cities you want.'],
@@ -114,6 +115,7 @@ export default function AutoApplyLanding() {
                 title="We apply to jobs for you."
                 lead="Vloombox finds fresh openings that match your profile and submits the applications on the company's own career site, using your resume and your answers."
             />
+            <AAProgressGuide />
 
             {me.isLoading && <LoadingState label="Loading…" />}
             {me.isError && <ErrorState compact err={me.error} onRetry={() => me.refetch()} style={{ marginBottom: 20 }} />}

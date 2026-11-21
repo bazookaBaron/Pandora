@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
+import { GuideNextCta } from '../../components/onboarding/AAProgressGuide'
 import { useAutoApplyMe, useInbox, useInboxCompanies, useInboxMail, useInboxUnread, useMarkAllRead } from '../../lib/useAutoApply'
 import { AALayout, CopyButton, PageHeader, fmtAgo, fmtDate } from './ui'
 import NotifyButton from './NotifyButton'
@@ -198,8 +199,9 @@ export default function InboxPage() {
                     ) : mails.length === 0 ? (
                         <EmptyState
                             icon="✉️"
-                            title={term || company || unreadOnly ? 'No matches' : 'No mail here yet'}
-                            message={term || company || unreadOnly ? 'Try a different search or filter.' : 'Interview invites, assessments, offers and recruiter messages show up here. Verification codes are under Codes.'}
+                            title={term || company || unreadOnly ? 'No matches' : 'No mail yet. Replies, assessments and interview invites land here.'}
+                            message={term || company || unreadOnly ? 'Try a different search or filter.' : undefined}
+                            action={term || company || unreadOnly ? undefined : <GuideNextCta fallback={{ to: '/autoapply/batches', label: 'Open batches' }} />}
                         />
                     ) : (
                         <>

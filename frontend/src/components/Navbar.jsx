@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAvatarUrl } from '../lib/useAvatar'
 import { useMediaQuery } from '../lib/useMediaQuery'
+import { GuideLink } from './onboarding/WelcomeHost'
 
 function ThemeToggle({ full = false }) {
     const { theme, toggleTheme } = useTheme()
@@ -219,6 +220,8 @@ export default function Navbar() {
                                         {profileLabel}
                                     </Link>
 
+                                    <GuideLink onClick={() => setMenuOpen(false)} style={{ width: '100%', justifyContent: 'flex-start' }} />
+
                                     <button
                                         type="button"
                                         onClick={handleLogout}
@@ -248,6 +251,8 @@ export default function Navbar() {
                             {link.label}
                         </Link>
                     ))}
+
+                    {user && <GuideLink />}
 
                     <ThemeToggle />
 

@@ -5,6 +5,7 @@ import { ErrorState, LoadingState, errorText } from '../../components/shared/sta
 import { openRazorpayOrder } from '../../lib/razorpay'
 import { useAutoApplyMe, useCompanySuggest, useCreateOrder, useSupply, useVerifyOrder } from '../../lib/useAutoApply'
 import { AALayout, MustCompaniesInput, PACK_KINDS, PACK_SIZES, PageHeader, ProfileMissing, ReadinessCard, fmtDate, num, packPrice, rupees } from './ui'
+import AAProgressGuide from '../../components/onboarding/AAProgressGuide'
 
 function useDebounced(value, ms) {
     const [v, setV] = useState(value)
@@ -171,6 +172,7 @@ export default function BuyPage() {
                 </div>
             )}
             <PageHeader eyebrow="Buy" title="Buy an AutoApply pack" lead="Credits are used only when an application is submitted." />
+            <AAProgressGuide />
 
             {me.data && !onboarded && (
                 <div className="aa-note is-warn aa-spread" style={{ marginBottom: 16 }}>

@@ -1,0 +1,66 @@
+/* ── Onboarding: AutoApply progress guide (tokens from index.css; light/dark via :root[data-theme]) ── */
+.ob-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
+
+.ob-guide {
+    background: var(--panel); border: 1px solid var(--subtle); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 20px;
+}
+.ob-guide-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ob-guide-title {
+    font-size: 0.66rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted);
+}
+.ob-guide-count { color: var(--faint); margin-left: 6px; font-weight: 800; }
+
+.ob-link {
+    background: none; border: 0; padding: 4px 2px; font: inherit; font-size: 0.7rem; font-weight: 800;
+    color: var(--pop); cursor: pointer; border-radius: 4px;
+}
+.ob-link:hover { text-decoration: underline; }
+.ob-link:focus-visible, .ob-step:focus-visible { outline: 2px solid var(--pop); outline-offset: 2px; }
+
+.ob-steps {
+    list-style: none; margin: 12px 0 0; padding: 0;
+    display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px;
+}
+.ob-step {
+    position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px;
+    text-align: center; min-width: 0;
+}
+/* connector line between dots */
+.ob-step:not(:last-child)::after {
+    content: ''; position: absolute; top: 11px; left: calc(50% + 14px); right: calc(-50% + 14px);
+    height: 1px; background: var(--subtle);
+}
+.ob-step.is-done:not(:last-child)::after { background: var(--green); opacity: 0.6; }
+.ob-dot {
+    width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+    font-size: 0.64rem; font-weight: 900; border: 1px solid var(--subtle); color: var(--faint);
+    background: var(--surface); flex-shrink: 0;
+}
+.ob-step-label {
+    font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--faint); overflow-wrap: anywhere; line-height: 1.3;
+}
+.ob-step.is-done .ob-dot { color: var(--green); border-color: var(--green); background: var(--green-bg); }
+.ob-step.is-done .ob-step-label { color: var(--muted); }
+.ob-step.is-current .ob-dot { color: var(--surface); background: var(--pop); border-color: var(--pop); box-shadow: 0 0 0 3px var(--pop-dim); }
+.ob-step.is-current .ob-step-label { color: var(--bright); }
+
+.ob-current {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--subtle);
+}
+.ob-current-title { color: var(--bright); font-weight: 900; font-size: 0.84rem; }
+.ob-current-text { margin: 3px 0 0; color: var(--muted); font-size: 0.76rem; line-height: 1.5; max-width: 560px; }
+
+@media (max-width: 640px) {
+    .ob-steps { grid-template-columns: 1fr; gap: 0; }
+    .ob-step { flex-direction: row; align-items: center; gap: 10px; text-align: left; padding: 5px 0; }
+    .ob-step:not(:last-child)::after { top: 28px; bottom: -6px; left: 11px; right: auto; width: 1px; height: auto; }
+    .ob-step-label { font-size: 0.66rem; }
+    .ob-current .aa-btn { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ob-step.is-current .ob-dot { box-shadow: none; }
+}

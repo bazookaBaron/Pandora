@@ -6,6 +6,7 @@ import {
 } from '../../lib/useAutoApply'
 import { AALayout, CopyButton, PageHeader } from './ui'
 import NotifyButton from './NotifyButton'
+import AAProgressGuide from '../../components/onboarding/AAProgressGuide'
 
 const STEPS = [
     { id: 'resume', label: 'Resume' },
@@ -484,6 +485,7 @@ export default function SetupPage() {
     return (
         <AALayout gate>
             <PageHeader eyebrow="AutoApply setup" title="Set up AutoApply" lead="About five minutes. You can change any of this later." />
+            <AAProgressGuide />
             <ol className="aa-steps" aria-label="Setup steps">
                 {STEPS.map((s, i) => (
                     <li key={s.id}>
