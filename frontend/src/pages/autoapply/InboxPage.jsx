@@ -1,25 +1,26 @@
 import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
 import { GuideNextCta } from '../../components/onboarding/AAProgressGuide'
 import { useAutoApplyMe, useInbox, useInboxCompanies, useInboxMail, useInboxUnread, useMarkAllRead } from '../../lib/useAutoApply'
 import { AALayout, CopyButton, PageHeader, fmtAgo, fmtDate } from './ui'
 import NotifyButton from './NotifyButton'
 import InterviewCard, { safeHref } from './InterviewCard'
+import InterviewsPanel from './InterviewsPanel'
 
 // Views of "All emails": each maps to API filters.
 const VIEWS = [
     { id: 'all', label: 'All', f: { tab: 'all' } },
-    { id: 'important', label: 'Important', f: { tab: 'important' } },
-    { id: 'interview', label: 'Interviews', f: { kind: 'interview' } },
-    { id: 'assessment', label: 'Assessments', f: { kind: 'assessment' } },
-    { id: 'offer', label: 'Offers', f: { kind: 'offer' } },
+    { id: 'interview', label: 'Interview', f: { kind: 'interview' } },
+    { id: 'assessment', label: 'Assessment', f: { kind: 'assessment' } },
+    { id: 'offer', label: 'Offer', f: { kind: 'offer' } },
     { id: 'rejected', label: 'Rejected', f: { category: 'rejected' } },
     { id: 'received', label: 'Applied', f: { category: 'received' } },
-    { id: 'codes', label: 'Codes', f: { tab: 'codes' } },
     { id: 'other', label: 'Other', f: { category: 'other' } },
 ]
 const VIEW_IDS = new Set(VIEWS.map((v) => v.id))
+// URL filter is ?f=<id>; legacy links used ?view=<id> and the retired Important / Codes chips.
+const LEGACY_VIEWS = { important: { tab: 'important' }, codes: { tab: 'codes' } }
 
 const CATEGORY_LABEL = { important: 'Important', code: 'Code', received: 'Applied', rejected: 'Rejected', other: 'Other' }
 const KIND_LABEL = { interview: 'Interview', assessment: 'Assessment', offer: 'Offer', recruiter: 'Recruiter', rejection: 'Rejected' }
@@ -116,13 +117,14 @@ function MailDetail({ id, onBack }) {
 export default function InboxPage() {
     const me = useAutoApplyMe()
     const [params, setParams] = useSearchParams()
-    const view = VIEW_IDS.has(params.get('view')) ? params.get('view') : 'all'
+    const rawView = params.get('f') || params.get('view')
+    const view = VIEW_IDS.has(rawView) || LEGACY_VIEWS[rawView] ? rawView : 'all'
     const openId = /^\d{1,18}$/.test(params.get('mail') || '') ? params.get('mail') : null
     const [text, setText] = useState('')
     const [term, setTerm] = useState('')
     const [company, setCompany] = useState('')
     const [unreadOnly, setUnreadOnly] = useState(false)
-    const filters = VIEWS.find((v) => v.id === view).f
+    const filters = (VIEWS.find((v) => v.id === view) || { f: LEGACY_VIEWS[view] }).f
     const q = useInbox({ ...filters, q: term, company, unread: unreadOnly })
     const unread = useInboxUnread()
     const companies = useInboxCompanies()
@@ -138,23 +140,23 @@ export default function InboxPage() {
 
     const setParam = (k, v) => {
         const next = new URLSearchParams(params)
+        next.delete('view')
         if (v) next.set(k, v)
         else next.delete(k)
-        setParams(next, { replace: k === 'view' })
+        setParams(next, { replace: k === 'f' })
     }
 
     return (
         <AALayout gate>
             <PageHeader
                 eyebrow="Inbox"
-                title="All emails"
-                lead="Everything companies send to your Vloombox address lives here. We never forward your mail; we alert you when an interview, assessment, offer or rejection arrives. Application receipts and rejections are deleted after 30 days; everything else is kept."
+                title="Inbox"
+                lead="Everything companies send to your Vloombox address. Receipts and rejections are deleted after 30 days."
                 actions={address ? <CopyButton text={address} label="Copy address" /> : null}
             />
             {address && <p className="aa-faint" style={{ margin: '-8px 0 12px', overflowWrap: 'anywhere' }}>{address}</p>}
             <div className="aa-row" style={{ marginBottom: 14 }}>
                 <NotifyButton />
-                <Link to="/autoapply/interviews" className="aa-btn">Interviews →</Link>
             </div>
 
             {openId ? (
@@ -163,11 +165,12 @@ export default function InboxPage() {
                 <>
                     <div className="aa-tabs aa-tabs-wrap" role="tablist" aria-label="Filter by category" style={{ marginBottom: 10 }}>
                         {VIEWS.map((v) => (
-                            <button key={v.id} type="button" role="tab" aria-selected={view === v.id} className={`aa-tab${view === v.id ? ' is-on' : ''}`} onClick={() => setParam('view', v.id === 'all' ? null : v.id)}>
+                            <button key={v.id} type="button" role="tab" aria-selected={view === v.id} className={`aa-tab${view === v.id ? ' is-on' : ''}`} onClick={() => setParam('f', v.id === 'all' ? null : v.id)}>
                                 {v.label}
                             </button>
                         ))}
                     </div>
+                    {view === 'interview' && <InterviewsPanel />}
                     <div className="aa-inbox-bar">
                         <input
                             type="search"
@@ -201,7 +204,7 @@ export default function InboxPage() {
                             icon="✉️"
                             title={term || company || unreadOnly ? 'No matches' : 'No mail yet. Replies, assessments and interview invites land here.'}
                             message={term || company || unreadOnly ? 'Try a different search or filter.' : undefined}
-                            action={term || company || unreadOnly ? undefined : <GuideNextCta fallback={{ to: '/autoapply/batches', label: 'Open batches' }} />}
+                            action={term || company || unreadOnly ? undefined : <GuideNextCta fallback={{ to: '/autoapply', label: 'Open overview' }} />}
                         />
                     ) : (
                         <>

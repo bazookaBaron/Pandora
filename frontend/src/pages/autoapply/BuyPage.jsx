@@ -5,7 +5,6 @@ import { ErrorState, LoadingState, errorText } from '../../components/shared/sta
 import { openRazorpayOrder } from '../../lib/razorpay'
 import { useAutoApplyMe, useCompanySuggest, useCreateOrder, useSupply, useVerifyOrder } from '../../lib/useAutoApply'
 import { AALayout, MustCompaniesInput, PACK_KINDS, PACK_SIZES, PageHeader, ProfileMissing, ReadinessCard, fmtDate, num, packPrice, rupees } from './ui'
-import AAProgressGuide from '../../components/onboarding/AAProgressGuide'
 
 function useDebounced(value, ms) {
     const [v, setV] = useState(value)
@@ -155,7 +154,7 @@ export default function BuyPage() {
                 razorpay_signature: resp.razorpay_signature,
             })
             const id = res?.batch?.id || order.batch_id
-            navigate(id ? `/autoapply/batches/${id}?new=1` : '/autoapply/batches')
+            navigate(id ? `/autoapply/batches/${id}?new=1` : '/autoapply')
         } catch (err) {
             setStage('')
             setNote({ kind: 'error', text: `We could not confirm the payment (${errorText(err)}). If you were charged, your batch will appear shortly; contact support if it doesn't.` })
@@ -173,12 +172,11 @@ export default function BuyPage() {
                 </div>
             )}
             <PageHeader eyebrow="Buy" title="Buy an AutoApply pack" lead="Credits are used only when an application is submitted." />
-            <AAProgressGuide />
 
             {me.data && !onboarded && (
                 <div className="aa-note is-warn aa-spread" style={{ marginBottom: 16 }}>
                     <span>Finish setup before buying, so we can apply with your resume and answers.</span>
-                    <Link to="/autoapply/setup" className="aa-btn is-primary">Go to setup</Link>
+                    <Link to="/autoapply/account" className="aa-btn is-primary">Go to setup</Link>
                 </div>
             )}
             {me.data && me.data.readiness ? (
@@ -287,7 +285,7 @@ export default function BuyPage() {
                     )}
                     {note?.kind === 'consent' && (
                         <div className="aa-note is-warn" style={{ marginTop: 12 }} role="alert">
-                            {note.text} <Link to="/autoapply/setup?step=consent" style={{ color: 'var(--pop)' }}>Go to the Confirm step</Link>
+                            {note.text} <Link to="/autoapply/account?step=consent" style={{ color: 'var(--pop)' }}>Go to the Confirm step</Link>
                         </div>
                     )}
                     {note?.kind === 'error' && <ErrorState compact message={note.text} style={{ marginTop: 12 }} />}

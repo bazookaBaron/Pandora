@@ -100,7 +100,7 @@ export const setupStepFor = (key) => STEP_FOR[key] || 'answers'
 export function setupLinkFor(missing) {
     const first = Array.isArray(missing) && missing[0]
     const key = first && (typeof first === 'object' ? first.key : first)
-    return key ? `/autoapply/setup?step=${setupStepFor(key)}` : '/autoapply/setup'
+    return key ? `/autoapply/account?step=${setupStepFor(key)}` : '/autoapply/account'
 }
 const missingLabel = (m) => (typeof m === 'object' && m ? m.label || m.key : String(m))
 
@@ -143,7 +143,7 @@ export function ReadinessCard({ readiness, title = 'Profile readiness', compact 
                         {(compact ? missing.slice(0, 5) : missing).map((m) => (
                             <li key={m.key} className="aa-spread" style={{ padding: '6px 0', borderBottom: '1px solid var(--subtle)', gap: 10 }}>
                                 <span>{m.label}</span>
-                                <Link to={m.fix || `/autoapply/setup?step=${setupStepFor(m.key)}`} className="aa-btn" aria-label={`Fix: ${m.label}`}>Fix</Link>
+                                <Link to={m.fix || `/autoapply/account?step=${setupStepFor(m.key)}`} className="aa-btn" aria-label={`Fix: ${m.label}`}>Fix</Link>
                             </li>
                         ))}
                     </ul>
@@ -306,33 +306,25 @@ export function InlineConfirm({ message, confirmLabel = 'Confirm', onConfirm, on
 
 // ── sub-navigation ──────────────────────────────────────────────────
 const TABS = [
-    { to: '/autoapply', label: 'Overview', exact: true },
-    { to: '/autoapply/batches', label: 'Batches' },
-    { to: '/autoapply/needs-you', label: 'Needs you', badge: true },
-    { to: '/autoapply/buy', label: 'Buy' },
+    { to: '/autoapply', label: 'Overview', also: ['/autoapply/batches', '/autoapply/buy', '/autoapply/needs-you'] },
     { to: '/autoapply/inbox', label: 'Inbox', unread: true },
-    { to: '/autoapply/interviews', label: 'Interviews' },
-    { to: '/autoapply/stats', label: 'Stats' },
-    { to: '/autoapply/accounts', label: 'Accounts' },
-    { to: '/autoapply/setup', label: 'Setup' },
-    { to: '/autoapply/admin/health', label: 'Health', admin: true },
+    { to: '/autoapply/account', label: 'Account' },
 ]
 
-function SubNav({ showBadge, isAdmin }) {
+function SubNav({ showBadge }) {
     const { pathname } = useLocation()
-    // both badges poll only for an eligible (paid) user; others never see them
-    const needs = useNeedsYou({ enabled: !!showBadge })
+    // the unread badge polls only for an eligible (paid) user
     const unread = useInboxUnread({ enabled: !!showBadge })
-    const count = showBadge ? (needs.data?.items?.length || 0) : 0
     const unreadCount = showBadge ? (unread.data?.count || 0) : 0
     return (
         <nav className="aa-subnav" aria-label="AutoApply">
-            {TABS.filter((t) => !t.admin || isAdmin).map((t) => {
-                const active = t.exact ? pathname === t.to : pathname.startsWith(t.to)
+            {TABS.map((t) => {
+                const active = t.to === '/autoapply'
+                    ? pathname === t.to || t.also.some((p) => pathname.startsWith(p))
+                    : pathname.startsWith(t.to)
                 return (
                     <Link key={t.to} to={t.to} className={`nav-pill${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined}>
                         {t.label}
-                        {t.badge && count > 0 && <span className="aa-count" aria-label={`${count} waiting`}>{count}</span>}
                         {t.unread && unreadCount > 0 && <span className="aa-count" aria-label={`${unreadCount} unread`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}
                     </Link>
                 )
@@ -356,7 +348,7 @@ export function AALayout({ children, gate = false, showNav = true }) {
         <>
             <Navbar />
             <main className="wrap aa-wrap">
-                {showNav && <SubNav showBadge={eligible} isAdmin={!!me.data?.is_admin} />}
+                {showNav && <SubNav showBadge={eligible} />}
                 {body}
             </main>
         </>

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
 import { useReplyStats } from '../../lib/useAutoApply'
-import { AALayout, PageHeader, fmtDate, num } from './ui'
+import { fmtDate, num } from './ui'
 
 const pct = (n) => `${(Number(n) || 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })}%`
 
@@ -51,17 +51,13 @@ function StatsTable({ rows, caption, firstCol }) {
     )
 }
 
-export default function StatsPage() {
+export default function StatsSection() {
     const q = useReplyStats()
     const d = q.data
     const t = d?.totals
     return (
-        <AALayout gate>
-            <PageHeader
-                eyebrow="Stats"
-                title="Reply rates"
-                lead={`Applications we submitted in the last ${d?.window_days ?? 90} days and the replies they got${d?.since ? ` (since ${fmtDate(d.since, false)})` : ''}.`}
-            />
+        <div>
+            <p className="aa-muted" style={{ margin: '0 0 12px' }}>{`Applications we submitted in the last ${d?.window_days ?? 90} days and the replies they got${d?.since ? ` (since ${fmtDate(d.since, false)})` : ''}.`}</p>
             {q.isLoading ? (
                 <LoadingState label="Counting replies…" />
             ) : q.isError ? (
@@ -89,6 +85,6 @@ export default function StatsPage() {
                     </section>
                 </div>
             )}
-        </AALayout>
+        </div>
     )
 }
