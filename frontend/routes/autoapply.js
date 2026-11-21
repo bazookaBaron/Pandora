@@ -38,6 +38,7 @@ import { chargeSummary, matchConfirmationMails, replyStats, STATS_WINDOW_DAYS } 
 import { healthSummary, isAdminUser } from "../lib/autoapply/health.js";
 import { sendInterviewReminders } from "../lib/autoapply/reminders.js";
 import { extractText, draftFromText, maybeEnrichWithAi } from "../lib/autoapply/resumeParse.js";
+import { isVerifyItem, confirmSubmitted, notSubmitted } from "../lib/autoapply/verify.js";
 
 export { AAError, handleAutoApplyWebhook };
 
@@ -872,11 +873,15 @@ export function createAutoApplyRouter(deps = {}) {
       const id = req.params.id;
       if (!UUID_RE.test(String(id))) throw notFound("Item not found.");
       const { action, answer } = req.body || {};
-      if (!["done", "answer", "dismiss"].includes(action)) throw bad("action must be 'done', 'answer' or 'dismiss'.");
+      const VERIFY_ACTIONS = ["confirm_submitted", "not_submitted"];
+      if (!["done", "answer", "dismiss", ...VERIFY_ACTIONS].includes(action)) {
+        throw bad("action must be 'done', 'answer', 'dismiss', 'confirm_submitted' or 'not_submitted'.");
+      }
       const { data: item, error } = await db.from("aa_needs_you").select("*").eq("id", id).eq("user_id", uid).maybeSingle();
       if (error) throw error;
       if (!item) throw notFound("Item not found.");
-      const resolution = { done: "done_by_user", answer: "answered", dismiss: "dismissed" }[action];
+      const resolution = { done: "done_by_user", answer: "answered", dismiss: "dismissed", confirm_submitted: "done_by_user", not_submitted: "dismissed" }[action];
+      const verify = isVerifyItem(item);
       if (item.resolved_at) {
         // a retry of the same action (e.g. the response was lost) is a success, not a conflict
         if (item.resolution === resolution) return res.json({ item });
@@ -884,6 +889,13 @@ export function createAutoApplyRouter(deps = {}) {
       }
       if (item.kind === "profile" && action !== "dismiss") {
         throw new AAError(409, "invalid_action", "Complete your profile; this item closes on its own once it is complete.");
+      }
+      // "did this application go through?" items (worker lease expired while submitting, sql/27b)
+      if (VERIFY_ACTIONS.includes(action) && !(verify && item.task_id)) {
+        throw new AAError(409, "invalid_action", "Only 'check this application' items take confirm_submitted / not_submitted.");
+      }
+      if (verify && (action === "done" || action === "answer")) {
+        throw new AAError(409, "invalid_action", "Tell us whether the application went through: confirm_submitted or not_submitted.");
       }
 
       let key = null;
@@ -908,7 +920,14 @@ export function createAutoApplyRouter(deps = {}) {
           .upsert({ user_id: uid, question_key: key, answer: value, source: "user", updated_at: now().toISOString() }, { onConflict: "user_id,question_key" });
         if (aErr) throw aErr;
       }
-      if (item.task_id) {
+      if (action === "confirm_submitted") {
+        const r = await confirmSubmitted({ db, taskId: item.task_id, userId: uid, now: now() });
+        if (!r.ok && r.error === "not_found") throw notFound("Task not found.");
+        if (!r.ok) throw new AAError(409, "invalid_state", `Task is '${r.status}'; it can no longer be confirmed.`);
+      } else if (action === "not_submitted") {
+        const r = await notSubmitted({ db, taskId: item.task_id, userId: uid, now: now() });
+        if (!r.ok) throw notFound("Task not found.");
+      } else if (item.task_id) {
         const taskPatch =
           action === "answer"
             ? { status: "queued", not_before: now().toISOString(), reason_code: null, reason_detail: null }
@@ -940,7 +959,13 @@ export function createAutoApplyRouter(deps = {}) {
       }
       out = { ...out };
       if (key) out.answer_key = key;
-      res.json({ item: out });
+      let task = null;
+      if (item.task_id) {
+        const { data: t, error: tErr } = await db.from("aa_tasks").select(TASK_FIELDS).eq("id", item.task_id).eq("user_id", uid).maybeSingle();
+        if (tErr) throw tErr;
+        task = t ? publicTask(t) : null;
+      }
+      res.json({ item: out, task });
     }),
   );
 

@@ -303,3 +303,85 @@ test("inbox: unread count via head count; read-all returns how many it marked", 
   assert.deepEqual(r.json, { ok: true, count: 3 });
   assert.equal((await call("GET", "/api/autoapply/inbox/unread")).json.count, 0);
 });
+
+// ── verify_submission items (worker lease expired while submitting) ────────
+function verifyFixture({ batchStatus = "running", used = 0, total = 50 } = {}) {
+  const b = { id: crypto.randomUUID(), user_id: U1, pack_kind: "product", pack_size: 50, credits_total: total, credits_used: used, status: batchStatus, purchased_at: ago(MIN) };
+  const t = { id: crypto.randomUUID(), batch_id: b.id, user_id: U1, company: "Acme", title: "SDE", status: "needs_you", reason_code: "verify_submission", attempt: 1, claimed_by: "w1", lease_until: ago(MIN) };
+  const ny = { id: crypto.randomUUID(), task_id: t.id, user_id: U1, kind: "other", payload: { reason: "verify_submission", apply_url: "https://acme.test/job" }, resolved_at: null };
+  db.rows("aa_batches").push(b);
+  db.rows("aa_tasks").push(t);
+  db.rows("aa_needs_you").push(ny);
+  const get = () => ({ b: db.rows("aa_batches").find((x) => x.id === b.id), t: db.rows("aa_tasks").find((x) => x.id === t.id), caps: db.rows("aa_credit_ledger").filter((l) => l.task_id === t.id && l.reason === "capture") });
+  return { b, t, ny, get };
+}
+
+test("verify: confirm_submitted -> applied, one credit captured exactly once (retry safe)", async () => {
+  const f = verifyFixture();
+  const r = await call("POST", `/api/autoapply/needs-you/${f.ny.id}`, { body: { action: "confirm_submitted" } });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.item.resolution, "done_by_user");
+  assert.equal(r.json.task.status, "applied");
+  const { b, t, caps } = f.get();
+  assert.equal(t.status, "applied");
+  assert.ok(t.submitted_at);
+  assert.equal(t.lease_until, null);
+  assert.equal(caps.length, 1);
+  assert.equal(caps[0].delta, -1);
+  assert.equal(b.credits_used, 1);
+  const again = await call("POST", `/api/autoapply/needs-you/${f.ny.id}`, { body: { action: "confirm_submitted" } });
+  assert.equal(again.status, 200);
+  assert.equal(f.get().caps.length, 1, "no second capture");
+  assert.equal(f.get().b.credits_used, 1);
+});
+
+test("verify: confirm on the last credit completes the batch; refund states record applied without a credit", async () => {
+  const last = verifyFixture({ used: 49 });
+  await call("POST", `/api/autoapply/needs-you/${last.ny.id}`, { body: { action: "confirm_submitted" } });
+  assert.equal(last.get().b.status, "completed");
+  for (const st of ["refund_due", "refunding", "refunded"]) {
+    const f = verifyFixture({ batchStatus: st, used: 3 });
+    const r = await call("POST", `/api/autoapply/needs-you/${f.ny.id}`, { body: { action: "confirm_submitted" } });
+    assert.equal(r.status, 200);
+    const { b, t, caps } = f.get();
+    assert.equal(t.status, "applied", st);
+    assert.equal(caps.length, 0, `${st}: no credit`);
+    assert.equal(b.credits_used, 3, `${st}: credits_used unchanged`);
+    assert.equal(b.status, st);
+  }
+});
+
+test("verify: not_submitted requeues (attempt+1, lease cleared) while credits remain, else skipped", async () => {
+  const f = verifyFixture();
+  const r = await call("POST", `/api/autoapply/needs-you/${f.ny.id}`, { body: { action: "not_submitted" } });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.item.resolution, "dismissed");
+  const { t, caps } = f.get();
+  assert.deepEqual([t.status, t.attempt, t.claimed_by, t.lease_until, t.reason_code], ["queued", 2, null, null, null]);
+  assert.equal(caps.length, 0);
+  for (const opts of [{ batchStatus: "paused" }, { batchStatus: "running", used: 50 }, { batchStatus: "refund_due" }]) {
+    const g = verifyFixture(opts);
+    await call("POST", `/api/autoapply/needs-you/${g.ny.id}`, { body: { action: "not_submitted" } });
+    assert.equal(g.get().t.status, "skipped", JSON.stringify(opts));
+    assert.equal(g.get().t.reason_code, "not_submitted");
+  }
+  const w = verifyFixture({ batchStatus: "waiting_supply" });
+  await call("POST", `/api/autoapply/needs-you/${w.ny.id}`, { body: { action: "not_submitted" } });
+  assert.equal(w.get().t.status, "queued");
+});
+
+test("verify actions only for verify_submission items; verify items refuse done / answer", async () => {
+  const t = { id: crypto.randomUUID(), batch_id: crypto.randomUUID(), user_id: U1, status: "needs_you" };
+  const cap = { id: crypto.randomUUID(), task_id: t.id, user_id: U1, kind: "captcha", payload: { apply_url: "https://x" }, resolved_at: null };
+  db.rows("aa_tasks").push(t);
+  db.rows("aa_needs_you").push(cap);
+  const r = await call("POST", `/api/autoapply/needs-you/${cap.id}`, { body: { action: "confirm_submitted" } });
+  assert.equal(r.status, 409);
+  assert.equal(r.json.error.code, "invalid_action");
+  assert.equal(db.rows("aa_tasks").find((x) => x.id === t.id).status, "needs_you");
+  const f = verifyFixture();
+  const d = await call("POST", `/api/autoapply/needs-you/${f.ny.id}`, { body: { action: "done" } });
+  assert.equal(d.status, 409);
+  assert.equal(f.get().t.status, "needs_you");
+  assert.equal((await call("POST", `/api/autoapply/needs-you/${f.ny.id}`, { body: { action: "bogus" } })).status, 400);
+});

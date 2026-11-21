@@ -68,3 +68,54 @@ BEGIN
      WHERE user_id IS NULL AND (expires_at IS NULL OR expires_at > received_at + interval '3 days');
   END IF;
 END $$;
+
+-- 5. needs-you 'verify_submission' (worker sweep, sql/27b): the user confirms the application went through.
+--    One transaction, the same credit path as the worker's applied result (saas/worker/supervisor.py):
+--    task -> 'applied' (submitted_at now), then batch FOR UPDATE; refund_due / refunding / refunded or a full
+--    batch -> applied without a credit; else ledger 'capture' (-1, unique per task: exactly once) and, only when
+--    that row was inserted, credits_used + 1 (-> 'completed' on the last credit). Called by the API
+--    (lib/autoapply/verify.js) with the service role.
+CREATE OR REPLACE FUNCTION public.aa_confirm_submitted(p_task uuid, p_user uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  t   public.aa_tasks%ROWTYPE;
+  b   record;
+  cap bigint;
+  why text := NULL;
+BEGIN
+  SELECT * INTO t FROM public.aa_tasks WHERE id = p_task AND user_id = p_user FOR UPDATE;
+  IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'error', 'not_found'); END IF;
+  IF t.status = 'applied' THEN
+    RETURN jsonb_build_object('ok', true, 'already', true,
+      'charged', EXISTS (SELECT 1 FROM public.aa_credit_ledger WHERE task_id = p_task AND reason = 'capture'));
+  END IF;
+  IF t.status <> 'needs_you' THEN RETURN jsonb_build_object('ok', false, 'error', 'invalid_state', 'status', t.status); END IF;
+
+  UPDATE public.aa_tasks
+     SET status = 'applied', submitted_at = now(), reason_code = NULL, reason_detail = NULL,
+         claimed_by = NULL, claimed_at = NULL, lease_until = NULL
+   WHERE id = p_task;
+
+  SELECT status, credits_used, credits_total INTO b FROM public.aa_batches WHERE id = t.batch_id FOR UPDATE;
+  IF NOT FOUND THEN
+    why := 'batch_missing';
+  ELSIF b.status IN ('refund_due','refunding','refunded') THEN
+    why := 'batch_' || b.status;
+  ELSIF b.credits_used >= b.credits_total THEN
+    why := 'batch_full';
+  ELSE
+    INSERT INTO public.aa_credit_ledger (user_id, batch_id, delta, reason, task_id)
+    VALUES (t.user_id, t.batch_id, -1, 'capture', p_task)
+    ON CONFLICT (task_id) WHERE reason = 'capture' DO NOTHING
+    RETURNING id INTO cap;
+    IF cap IS NOT NULL THEN
+      UPDATE public.aa_batches
+         SET credits_used = credits_used + 1,
+             status = CASE WHEN status = 'cancelled' THEN status
+                           WHEN credits_used + 1 >= credits_total THEN 'completed' ELSE status END
+       WHERE id = t.batch_id;
+    END IF;
+  END IF;
+  RETURN jsonb_build_object('ok', true, 'charged', cap IS NOT NULL, 'reason', why);
+END $$;
+REVOKE ALL ON FUNCTION public.aa_confirm_submitted(uuid, uuid) FROM PUBLIC, anon, authenticated;
