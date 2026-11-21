@@ -16,7 +16,7 @@ import { useAnswers, useAutoApplyMe, useBatches, useNeedsYou } from '../../lib/u
 
 const NON_ANSWER_KEYS = new Set(['onboarding', 'resume', 'email'])
 const PRE_REVIEW = ['paid', 'shortlisting']
-const PAST_REVIEW = ['running', 'paused', 'waiting_supply', 'completed', 'expired', 'refund_due', 'refunded']
+const PAST_REVIEW = ['running', 'paused', 'waiting_supply', 'completed', 'expired', 'refund_due', 'refunding', 'refunded']
 
 export const GUIDE_STEPS = [
     { id: 'resume', label: 'Resume' },

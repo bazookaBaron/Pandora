@@ -1,4 +1,5 @@
 import { usePush } from '../../lib/usePush'
+import { errorText } from '../../lib/errorText'
 
 /** "Turn on notifications" for the AutoApply inbox (web push). Hidden when push cannot work here. */
 export default function NotifyButton() {
@@ -14,7 +15,7 @@ export default function NotifyButton() {
                 </button>
             )}
             {status === 'denied' && <span className="aa-faint">Notifications are blocked in your browser settings for this site.</span>}
-            {error && <span className="aa-faint" role="alert">Could not change notifications: {error.message}</span>}
+            {error && <span className="aa-faint" role="alert">{error.code === 'endpoint_owned' ? errorText(error) : `Could not change notifications: ${errorText(error)}`}</span>}
         </div>
     )
 }

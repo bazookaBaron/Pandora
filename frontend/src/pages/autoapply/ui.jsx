@@ -69,6 +69,7 @@ const BATCH_STATUS = {
     completed: ['Completed', 't-green'],
     expired: ['Expired', 't-muted'],
     refund_due: ['Refund pending', 't-warm'],
+    refunding: ['Refund in progress', 't-warm'],
     refunded: ['Refunded', 't-muted'],
     cancelled: ['Cancelled', 't-muted'],
 }

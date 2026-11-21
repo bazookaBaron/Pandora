@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { useAccounts, useRevealPassword } from '../../lib/useAutoApply'
 import { AALayout, CopyButton, PageHeader, fmtDate } from './ui'
+import { useAuth } from '../../contexts/AuthContext'
+import { supabase } from '../../lib/supabase'
 
 const STATUS = {
     active: ['Active', 't-green'],
@@ -11,11 +13,96 @@ const STATUS = {
     user_supplied: ['Your own login', 't-pop'],
 }
 
+// Reveal needs a recent sign-in (server answers 401 reauth_required). Email
+// users confirm their password inline; OAuth users go through the provider
+// again and come back here, where the reveal they asked for resumes.
+const REVEAL_AFTER_AUTH = 'aa:reveal-after-auth'
+
+function ReauthPrompt({ host, onDone, onCancel }) {
+    const { user } = useAuth()
+    const provider = user?.app_metadata?.provider || 'email'
+    const [password, setPassword] = useState('')
+    const [busy, setBusy] = useState(false)
+    const [err, setErr] = useState('')
+
+    async function confirmPassword(e) {
+        e.preventDefault()
+        if (!password || busy) return
+        setBusy(true)
+        setErr('')
+        try {
+            const { error } = await supabase.auth.signInWithPassword({ email: user.email, password })
+            if (error) throw error
+            setPassword('')
+            onDone()
+        } catch (e2) {
+            setErr(errorText(e2, 'Sign-in failed. Check your password.'))
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    async function viaProvider() {
+        setBusy(true)
+        setErr('')
+        try { sessionStorage.setItem(REVEAL_AFTER_AUTH, host) } catch { /* private mode */ }
+        const { error } = await supabase.auth.signInWithOAuth({
+            provider,
+            options: { redirectTo: `${window.location.origin}/autoapply/accounts` },
+        })
+        if (error) {
+            setBusy(false)
+            setErr(errorText(error))
+        }
+    }
+
+    return (
+        <div className="aa-note is-warn aa-stack" role="alert" style={{ gap: 8 }}>
+            <span>For your security, sign in again to reveal saved passwords.</span>
+            {provider === 'email' ? (
+                <form className="aa-row" style={{ gap: 6 }} onSubmit={confirmPassword}>
+                    <label className="aa-sr" htmlFor={`reauth-${host}`}>Your Vloombox password</label>
+                    <input id={`reauth-${host}`} type="password" className="input-field" autoComplete="current-password"
+                        value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your Vloombox password" style={{ width: 'auto', flex: '1 1 180px' }} />
+                    <button type="submit" className="aa-btn is-primary" disabled={busy || !password}>{busy ? 'Checking…' : 'Confirm and reveal'}</button>
+                    <button type="button" className="aa-btn" onClick={onCancel} disabled={busy}>Cancel</button>
+                </form>
+            ) : (
+                <div className="aa-row" style={{ gap: 6 }}>
+                    <button type="button" className="aa-btn is-primary" onClick={viaProvider} disabled={busy}>
+                        {busy ? 'Redirecting…' : `Sign in again with ${provider.charAt(0).toUpperCase()}${provider.slice(1)}`}
+                    </button>
+                    <button type="button" className="aa-btn" onClick={onCancel} disabled={busy}>Cancel</button>
+                </div>
+            )}
+            {err && <span style={{ color: 'var(--red)' }}>{err}</span>}
+        </div>
+    )
+}
+
 // Password is fetched on demand, shown once, and dropped from memory on hide.
 function Reveal({ host }) {
     const reveal = useRevealPassword()
     const [pw, setPw] = useState(null)
     const [err, setErr] = useState(null)
+
+    function doReveal() {
+        setErr(null)
+        reveal.mutate(host, {
+            onSuccess: (r) => setPw(r?.password || ''),
+            onError: (e) => setErr(e),
+        })
+    }
+
+    // Back from an OAuth re-sign-in started for this host: resume the reveal.
+    useEffect(() => {
+        let pendingHost = null
+        try { pendingHost = sessionStorage.getItem(REVEAL_AFTER_AUTH) } catch { /* private mode */ }
+        if (pendingHost !== host) return
+        try { sessionStorage.removeItem(REVEAL_AFTER_AUTH) } catch { /* private mode */ }
+        doReveal()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [host])
 
     if (pw) {
         return (
@@ -31,16 +118,12 @@ function Reveal({ host }) {
     return (
         <div className="aa-stack" style={{ gap: 6 }}>
             <button type="button" className="aa-btn" disabled={reveal.isPending} aria-label={`Reveal password for ${host}`}
-                onClick={() => {
-                    setErr(null)
-                    reveal.mutate(host, {
-                        onSuccess: (r) => setPw(r?.password || ''),
-                        onError: (e) => setErr(e),
-                    })
-                }}>
+                onClick={doReveal}>
                 <Eye size={12} aria-hidden /> {reveal.isPending ? 'Revealing…' : 'Reveal password'}
             </button>
-            {err && <span className="aa-faint" style={{ color: 'var(--red)' }} role="alert">{errorText(err)}</span>}
+            {err?.code === 'reauth_required' ? (
+                <ReauthPrompt host={host} onDone={doReveal} onCancel={() => setErr(null)} />
+            ) : err && <span className="aa-faint" style={{ color: 'var(--red)' }} role="alert">{errorText(err)}</span>}
         </div>
     )
 }

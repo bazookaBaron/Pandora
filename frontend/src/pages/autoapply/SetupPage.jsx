@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import {
     useAnswers, useAutoApplyMe, useSaveAnswers, useSaveProfile, useUploadResume,
@@ -40,6 +40,13 @@ const labelize = (k) => k.replace(/[_.]/g, ' ').replace(/\b\w/g, (c) => c.toUppe
 
 function StepNote({ state }) {
     if (!state) return null
+    if (state.error?.code === 'consent_required') {
+        return (
+            <div className="aa-note is-warn" role="alert">
+                {errorText(state.error)} <Link to="/autoapply/setup?step=consent" style={{ color: 'var(--pop)' }}>Go to the Confirm step</Link>
+            </div>
+        )
+    }
     if (state.error) return <ErrorState compact message={errorText(state.error)} />
     return <div className="aa-note is-ok" role="status">{state.ok}</div>
 }

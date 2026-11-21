@@ -330,7 +330,7 @@ export default function BatchDetailPage() {
                                     ))}
                                 </div>
                             )}
-                            {batch.status === 'refund_due' || batch.status === 'refunded' ? (
+                            {batch.status === 'refund_due' || batch.status === 'refunding' || batch.status === 'refunded' ? (
                                 <p className="aa-muted" style={{ margin: '12px 0 0' }}>
                                     {batch.status === 'refunded'
                                         ? `Refunded ${batch.refund_paise != null ? rupees(batch.refund_paise) : ''} for unused credits.`

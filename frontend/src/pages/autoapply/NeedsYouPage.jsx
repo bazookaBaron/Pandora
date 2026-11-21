@@ -83,9 +83,19 @@ function TaskItem({ item }) {
                 </div>
                 <span className={`aa-pill ${item.kind === 'question' ? 't-pop' : 't-warm'}`}>{meta.title}</span>
             </div>
-            <p className="aa-muted" style={{ margin: 0 }}>{p.note || meta.help}</p>
+            <p className="aa-muted" style={{ margin: 0 }}>
+                {p.reason === 'verify_submission' ? 'Please check whether this application went through.' : (p.note || meta.help)}
+            </p>
 
-            {item.kind === 'question' ? (
+            {p.reason === 'verify_submission' ? (
+                // We could not tell whether the final submit landed. 'done'
+                // records it as applied by you; 'dismiss' skips it (no credit).
+                <div className="aa-row">
+                    {link && <a className="aa-btn" href={link} target="_blank" rel="noopener noreferrer"><ExternalLink size={12} aria-hidden /> Open job</a>}
+                    <button type="button" className="aa-btn is-primary" onClick={() => act('done')} disabled={resolve.isPending}>It was submitted</button>
+                    <button type="button" className="aa-btn" onClick={() => act('dismiss')} disabled={resolve.isPending}>It wasn&rsquo;t</button>
+                </div>
+            ) : item.kind === 'question' ? (
                 <form className="aa-stack" onSubmit={(e) => { e.preventDefault(); if (String(answer).trim()) act('answer', { answer: String(answer).trim() }) }}>
                     <div className="aa-field">
                         <label className="field-label" htmlFor={`${id}-a`} style={{ textTransform: 'none', letterSpacing: 0, fontSize: '0.8rem', color: 'var(--bright)' }}>

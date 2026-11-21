@@ -16,6 +16,9 @@ const FRIENDLY = {
     too_many_requests: 'Too many requests. Wait a moment and try again.',
     not_found: 'Not found.',
     forbidden: 'You do not have access to this.',
+    reauth_required: 'For your security, sign in again to continue.',
+    consent_required: 'Accept the AutoApply terms in Setup first.',
+    endpoint_owned: 'This device already gets notifications for another account. Turn them off there first.',
 }
 
 // snake_case machine codes ("invalid_state") → "Invalid state"

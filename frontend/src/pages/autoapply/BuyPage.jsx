@@ -125,6 +125,7 @@ export default function BuyPage() {
         } catch (err) {
             setStage('')
             if (err?.status === 403 || err?.code === 'not_eligible') setNote({ kind: 'eligible', text: err.message })
+            else if (err?.code === 'consent_required') setNote({ kind: 'consent', text: errorText(err) })
             else if (err?.status === 409 || err?.code === 'monthly_cap') setNote({ kind: 'cap', text: err.message })
             else setNote({ kind: 'error', text: errorText(err) })
             me.refetch()
@@ -282,6 +283,11 @@ export default function BuyPage() {
                     {note?.kind === 'cap' && (
                         <div className="aa-note is-warn" style={{ marginTop: 12 }} role="alert">
                             {note.text && note.text !== 'monthly_cap' ? note.text : `This pack would go over the ${num(cap)} applications per month limit.`} {num(remaining)} left this month; pick a smaller pack or wait for next month.
+                        </div>
+                    )}
+                    {note?.kind === 'consent' && (
+                        <div className="aa-note is-warn" style={{ marginTop: 12 }} role="alert">
+                            {note.text} <Link to="/autoapply/setup?step=consent" style={{ color: 'var(--pop)' }}>Go to the Confirm step</Link>
                         </div>
                     )}
                     {note?.kind === 'error' && <ErrorState compact message={note.text} style={{ marginTop: 12 }} />}

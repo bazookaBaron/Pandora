@@ -69,6 +69,9 @@ export function usePush() {
         } catch (e) {
             setError(e)
             setStatus('off')
+            if (e?.code === 'endpoint_owned') {
+                toast.error('This device already gets AutoApply notifications for another account. Sign in to that account and turn them off, then try again.')
+            }
         }
     }, [setStatus, setError])
 
