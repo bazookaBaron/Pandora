@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { classifyMail, expiresAtFor, RETENTION_DAYS } from "../lib/autoapply/classify.js";
+import { classifyMail, expiresAtFor, mailExpiresAt, RETENTION_DAYS } from "../lib/autoapply/classify.js";
 import { cleanupExpiredMail, sendDailyAlerts, buildAlertEmail, describeAlert } from "../lib/autoapply/mailJobs.js";
 import { sendPushForMail, pushPayload, vapidConfig } from "../lib/autoapply/push.js";
 import { getMailDb, hasSeparateMailDb } from "../lib/autoapply/mailDb.js";
@@ -18,7 +18,12 @@ test("classifier: codes", () => {
   assert.equal(cat({ subject: "Verify your email address", text_excerpt: "Click the link to verify." }), "code");
   assert.equal(cat({ subject: "Reset your password", text_excerpt: "..." }), "code");
   assert.equal(cat({ subject: "Security code", codes: ["123456"], text_excerpt: "Your one-time code: 123456" }), "code");
-  assert.equal(classifyMail({ subject: "Your OTP is 123456", codes: ["123456"] }).retention_days, null, "codes are never deleted");
+  assert.equal(classifyMail({ subject: "Your OTP is 123456", codes: ["123456"] }).retention_days, 7, "codes are deleted after 7 days");
+  // unauthenticated mail is low-trust and never a code
+  const spoof = classifyMail({ subject: "Your OTP is 123456", codes: ["123456"], auth_ok: false });
+  assert.equal(spoof.category, "other");
+  assert.equal(spoof.low_trust, true);
+  assert.equal(classifyMail({ subject: "Your OTP is 123456", codes: ["123456"], auth_ok: true }).low_trust, false);
 });
 
 test("classifier: received confirmations", () => {
@@ -52,12 +57,15 @@ test("classifier: strong important beats code/received; unsure is never code/rec
   assert.equal(cat({ subject: "Weekly digest from Globex", text_excerpt: "news" }), "other");
   assert.equal(cat({ subject: "Employment verification form", text_excerpt: "Please upload documents" }), "other");
   assert.equal(cat({}), "other");
-  assert.deepEqual(RETENTION_DAYS, { code: null, received: 30, rejected: 30, important: null, other: null });
+  assert.deepEqual(RETENTION_DAYS, { code: 7, received: 30, rejected: 30, important: null, other: null });
 });
 
 test("classifier: expiresAtFor", () => {
   const t = new Date("2026-01-01T00:00:00Z");
-  assert.equal(expiresAtFor("code", t), null);
+  assert.equal(expiresAtFor("code", t), "2026-01-08T00:00:00.000Z");
+  assert.equal(mailExpiresAt({ category: "important", user_id: null }, t), "2026-01-04T00:00:00.000Z", "unknown alias: 3 days");
+  assert.equal(mailExpiresAt({ category: "important", user_id: "u1" }, t), null);
+  assert.equal(mailExpiresAt({ category: "code", user_id: "u1" }, t), "2026-01-08T00:00:00.000Z");
   assert.equal(expiresAtFor("received", t), "2026-01-31T00:00:00.000Z");
   assert.equal(expiresAtFor("rejected", t), "2026-01-31T00:00:00.000Z");
   assert.equal(expiresAtFor("important", t), null);
@@ -79,15 +87,18 @@ test("cleanup: deletes only expired rows, in batches", async () => {
       row({ id: 201, category: "important", expires_at: null }),
       row({ id: 202, category: "code", expires_at: null }),
       row({ id: 203, category: "other", expires_at: null }),
-      // legacy rows that still carry an old expiry: never deleted unless received / rejected
+      // a user's important / other rows that still carry an old expiry: never deleted; codes expire (7 d)
       row({ id: 204, category: "important", expires_at: iso(-5000) }),
       row({ id: 205, category: "code", expires_at: iso(-5000) }),
       row({ id: 206, category: "other", expires_at: iso(-5000) }),
+      // unknown alias (user_id NULL): deleted once expired, whatever the category
+      row({ id: 300, user_id: null, category: "important", expires_at: iso(-5000) }),
+      row({ id: 301, user_id: null, category: "other", expires_at: iso(86400000) }),
     ],
   });
   const r = await cleanupExpiredMail({ mailDb, now, batchSize: 3 });
-  assert.deepEqual(r, { deleted: 8 });
-  assert.deepEqual(mailDb.rows("aa_mail_events").map((x) => x.id).sort(), [200, 201, 202, 203, 204, 205, 206]);
+  assert.deepEqual(r, { deleted: 10 });
+  assert.deepEqual(mailDb.rows("aa_mail_events").map((x) => x.id).sort(), [200, 201, 202, 203, 204, 206, 301]);
   assert.deepEqual(await cleanupExpiredMail({ mailDb, now }), { deleted: 0 });
 });
 
@@ -123,7 +134,7 @@ test("daily alerts: one email per user, no body, respects prefs, marks alerted_a
   const sent = [];
   const resend = { async sendEmail(m) { sent.push(m); return { id: `re_${sent.length}` }; } };
   const stats = await sendDailyAlerts({ db, mailDb, resend, getAuthEmail: async (uid) => (uid === U(2) ? "two-auth@example.com" : null), baseUrl: "https://app.test/", now });
-  assert.deepEqual(stats, { users: 3, sent: 2, skipped: 1, failed: 0, deferred: 0 });
+  assert.deepEqual(stats, { users: 3, sent: 2, skipped: 1, failed: 0, deferred: 0, claimed_elsewhere: 0 });
   assert.equal(sent.length, 2);
   const one = sent.find((m) => m.to === "one@example.com");
   assert.equal(one.subject, "You have 2 new messages in Vloombox");
@@ -144,6 +155,17 @@ test("daily alerts: one email per user, no body, respects prefs, marks alerted_a
   const again = await sendDailyAlerts({ db, mailDb, resend, now });
   assert.equal(again.sent, 0);
   assert.equal(sent.length, 2);
+});
+
+test("daily alerts: two replicas running at once send each user one email (claim before send)", async () => {
+  const { db, mailDb } = alertFixture();
+  const sent = [];
+  const resend = { async sendEmail(m) { sent.push(m); await new Promise((r) => setTimeout(r, 5)); return { id: `re_${sent.length}` }; } };
+  const run = () => sendDailyAlerts({ db, mailDb, resend, getAuthEmail: async (uid) => (uid === U(2) ? "two-auth@example.com" : null), now });
+  const [a, b] = await Promise.all([run(), run()]);
+  assert.equal(sent.length, 2, "one email per user across both runs");
+  assert.equal(a.sent + b.sent, 2);
+  assert.ok(a.claimed_elsewhere + b.claimed_elsewhere >= 1);
 });
 
 test("daily alerts: send cap per run, leftovers wait; failures stay unalerted", async () => {

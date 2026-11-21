@@ -28,15 +28,41 @@ export function packPrice(kind, size) {
   return Number.isInteger(v) ? v : null;
 }
 
-/** Credits purchased this IST month (batches with purchased_at in the month). */
-export async function monthPurchased(db, userId, now = new Date()) {
+/** Statuses whose unused credits are (being) refunded: only credits_used counts toward the cap. */
+export const REFUND_STATUSES = ["refund_due", "refunding", "refunded"];
+/** A pending order this young still holds its credits against the cap (a checkout may be under way). */
+export const PENDING_HOLD_MS = 30 * 60 * 1000;
+
+/**
+ * Credits counted against this IST month's cap:
+ *  • batches purchased this month — a refunded (or refund pending) batch counts only its used credits;
+ *  • with includePending, pending_payment orders created in the last 30 min (checkouts in progress).
+ * excludeBatchId leaves one batch out (markBatchPaid re-checks the cap for the batch being paid).
+ */
+export async function monthPurchased(db, userId, now = new Date(), { includePending = false, excludeBatchId = null } = {}) {
   const { data, error } = await db
     .from("aa_batches")
-    .select("credits_total")
+    .select("id, credits_total, credits_used, status")
     .eq("user_id", userId)
     .gte("purchased_at", istMonthStart(now).toISOString());
   if (error) throw error;
-  return (data || []).reduce((s, r) => s + (Number(r.credits_total) || 0), 0);
+  let sum = 0;
+  for (const r of data || []) {
+    if (excludeBatchId && r.id === excludeBatchId) continue;
+    sum += REFUND_STATUSES.includes(r.status) ? Math.max(0, Number(r.credits_used) || 0) : Number(r.credits_total) || 0;
+  }
+  if (includePending) {
+    const { data: pend, error: pErr } = await db
+      .from("aa_batches")
+      .select("id, credits_total")
+      .eq("user_id", userId)
+      .eq("status", "pending_payment")
+      .is("purchased_at", null)
+      .gte("created_at", new Date(now.getTime() - PENDING_HOLD_MS).toISOString());
+    if (pErr) throw pErr;
+    for (const r of pend || []) if (!(excludeBatchId && r.id === excludeBatchId)) sum += Number(r.credits_total) || 0;
+  }
+  return sum;
 }
 
 async function countApplied(db, userId, since) {

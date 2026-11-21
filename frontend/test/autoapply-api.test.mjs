@@ -19,13 +19,15 @@ import { createFakeDb } from "./fixtures/fakeSupabase.mjs";
 const PRO = "aaaaaaaa-0000-4000-8000-000000000001";
 const FREE = "aaaaaaaa-0000-4000-8000-000000000002";
 const CAPPED = "aaaaaaaa-0000-4000-8000-000000000003";
-const USERS = { [PRO]: "pro", [FREE]: "free", [CAPPED]: "max" };
+const NOCONSENT = "aaaaaaaa-0000-4000-8000-000000000004";
+const USERS = { [PRO]: "pro", [FREE]: "free", [CAPPED]: "max", [NOCONSENT]: "pro" };
 const VAULT_KEY = crypto.randomBytes(32).toString("base64");
 const INBOUND_SECRET = "test-inbound-secret";
 
 const mailDb = createFakeDb();
 const pushes = [];
 const db = createFakeDb({
+  aa_profiles: [{ user_id: CAPPED, consent_at: new Date().toISOString(), onboarding_done: true }],
   aa_batches: [
     { user_id: CAPPED, pack_kind: "service", pack_size: 100, price_paise: 99900, credits_total: 960, status: "running", purchased_at: new Date().toISOString() },
     { user_id: CAPPED, pack_kind: "service", pack_size: 100, price_paise: 99900, credits_total: 500, status: "refunded", purchased_at: new Date(istMonthStart().getTime() - 86400000).toISOString() },
@@ -85,6 +87,12 @@ before(async () => {
         const uid = String(req.headers.authorization || "").replace(/^Bearer /, "");
         if (!USERS[uid]) return res.status(401).json({ error: { code: "auth_required", message: "x" } });
         req.user = { id: uid, email: `${uid.slice(-4)}@mail.test` };
+        // a JWT-shaped token: fresh iat, last sign-in (amr) X-Test-Token-Age seconds ago (default: just now)
+        const age = Number(req.headers["x-test-token-age"] || 0);
+        const nowS = Math.floor(Date.now() / 1000);
+        const amr = req.headers["x-test-no-amr"] ? undefined : [{ method: "password", timestamp: nowS - age }];
+        const claims = Buffer.from(JSON.stringify({ sub: uid, iat: nowS, amr })).toString("base64url");
+        req.authToken = `h.${claims}.s`;
         next();
       },
       vaultKey: VAULT_KEY,
@@ -339,8 +347,13 @@ test("needs-you: list, answer -> aa_answers + task queued; done; double resolve"
   assert.equal(a.json.item.answer_key, key);
   assert.equal(db.rows("aa_answers").find((r) => r.user_id === PRO && r.question_key === key).answer, "Yes");
   assert.equal(ta.status, "queued");
-  const again = await call("POST", `/api/autoapply/needs-you/${n1.id}`, { body: { action: "answer", answer: "No" } });
-  assert.equal(again.status, 409);
+  // a retry of the same action is idempotent (200, the stored item); another action on it is a conflict
+  const again = await call("POST", `/api/autoapply/needs-you/${n1.id}`, { body: { action: "answer", answer: "Yes" } });
+  assert.equal(again.status, 200);
+  assert.equal(again.json.item.resolution, "answered");
+  const other = await call("POST", `/api/autoapply/needs-you/${n1.id}`, { body: { action: "dismiss" } });
+  assert.equal(other.status, 409);
+  assert.equal(other.json.error.code, "already_resolved");
   const d = await call("POST", `/api/autoapply/needs-you/${n2.id}`, { body: { action: "done" } });
   assert.equal(d.json.item.resolution, "done_by_user");
   assert.equal(tb.status, "skipped");
@@ -412,13 +425,19 @@ test("accounts list + reveal (vault) + rate limit 10/hour", async () => {
   const l = await call("GET", "/api/autoapply/accounts");
   assert.equal(l.json.accounts.length, 1);
   assert.ok(!("secret_ciphertext" in l.json.accounts[0]));
+  const stale = await call("POST", "/api/autoapply/accounts/reveal", { body: { tenant_host: "acme.wd3.myworkdayjobs.com" }, headers: { "X-Test-Token-Age": "900" } });
+  assert.equal(stale.status, 401, "a sign-in older than 10 min needs a fresh one, even with a just-refreshed token");
+  assert.equal(stale.json.error.code, "reauth_required");
+  const noAmr = await call("POST", "/api/autoapply/accounts/reveal", { body: { tenant_host: "acme.wd3.myworkdayjobs.com" }, headers: { "X-Test-No-Amr": "1" } });
+  assert.equal(noAmr.status, 401, "a token without amr cannot prove a recent sign-in");
+  assert.equal(noAmr.json.error.code, "reauth_required");
   const r = await call("POST", "/api/autoapply/accounts/reveal", { body: { tenant_host: "acme.wd3.myworkdayjobs.com" } });
   assert.equal(r.status, 200);
   assert.equal(r.json.password, "Pw!12345");
   const nf = await call("POST", "/api/autoapply/accounts/reveal", { body: { tenant_host: "nope.example.com" } });
   assert.equal(nf.status, 404);
   let last;
-  for (let i = 0; i < 9; i++) last = await call("POST", "/api/autoapply/accounts/reveal", { body: { tenant_host: "acme.wd3.myworkdayjobs.com" } });
+  for (let i = 0; i < 7; i++) last = await call("POST", "/api/autoapply/accounts/reveal", { body: { tenant_host: "acme.wd3.myworkdayjobs.com" } });
   assert.equal(last.status, 429);
   assert.equal(last.json.error.code, "rate_limited");
 });
@@ -429,7 +448,7 @@ function signed(body, ts = Math.floor(Date.now() / 1000)) {
 }
 
 test("inbound email: HMAC, alias -> user, mail db row with category, never forwarded, push only for important", async () => {
-  const mail = { to: `${alias}.acme@apply.vloombox.in`, from: "no-reply@myworkday.com", from_name: "Acme Careers", subject: "Verify your account", received_at: new Date().toISOString(), codes: ["482913"], links: ["https://acme.wd3.myworkdayjobs.com/verify"], is_human: false, text_excerpt: "code 482913", raw_key: "mail/x.eml", reply_to: null, message_id: "<m1>" };
+  const mail = { to: `${alias}.acme@apply.vloombox.in`, from: "no-reply@myworkday.com", from_name: "Acme Careers", subject: "Verify your account", received_at: new Date().toISOString(), codes: ["482913"], links: ["https://acme.wd3.myworkdayjobs.com/verify"], is_human: false, text_excerpt: "code 482913", raw_key: "mail/x.eml", reply_to: null, message_id: "<m1>", auth: { spf: "pass", dkim: "pass", dmarc: "pass", dkim_domains: ["myworkday.com"] } };
   const s = signed(mail);
   const r = await call("POST", "/api/inbound/email", { user: null, raw: s.raw, headers: s.headers });
   assert.equal(r.status, 200);
@@ -441,7 +460,8 @@ test("inbound email: HMAC, alias -> user, mail db row with category, never forwa
   assert.deepEqual(ev.codes, ["482913"]);
   assert.equal(ev.category, "code");
   assert.equal(ev.has_attachments, false);
-  assert.equal(ev.expires_at, null, "code mail is never deleted");
+  assert.equal(ev.auth_ok, true);
+  assert.ok(Math.abs(Date.parse(ev.expires_at) - Date.now() - 7 * 86400000) < 60000, "code mail expires 7 days after arrival");
   assert.equal(ev.company, "Acme");
   assert.equal(ev.read_at, null);
   assert.deepEqual(mailDb.rpcCalls.at(-1), { name: "aa_notify_mail", args: { p_user: PRO, p_event: ev.id } });
@@ -468,7 +488,24 @@ test("inbound email: HMAC, alias -> user, mail db row with category, never forwa
 
   const unknown = signed({ ...mail, to: "ghost.zzzz@apply.vloombox.in" });
   await call("POST", "/api/inbound/email", { user: null, raw: unknown.raw, headers: unknown.headers });
-  assert.equal(mailDb.rows("aa_mail_events").at(-1).user_id, null);
+  const uev = mailDb.rows("aa_mail_events").at(-1);
+  assert.equal(uev.user_id, null);
+  assert.ok(Math.abs(Date.parse(uev.expires_at) - Date.now() - 3 * 86400000) < 60000, "unknown-alias mail expires after 3 days");
+
+  // spoofed / unauthenticated OTP mail: stored without codes or links, never 'code', no worker wake-up
+  const notifies = mailDb.rpcCalls.length;
+  const { auth: _a, ...noAuth } = mail;
+  const spoof = signed({ ...noAuth, message_id: "<spoof1>" });
+  assert.equal((await call("POST", "/api/inbound/email", { user: null, raw: spoof.raw, headers: spoof.headers })).status, 200);
+  const sev = mailDb.rows("aa_mail_events").at(-1);
+  assert.equal(sev.auth_ok, false);
+  assert.deepEqual(sev.codes, []);
+  assert.deepEqual(sev.links, []);
+  assert.notEqual(sev.category, "code");
+  assert.equal(mailDb.rpcCalls.length, notifies, "no aa_notify_mail for unauthenticated mail");
+  const failed = signed({ ...mail, message_id: "<spoof2>", auth: { spf: "pass", dkim: "pass", dmarc: "fail", dkim_domains: ["evil.test"] } });
+  await call("POST", "/api/inbound/email", { user: null, raw: failed.raw, headers: failed.headers });
+  assert.equal(mailDb.rows("aa_mail_events").at(-1).auth_ok, false, "DMARC fail is unauthenticated even with SPF pass");
 
   const stale = signed(mail, Math.floor(Date.now() / 1000) - 120);
   assert.equal((await call("POST", "/api/inbound/email", { user: null, raw: stale.raw, headers: stale.headers })).status, 401);

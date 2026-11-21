@@ -36,6 +36,7 @@ test("profileReadiness: % ready, exact missing items with fix links, same gate a
 
   const full = {
     onboarding_done: true,
+    consent_at: "2026-11-01T00:00:00Z",
     resume_path: "u/resume.pdf",
     apply_alias: "a.b",
     profile: { name: "Priya Sharma", phone: "+91 98765 43210", city: "Bengaluru", experience: [{ company: "Acme", title: "SDE", current: true }], education: [{ school: "IIT" }] },
@@ -47,6 +48,10 @@ test("profileReadiness: % ready, exact missing items with fix links, same gate a
   const two = profileReadiness(full, { "facts.total_experience_years": "4" });
   assert.deepEqual(two.missing.map((m) => m.key), ["facts.notice_period_days", "facts.currently_employed"]);
   assert.equal(two.pct, Math.floor(((two.total - 2) / two.total) * 100));
+  // onboarding without the consent recorded is not done
+  const noConsent = profileReadiness({ ...full, consent_at: null }, answers);
+  assert.equal(noConsent.ok, false);
+  assert.ok(noConsent.missing.some((m) => m.key === "onboarding"));
   const partial = profileReadiness({ ...full, resume_path: null }, answers);
   assert.equal(partial.ok, false);
   assert.ok(partial.pct > empty.pct && partial.pct < 100, `pct ${partial.pct}`);
@@ -319,7 +324,7 @@ test("mailDedupeKey: per recipient + Message-ID; stable fallback for a retried p
 test("storeInbound: a retried mail inserts nothing and reports duplicate; missing column falls back", async () => {
   const db = createFakeDb({ aa_profiles: [{ user_id: U1, apply_alias: "priya.k7q2", alert_prefs: {} }] });
   const mailDb = createFakeDb();
-  const payload = { to: "priya.k7q2@apply.vloombox.in", from: "jane@acme.com", from_name: "Jane", subject: "Interview with Acme", is_human: true, text_excerpt: "Can we talk tomorrow?", message_id: "<x1>", received_at: new Date().toISOString() };
+  const payload = { to: "priya.k7q2@apply.vloombox.in", from: "jane@acme.com", from_name: "Jane", subject: "Interview with Acme", is_human: true, text_excerpt: "Can we talk tomorrow?", message_id: "<x1>", received_at: new Date().toISOString(), auth: { dmarc: "pass" } };
   const a = await storeInbound({ db, mailDb, payload });
   assert.equal(a.duplicate, false);
   assert.ok(a.event.dedupe_key);
@@ -358,7 +363,7 @@ const now = new Date();
 const iso = (ms) => new Date(now.getTime() + ms).toISOString();
 
 const db = createFakeDb({
-  aa_profiles: [{ user_id: U1, apply_alias: "priya.k7q2", onboarding_done: true, alert_prefs: {} }],
+  aa_profiles: [{ user_id: U1, apply_alias: "priya.k7q2", onboarding_done: true, consent_at: new Date().toISOString(), alert_prefs: {} }],
   aa_batches: [
     { id: BATCH, user_id: U1, pack_kind: "product", pack_size: 50, credits_total: 50, credits_used: 1, status: "running", purchased_at: iso(-86400000), must_companies: [] },
     { id: OTHER_BATCH, user_id: U2, pack_kind: "product", pack_size: 50, credits_total: 50, status: "running", purchased_at: iso(-86400000) },
