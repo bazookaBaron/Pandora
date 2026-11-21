@@ -83,6 +83,8 @@
     box-shadow: 0 0 0 2px var(--pop);
     transition: top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease;
 }
+.fr-ring.is-nav { box-shadow: 0 0 0 2px var(--pop), 0 0 14px 2px var(--pop); z-index: 2; animation: fr-nav-pulse 1.1s ease-in-out 2; }
+@keyframes fr-nav-pulse { 50% { box-shadow: 0 0 0 3px var(--pop), 0 0 22px 6px var(--pop); } }
 .fr-tip {
     position: fixed; z-index: 1; width: min(300px, calc(100vw - 24px)); box-sizing: border-box; outline: none;
     background: var(--panel); color: var(--accent); border: 1px solid var(--subtle-strong); border-radius: 10px;
@@ -108,4 +110,5 @@
 @media (prefers-reduced-motion: reduce) {
     .fr-backdrop, .fr-card, .fr-pane, .fr-tip { animation: none; }
     .fr-ring, .fr-chip { transition: none; }
+    .fr-ring.is-nav { animation: none; }
 }

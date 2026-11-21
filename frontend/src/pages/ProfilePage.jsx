@@ -763,7 +763,7 @@ export default function ProfilePage() {
             <Navbar />
             <main className="wrap profile-wrap">
                 {/* Hero */}
-                <div className="profile-hero">
+                <div className="profile-hero" data-tour="profile-hero">
                     <AvatarEditor user={user} />
                     <div className="profile-hero-info">
                         <h1 className="profile-name">{displayName}</h1>

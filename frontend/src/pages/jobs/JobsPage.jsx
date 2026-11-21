@@ -386,7 +386,7 @@ function ListingsView() {
 
     return (
         <>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+            <div data-tour="jobs-filters" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 8 }}>
                 <FacetCombobox field="title" value={search} onChange={setSearch}
                     placeholder="Search job title or company…" style={{ flex: '1 1 220px' }} />
                 <FacetCombobox field="company" value={company} onChange={setCompany}

@@ -1462,3 +1462,26 @@ h3 {
 @media (prefers-reduced-motion: reduce) {
     .toast { animation: none; }
 }
+
+/* ── Prep dropdown (desktop) + grouped Prep section (mobile menu) ───────── */
+.prep-menu { position: relative; display: inline-flex; }
+.prep-menu-list {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 120;
+    min-width: 190px; display: flex; flex-direction: column; gap: 2px; padding: 6px;
+    background: var(--panel); border: 1px solid var(--subtle-strong, var(--subtle));
+    border-radius: var(--radius); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+    animation: slideDown 0.15s ease both;
+}
+.prep-menu-item {
+    display: block; padding: 8px 10px; border-radius: 4px; text-decoration: none;
+    font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--accent);
+}
+.prep-menu-item:hover, .prep-menu-item:focus-visible { background: var(--subtle); color: var(--pop); outline: none; }
+.prep-menu-item.active { color: var(--pop); }
+.mobile-prep-group { display: flex; flex-direction: column; gap: 4px; }
+.mobile-prep-title {
+    padding: 4px 4px 0; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--faint);
+}
+@media (prefers-reduced-motion: reduce) { .prep-menu-list { animation: none; } }

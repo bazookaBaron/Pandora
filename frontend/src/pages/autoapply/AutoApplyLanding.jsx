@@ -100,7 +100,7 @@ export default function AutoApplyLanding() {
             <AAProgressGuide />
 
             {data && (
-                <section aria-labelledby="aa-pipe" style={{ marginBottom: 22 }}>
+                <section data-tour="autoapply-pipeline" aria-labelledby="aa-pipe" style={{ marginBottom: 22 }}>
                     <h2 id="aa-pipe" className="aa-h2">Pipeline</h2>
                     <div className="aa-grid-2 aa-pipe-grid">
                         {['service', 'product'].map((kind) => (

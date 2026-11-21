@@ -769,6 +769,7 @@ export default function ReferralsPage() {
                 ) : (
                     <>
                         <div
+                            data-tour="referrals-tabs"
                             className="profile-segment"
                             role="tablist"
                             aria-label="Referral views"

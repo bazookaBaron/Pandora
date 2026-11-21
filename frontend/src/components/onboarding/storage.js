@@ -4,6 +4,7 @@
 
 export const WELCOME_KEY = 'vb_onboarded_v1' // quick-setup finished/skipped (value 'setup-done')
 export const TOUR_KEY = 'vb_tour_v1' // guided tour finished/skipped
+export const TOUR_PROGRESS_KEY = 'vb_tour_prog_v1' // mid-tour resume point {id, from}
 export const GOALS_KEY = 'vb_goals_v1' // what the user is here for (orders tour emphasis only)
 
 export function readFlag(key) {
@@ -25,6 +26,7 @@ export function writeFlag(key, value) {
 
 export const welcomeKeyFor = (uid) => `${WELCOME_KEY}:${uid}`
 export const tourKeyFor = (uid) => `${TOUR_KEY}:${uid}`
+export const tourProgressKeyFor = (uid) => `${TOUR_PROGRESS_KEY}:${uid}`
 export const goalsKeyFor = (uid) => `${GOALS_KEY}:${uid}`
 
 export function readGoals(uid) {

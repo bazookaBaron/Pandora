@@ -411,7 +411,7 @@ export default function DSAListPage({ filterCompany }) {
                     </div>
 
                     {/* --- Filter bar --- */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+                    <div data-tour="dsa-list" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
                         <div style={{ position: 'relative', flex: isMobile ? '1 1 100%' : '1 1 220px' }}>
                             <svg style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" strokeWidth="2">
                                 <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />

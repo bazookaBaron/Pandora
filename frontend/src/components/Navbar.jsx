@@ -53,31 +53,81 @@ function stringToColor(str = '') {
 // Shown once VITE_AUTOAPPLY=1 at build time; the /autoapply pages still work by direct link for testing.
 const AUTOAPPLY_LINK = import.meta.env.VITE_AUTOAPPLY === '1' ? [{ to: '/autoapply', label: 'Auto Apply' }] : []
 
-const NAV_LINKS = [
+// Always-visible top level: Jobs, Auto Apply, Referrals. Everything else lives under "Prep".
+const MAIN_LINKS = [
     { to: '/', label: 'Jobs' },
     ...AUTOAPPLY_LINK,
-    { to: '/optimizer', label: 'Optimizer' },
-    { to: '/dsa', label: 'DSA' },
-    { to: '/lld', label: 'LLD' },
-    { to: '/hld', label: 'HLD' },
-    { to: '/interview', label: 'Interview' },
     { to: '/referrals', label: 'Referrals' },
 ]
-
-// Mobile: these move OUT of the hamburger menu into the tile bar below the nav.
-// Optimizer, Referrals (and Profile) stay in the menu.
-const TILE_LINKS = [
-    { to: '/', label: 'Jobs' },
-    ...AUTOAPPLY_LINK,
+const PREP_LINKS = [
     { to: '/dsa', label: 'DSA' },
     { to: '/lld', label: 'LLD' },
     { to: '/hld', label: 'HLD' },
     { to: '/interview', label: 'Interview Questions' },
+    { to: '/optimizer', label: 'Resume Optimizer' },
 ]
-const TILE_ROUTES = TILE_LINKS.map(l => l.to)
+// Mobile: the horizontal tile bar carries the same three main links.
+const TILE_LINKS = MAIN_LINKS
 
 // data-tour anchors for the first-run guided tour (see onboarding/GuidedTour.jsx)
 const tourId = (to) => ({ '/': 'jobs', '/autoapply': 'autoapply', '/referrals': 'referrals', '/dsa': 'dsa', '/lld': 'lld', '/hld': 'hld' })[to]
+
+function PrepMenu({ isActive, pathname }) {
+    const [open, setOpen] = useState(false)
+    const boxRef = useRef(null)
+    const btnRef = useRef(null)
+    const anyActive = PREP_LINKS.some(l => isActive(l.to))
+
+    useEffect(() => { setOpen(false) }, [pathname])
+    useEffect(() => {
+        if (!open) return
+        const onPointer = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false) }
+        const onKey = (e) => {
+            if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus() }
+        }
+        document.addEventListener('mousedown', onPointer)
+        document.addEventListener('keydown', onKey)
+        return () => {
+            document.removeEventListener('mousedown', onPointer)
+            document.removeEventListener('keydown', onKey)
+        }
+    }, [open])
+
+    return (
+        <div className="prep-menu" ref={boxRef}>
+            <button
+                ref={btnRef}
+                type="button"
+                data-tour="prep"
+                className={'nav-pill' + (anyActive ? ' active' : '')}
+                aria-haspopup="true"
+                aria-expanded={open}
+                onClick={() => setOpen(v => !v)}
+            >
+                Prep
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M6 9l6 6 6-6" />
+                </svg>
+            </button>
+            {open && (
+                <div className="prep-menu-list" role="menu" aria-label="Prep">
+                    {PREP_LINKS.map(link => (
+                        <Link
+                            key={link.to}
+                            to={link.to}
+                            role="menuitem"
+                            data-tour={tourId(link.to)}
+                            onClick={() => setOpen(false)}
+                            className={'prep-menu-item' + (isActive(link.to) ? ' active' : '')}
+                        >
+                            {link.label}
+                        </Link>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
 
 function MobileTileBar({ isActive }) {
     return (
@@ -178,6 +228,7 @@ export default function Navbar() {
                         type="button"
                         className="nav-pill"
                         aria-label="Menu"
+                        data-tour="prep"
                         aria-expanded={menuOpen}
                         onClick={() => setMenuOpen(v => !v)}
                         style={{ padding: '6px 10px' }}
@@ -211,19 +262,20 @@ export default function Navbar() {
                                 animation: 'slideDown 0.2s ease both',
                             }}
                         >
-                            {/* Tile-bar routes live in MobileTileBar; keep the rest here. */}
-                            {NAV_LINKS.filter(l => !TILE_ROUTES.includes(l.to)).map(link => (
-                                <Link
-                                    key={link.to}
-                                    to={link.to}
-                                    data-tour={tourId(link.to)}
-                                    onClick={() => setMenuOpen(false)}
-                                    className={`nav-pill${isActive(link.to) ? ' active' : ''}`}
-                                    style={{ width: '100%', justifyContent: 'flex-start' }}
-                                >
-                                    {link.label}
-                                </Link>
-                            ))}
+                            <div className="mobile-prep-group" role="group" aria-label="Prep">
+                                <div className="mobile-prep-title">Prep</div>
+                                {PREP_LINKS.map(link => (
+                                    <Link
+                                        key={link.to}
+                                        to={link.to}
+                                        onClick={() => setMenuOpen(false)}
+                                        className={`nav-pill${isActive(link.to) ? ' active' : ''}`}
+                                        style={{ width: '100%', justifyContent: 'flex-start' }}
+                                    >
+                                        {link.label}
+                                    </Link>
+                                ))}
+                            </div>
 
                             {user ? (
                                 <>
@@ -264,11 +316,12 @@ export default function Navbar() {
                 </>
             ) : (
                 <div className="nav-actions">
-                    {NAV_LINKS.map(link => (
+                    {MAIN_LINKS.map(link => (
                         <Link key={link.to} to={link.to} data-tour={tourId(link.to)} className={`nav-pill${isActive(link.to) ? ' active' : ''}`}>
                             {link.label}
                         </Link>
                     ))}
+                    <PrepMenu isActive={isActive} pathname={location.pathname} />
 
                     <ThemeToggle />
 
