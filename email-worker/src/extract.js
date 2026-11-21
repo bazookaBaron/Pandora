@@ -318,7 +318,45 @@ export function extractMeetingLinks({ text = '', html = '', ics = '' } = {}) {
 
 /** Contract body (docs/autoapply-contract.md, "Inbound mail") from a postal-mime result. */
 
-export function buildPayload(parsed, { envelopeTo = '', envelopeFrom = '', receivedAt = new Date(), rawKey = null } = {}) {
+// ------------------------------------------------------------------------------------------- authentication
+export const TRUSTED_AUTHSERV = ['mx.cloudflare.net'];
+
+/**
+ * SPF / DKIM / DMARC verdicts that Cloudflare Email Routing recorded for this mail, from the TOPMOST
+ * ARC-Authentication-Results / Authentication-Results header whose authserv-id is trusted (Cloudflare prepends
+ * its header, so one a sender planted further down is never read first).
+ * -> { spf, dkim, dmarc, dkim_domains: [...], source } or null when no trusted header exists.
+ */
+export function extractAuthResults(headers, { trusted = TRUSTED_AUTHSERV } = {}) {
+  const ok = new Set((trusted || []).map((t) => String(t).trim().toLowerCase()).filter(Boolean));
+  for (const h of headers || []) {
+    const key = String(h.key || '').toLowerCase();
+    if (key !== 'arc-authentication-results' && key !== 'authentication-results') continue;
+    const value = String(h.value || '').replace(/\([^()]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+    const parts = value.split(';').map((x) => x.trim()).filter(Boolean);
+    if (key === 'arc-authentication-results' && /^i=\d+$/i.test(parts[0] || '')) parts.shift();
+    const servId = String(parts.shift() || '').split(' ')[0].toLowerCase();
+    if (!ok.has(servId)) continue;
+    const out = { spf: null, dkim: null, dmarc: null, dkim_domains: [], source: `${key}:${servId}` };
+    for (const part of parts) {
+      const m = /^(spf|dkim|dmarc)=([a-z]+)\b(.*)$/i.exec(part);
+      if (!m) continue;
+      const method = m[1].toLowerCase();
+      const verdict = m[2].toLowerCase();
+      if (method === 'dkim') {
+        if (verdict === 'pass') {
+          out.dkim = 'pass';
+          const d = /header\.d=([^\s;]+)/i.exec(m[3]);
+          if (d) out.dkim_domains.push(d[1].toLowerCase());
+        } else if (!out.dkim) out.dkim = verdict;
+      } else if (!out[method]) out[method] = verdict;
+    }
+    return out;
+  }
+  return null;
+}
+
+export function buildPayload(parsed, { envelopeTo = '', envelopeFrom = '', receivedAt = new Date(), rawKey = null, trustedAuthserv } = {}) {
   const p = parsed || {};
   const headers = headerMap(p.headers);
   const subject = p.subject || '';
@@ -347,5 +385,6 @@ export function buildPayload(parsed, { envelopeTo = '', envelopeFrom = '', recei
     message_id: p.messageId || headers['message-id'] || null,
     meeting_links: extractMeetingLinks({ text: p.text || '', html, ics: ics || '' }),
     ics,
+    auth: extractAuthResults(p.headers, trustedAuthserv ? { trusted: trustedAuthserv } : {}),
   };
 }

@@ -156,8 +156,10 @@ export default {
       parsed = { headers: [], subject: message.headers?.get?.('subject') || '', text: '', html: '' };
     }
 
-    const payload = buildPayload(parsed, { envelopeTo: to, envelopeFrom: message.from, receivedAt: now, rawKey });
-    console.log(JSON.stringify({ msg: 'mail', to, from: payload.from, codes: payload.codes.length, links: payload.links.length, is_human: payload.is_human, raw_key: rawKey }));
+    // AA_AUTHSERV_IDS (comma list) overrides the trusted authserv-id (default mx.cloudflare.net)
+    const trustedAuthserv = env.AA_AUTHSERV_IDS ? String(env.AA_AUTHSERV_IDS).split(',') : undefined;
+    const payload = buildPayload(parsed, { envelopeTo: to, envelopeFrom: message.from, receivedAt: now, rawKey, trustedAuthserv });
+    console.log(JSON.stringify({ msg: 'mail', to, from: payload.from, codes: payload.codes.length, links: payload.links.length, is_human: payload.is_human, auth: payload.auth && payload.auth.dmarc, raw_key: rawKey }));
     ctx.waitUntil(deliverOrPark(env, payload));
   },
 
