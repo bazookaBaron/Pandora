@@ -114,9 +114,16 @@ function PlanChangeRefetch() {
 
 // Shown while a lazy route chunk is in flight. Matches ProtectedRoute's markup.
 // Redirect that keeps ?query and #hash (old /autoapply/setup?step=x#y deep links).
+// `to` may carry its own ?query / #hash: those are merged with the incoming ones
+// (incoming query wins on key clash; incoming hash wins, else the target's).
 function RedirectKeep({ to }) {
     const { search, hash } = useLocation()
-    return <Navigate to={{ pathname: to, search, hash }} replace />
+    const [pathAndQuery, toHash = ''] = to.split('#')
+    const [pathname, toQuery = ''] = pathAndQuery.split('?')
+    const merged = new URLSearchParams(toQuery)
+    new URLSearchParams(search).forEach((v, k) => merged.set(k, v))
+    const qs = merged.toString()
+    return <Navigate to={{ pathname, search: qs ? `?${qs}` : '', hash: hash || (toHash ? `#${toHash}` : '') }} replace />
 }
 
 function RouteFallback() {
@@ -178,10 +185,10 @@ export default function App() {
                         <Route path="/autoapply/account" element={<ProtectedRoute><AutoApplyAccount /></ProtectedRoute>} />
                         <Route path="/autoapply/setup" element={<RedirectKeep to="/autoapply/account" />} />
                         <Route path="/autoapply/profile" element={<RedirectKeep to="/autoapply/account" />} />
-                        <Route path="/autoapply/accounts" element={<Navigate to="/autoapply/account#sites" replace />} />
-                        <Route path="/autoapply/stats" element={<Navigate to="/autoapply/account#stats" replace />} />
+                        <Route path="/autoapply/accounts" element={<RedirectKeep to="/autoapply/account#sites" />} />
+                        <Route path="/autoapply/stats" element={<RedirectKeep to="/autoapply/account#stats" />} />
                         <Route path="/autoapply/batches" element={<Navigate to="/autoapply" replace />} />
-                        <Route path="/autoapply/interviews" element={<Navigate to="/autoapply/inbox?f=interview" replace />} />
+                        <Route path="/autoapply/interviews" element={<RedirectKeep to="/autoapply/inbox?f=interview" />} />
                         <Route path="/autoapply/buy" element={<ProtectedRoute><AutoApplyBuy /></ProtectedRoute>} />
                         <Route path="/autoapply/batches/:id" element={<ProtectedRoute><AutoApplyBatchDetail /></ProtectedRoute>} />
                         <Route path="/autoapply/needs-you" element={<ProtectedRoute><AutoApplyNeedsYou /></ProtectedRoute>} />

@@ -15,7 +15,7 @@ export const MARKET_CONFIG = {
   backoffMs: [5000, 15000, 45000],
   roles: {
     software_engineering: ["software engineer", "software developer", "backend developer", "full stack", "frontend developer"],
-    data_science_ml: ["data scientist", "machine learning", "ml engineer", "ai engineer"],
+    data_science_ml: { and: ["machine", "learning"] }, // both words required; bare "ml"/"ai" are too broad
     data_analyst: ["data analyst", "analytics", "bi developer", "business intelligence"],
     devops_cloud: ["devops", "cloud engineer", "sre", "site reliability", "platform engineer"],
     qa_testing: ["qa engineer", "test engineer", "sdet", "quality assurance", "automation tester"],
@@ -23,10 +23,10 @@ export const MARKET_CONFIG = {
     product_management: ["product manager", "product owner", "product management"],
     project_program_management: ["project manager", "program manager", "scrum master", "delivery manager"],
     business_analyst: ["business analyst", "functional analyst", "systems analyst"],
-    sap_erp: ["sap", "erp", "oracle fusion", "salesforce", "dynamics 365"],
+    sap_erp: { and: ["erp"], or: ["sap", "oracle", "netsuite", "dynamics", "workday"] }, // ERP postings naming a vendor
     ui_ux_design: ["ux designer", "ui designer", "product designer", "ui/ux", "graphic designer"],
     marketing: ["marketing", "seo", "digital marketing", "brand manager", "growth marketing"],
-    sales_bd: ["sales", "business development", "account executive", "account manager"],
+    sales_bd: { and: ["sales"], or: ["executive", "representative", "manager", "associate", "engineer"] }, // "sales" alone matches everything
     finance_accounting: ["accountant", "finance", "accounting", "financial analyst", "auditor"],
     hr_recruiting: ["recruiter", "talent acquisition", "human resources", "hr manager", "hr business partner"],
     operations_supply_chain: ["operations manager", "supply chain", "logistics", "procurement", "operations analyst"],
@@ -37,7 +37,7 @@ export const MARKET_CONFIG = {
   },
   experience: {
     entry: ["intern", "junior", "graduate", "fresher", "trainee", "associate"],
-    mid: ["ii", "2", "mid"],
+    mid: ["mid", "intermediate", "ii"],
     senior: ["senior", "sr", "lead"],
     leadership: ["manager", "head", "director", "principal"],
   },
@@ -95,7 +95,16 @@ export async function buildSnapshot(country, { appId, appKey, fetchImpl, sleep, 
   if (!cc) throw new Error(`unknown country ${country}`);
   const api = makeAdzunaClient({ appId, appKey, fetchImpl, sleep, config });
   const c = async (p) => { const r = await api.search(cc, p); return r ? r.count : null; };
-  const orOf = (kw) => ({ what_or: kw.join(" ") });
+  // Family keywords: an array -> what_or (any word); an object -> {and, or, phrase}
+  // mapped to Adzuna's what_and / what_or / what_phrase. Still ONE call per family.
+  const orOf = (kw) => {
+    if (Array.isArray(kw)) return { what_or: kw.join(" ") };
+    const p = {};
+    if (kw.and) p.what_and = kw.and.join(" ");
+    if (kw.or) p.what_or = kw.or.join(" ");
+    if (kw.phrase) p.what_phrase = kw.phrase;
+    return p;
+  };
 
   const totalRes = await api.search(cc, {});
   if (!totalRes) throw new Error(`adzuna total failed for ${country}`);
@@ -125,7 +134,8 @@ export async function buildSnapshot(country, { appId, appKey, fetchImpl, sleep, 
  * a {pending:true} claim first, so concurrent instances / restarts skip it. A
  * claim older than 1 h is treated as crashed and retaken. No-ops without keys.
  */
-export async function runMarketSnapshots({ supabase, env = process.env, fetchImpl, sleep, now = new Date(), log = console, extras = false } = {}) {
+const FAILED_RETRY_MS = 6 * 3600000;
+export async function runMarketSnapshots({ supabase, env = process.env, fetchImpl, sleep, now = new Date(), log = console, extras = false, force = false } = {}) {
   const appId = env.ADZUNA_APP_ID, appKey = env.ADZUNA_APP_KEY;
   if (!appId || !appKey) return { skipped: "no_adzuna_keys" };
   const day = istDate(now);
@@ -134,7 +144,14 @@ export async function runMarketSnapshots({ supabase, env = process.env, fetchImp
     try {
       const { data: ex } = await supabase.from("market_snapshots").select("id,data,created_at").eq("country", country).eq("taken_on", day).maybeSingle();
       if (ex) {
-        const stale = ex.data && ex.data.pending && Date.now() - new Date(ex.created_at).getTime() > 3600000;
+        const age = Date.now() - new Date(ex.created_at).getTime();
+        // A failed-day marker blocks retries for FAILED_RETRY_MS (deploy catch-ups
+        // must not hammer a failing Adzuna); `force` (admin) bypasses it.
+        if (ex.data && ex.data.failed && !force) {
+          const at = Date.parse(ex.data.at || "") || new Date(ex.created_at).getTime();
+          if (Date.now() - at < FAILED_RETRY_MS) { out[country] = "failed_recently"; continue; }
+        }
+        const stale = ex.data && ((ex.data.pending && age > 3600000) || ex.data.failed);
         if (!stale) { out[country] = "exists"; continue; }
         await supabase.from("market_snapshots").delete().eq("id", ex.id);
       }
@@ -146,7 +163,8 @@ export async function runMarketSnapshots({ supabase, env = process.env, fetchImp
         if (up.error) throw up.error;
         out[country] = `ok:${data.api_calls}`;
       } catch (e) {
-        await supabase.from("market_snapshots").delete().eq("country", country).eq("taken_on", day);
+        // Keep the claim row as a failure marker (readers ignore it) instead of deleting it.
+        await supabase.from("market_snapshots").update({ data: { failed: true, at: new Date().toISOString() } }).eq("country", country).eq("taken_on", day);
         throw e;
       }
     } catch (e) {
@@ -165,7 +183,7 @@ export async function loadMarketAnalytics(supabase, country) {
     if (/does not exist|schema cache|PGRST/i.test(String(error.message || error))) return { ready: false, country };
     throw error;
   }
-  const rows = (data || []).filter((r) => r.data && !r.data.pending && Number.isFinite(r.data.total));
+  const rows = (data || []).filter((r) => r.data && !r.data.pending && !r.data.failed && Number.isFinite(r.data.total));
   if (!rows.length) return { ready: false, country };
   const trend = rows.slice(0, 30).reverse().map((r) => ({ date: r.taken_on, total: r.data.total, new_7d: r.data.new_7d ?? null }));
   return { ready: true, country, date: rows[0].taken_on, snapshot: rows[0].data, trend };

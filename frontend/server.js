@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { spaceByCompany, feedWindow } from "./lib/jobsFeed.js";
 import express from "express";
 import compression from "compression";
 import helmet from "helmet";
@@ -2148,47 +2149,6 @@ function humanizeSlugFallback(slug) {
   return String(slug || "").split("-").filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
 }
 
-// strict: stop once only colliding rows remain (they are left out of the
-// spaced pool rather than bunched at its end; still reachable by filter).
-function spaceByCompany(rows, gap = JOBS_SPREAD_GAP, strict = false) {
-  const out = [];
-  const recent = []; // company_slug of the last `gap` picks
-  const deferred = []; // rows skipped because their company was too recent
-  let idx = 0;
-  while (out.length < rows.length) {
-    let pick = null;
-    for (let k = 0; k < deferred.length; k++) {
-      if (!recent.includes(deferred[k].company_slug || "")) {
-        pick = deferred.splice(k, 1)[0];
-        break;
-      }
-    }
-    while (pick === null && idx < rows.length) {
-      const cand = rows[idx++];
-      if (!recent.includes(cand.company_slug || "")) pick = cand;
-      else deferred.push(cand);
-    }
-    if (pick === null && strict) break;
-    if (pick === null) {
-      // Everything left collides (fewer than gap+1 companies remain): take the
-      // deferred row whose company was placed longest ago, so the tail stays
-      // as spread out as the remaining mix allows.
-      let best = 0;
-      let bestAge = -1;
-      for (let k = 0; k < deferred.length; k++) {
-        const age = recent.lastIndexOf(deferred[k].company_slug || "");
-        const a = age === -1 ? Infinity : recent.length - age;
-        if (a > bestAge) { bestAge = a; best = k; }
-      }
-      pick = deferred.length ? deferred.splice(best, 1)[0] : rows[idx++];
-    }
-    out.push(pick);
-    recent.push(pick.company_slug || "");
-    if (recent.length > gap) recent.shift();
-  }
-  return out;
-}
-
 // ── Country / company-type weighting on the default feed ───────────────
 // crawler.job_posting.country and crawler.company.company_type (joined via
 // company_slug -> company.slug) let the DEFAULT "Latest first" feed softly
@@ -2429,7 +2389,7 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
       // "company" sort is meant to group, so it opts out; pages past the pool
       // use raw range order. `pastCap` on a non-spread sort fetches 1 dummy row
       // (range(0,0)) just to keep `count` accurate — items are discarded below.
-      const canSpread = (sort === "newest" || sort === "oldest") && cappedTo < JOBS_INTERLEAVE_POOL;
+      const canSpread = sort === "newest" || sort === "oldest";
       const rangeFrom = canSpread ? 0 : pastCap ? 0 : from;
       const rangeTo = canSpread ? JOBS_INTERLEAVE_POOL - 1 : pastCap ? 0 : cappedTo;
       // The weighted composition (60/30/10 product/startup/service, 30/70
@@ -2465,7 +2425,7 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
 
       // `seniority` column is added by a later crawler migration — if it's not
       // there yet, retry the query once without selecting or filtering on it.
-      const build = (withSeniority) => {
+      const build = (withSeniority, rf = rangeFrom, rt = rangeTo) => {
         const cols =
           "id, company_slug, title, location, location_type, employment_type, url, source, first_seen_at, last_seen_at, posted_at, status, country" +
           (withSeniority ? ", seniority" : "");
@@ -2476,7 +2436,7 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
           .select(cols, { count: "estimated" })
           .eq("status", "open")
           .gte("posted_at", jobsMaxAgeISO()) // board only serves jobs actually posted ≤ N days ago
-          .range(rangeFrom, rangeTo);
+          .range(rf, rt);
 
         if (sort === "oldest") q = q.order("posted_at", { ascending: true }).order("id", { ascending: true });
         else if (sort === "company") q = q.order("company_slug", { ascending: true }).order("posted_at", { ascending: false });
@@ -2514,10 +2474,10 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
         return q;
       };
 
-      const runQuery = async () => {
-        let resp = await build(true);
+      const runQuery = async (rf = rangeFrom, rt = rangeTo) => {
+        let resp = await build(true, rf, rt);
         if (resp.error && /seniority/i.test(String(resp.error.message || resp.error))) {
-          resp = await build(false);
+          resp = await build(false, rf, rt);
         }
         if (resp.error) throw resp.error;
         return { data: resp.data || [], count: resp.count };
@@ -2537,8 +2497,23 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
           const pool = willWeight ? weightedStrataMerge(r.data, (row) => jobStratumOf(row, companyTypeMap)) : r.data;
           return { spaced: spaceByCompany(pool, JOBS_SPREAD_GAP, true), count: r.count };
         });
-        rows = pooled.spaced.slice(from, cappedTo + 1);
-        count = pooled.count;
+        if (pastCap) {
+          rows = [];
+          count = pooled.count;
+        } else {
+          // Feed = [strict spaced pool] + [DB rows from offset POOL on].
+          const w = await feedWindow({
+            spaced: pooled.spaced,
+            dbCount: pooled.count,
+            pool: JOBS_INTERLEAVE_POOL,
+            gap: JOBS_SPREAD_GAP,
+            from,
+            to: cappedTo,
+            fetchDb: async (off, n) => (await runQuery(off, off + n - 1)).data,
+          });
+          rows = w.rows;
+          count = w.count;
+        }
       } else {
         const r = await runQuery();
         // pastCap: the dummy range(0,0) fetch above was only for `count`.
@@ -2936,11 +2911,11 @@ app.get("/api/market/analytics", catalogLimiter, optionalAuth, async (req, res) 
 });
 
 let marketRunning = false;
-async function runMarketJob() {
+async function runMarketJob(opts = {}) {
   if (marketRunning) return { skipped: "already_running" };
   marketRunning = true;
   try {
-    const r = await runMarketSnapshots({ supabase: supabaseAdmin });
+    const r = await runMarketSnapshots({ supabase: supabaseAdmin, force: opts.force === true });
     invalidate("market-analytics:");
     console.log("[market] daily snapshot", r);
     return r;
@@ -2958,14 +2933,14 @@ async function runMarketJob() {
 app.post("/api/market/refresh", requireAuth, async (req, res) => {
   if (!isMarketAdmin(req.user)) return res.status(403).json({ error: "Admins only." });
   if (marketRunning) return res.status(202).json({ started: false, reason: "already_running" });
-  runMarketJob();
+  runMarketJob({ force: true });
   res.status(202).json({ started: true });
 });
 
 if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY) {
-  cron.schedule("30 2 * * *", runMarketJob, { timezone: "Asia/Kolkata" });
+  cron.schedule("30 2 * * *", () => runMarketJob(), { timezone: "Asia/Kolkata" });
   // Catch-up after a deploy/restart that straddled 02:30; the in-DB guard makes it a no-op if done.
-  const t = setTimeout(runMarketJob, 120000);
+  const t = setTimeout(() => runMarketJob(), 120000);
   if (t.unref) t.unref();
 } else {
   console.warn("[market] daily market snapshot disabled (needs SUPABASE_SERVICE_ROLE_KEY + ADZUNA_APP_ID/KEY)");

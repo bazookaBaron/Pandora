@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { AALayout, PageHeader } from './ui'
 import SetupSection from './SetupPage'
@@ -22,7 +23,18 @@ function sectionFromHash(hash) {
 export default function AccountPage() {
     const { hash, search } = useLocation()
     const navigate = useNavigate()
-    const section = sectionFromHash(hash)
+    // ?section= (survives auth redirects that rewrite the hash) or the hash picks the tab;
+    // a pending post-auth password reveal forces Sites so its resume effect runs.
+    const section = useMemo(() => {
+        let pending = false
+        for (const store of ['sessionStorage', 'localStorage']) {
+            try { if (window[store].getItem('aa:reveal-after-auth')) pending = true } catch { /* private mode */ }
+        }
+        if (pending) return 'sites'
+        const q = new URLSearchParams(search).get('section')
+        if (q && (ALIAS[q] || SECTIONS.some((s) => s.id === q))) return ALIAS[q] || q
+        return sectionFromHash(hash)
+    }, [hash, search])
     const rawHash = hash.replace(/^#/, '')
     // deep link /autoapply/account#consent -> Profile, that setup step
     const stepFromHash = SETUP_STEPS.has(rawHash) && !new URLSearchParams(search).get('step') ? rawHash : null

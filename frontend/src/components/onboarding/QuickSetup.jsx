@@ -63,13 +63,20 @@ export default function QuickSetup({ uid, onFinish }) {
         const co = company.trim().slice(0, 120)
         const y = yoe === '' ? null : Math.max(0, Math.min(60, Math.round(Number(yoe))))
         if (!pos && !co && (y == null || !Number.isFinite(y))) return
-        const row = { id: uid }
-        if (pos) row.position = pos
-        if (co) row.company = co
-        if (y != null && Number.isFinite(y)) row.years_of_experience = y
         setSaving(true)
         setSaveErr('')
         try {
+            // Never overwrite existing values (e.g. profile filled on another browser):
+            // only write fields that are currently empty/null.
+            const { data: cur, error: readErr } = await supabase
+                .from('profiles').select('id, position, company, years_of_experience').eq('id', uid).maybeSingle()
+            if (readErr) throw readErr
+            const empty = (v) => v == null || String(v).trim() === ''
+            const row = { id: uid }
+            if (pos && (!cur || empty(cur.position))) row.position = pos
+            if (co && (!cur || empty(cur.company))) row.company = co
+            if (y != null && Number.isFinite(y) && (!cur || cur.years_of_experience == null)) row.years_of_experience = y
+            if (Object.keys(row).length === 1 && cur) return // nothing new to write
             const { error } = await supabase.from('profiles').upsert(row, { onConflict: 'id' })
             if (error) throw error
         } catch {

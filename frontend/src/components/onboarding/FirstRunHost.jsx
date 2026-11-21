@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import { supabase } from '../../lib/supabase'
 import { readFlag, tourKeyFor, welcomeKeyFor, writeFlag } from './storage'
 
 // Both pieces (and their CSS) are separate chunks, fetched only when about to show.
@@ -33,7 +34,24 @@ export default function FirstRunHost() {
         if (!uid) { setPhase(null); return }
         if (phase || QUIET_ROUTES.test(pathname) || !isNewAccount(user)) return
         const setup = readFlag(welcomeKeyFor(uid))
-        if (!setup) setPhase('setup')
+        if (!setup) {
+            // A second browser: the profile may already be filled in. Skip
+            // QuickSetup (go straight to the tour) so it can't re-ask or overwrite.
+            let cancelled = false
+            ;(async () => {
+                let hasPosition = false
+                try {
+                    const { data } = await supabase.from('profiles').select('position').eq('id', uid).maybeSingle()
+                    hasPosition = !!(data && String(data.position || '').trim())
+                } catch { /* offline: fall back to showing setup */ }
+                if (cancelled) return
+                if (hasPosition) {
+                    writeFlag(welcomeKeyFor(uid), SETUP_DONE)
+                    setPhase(!readFlag(tourKeyFor(uid)) ? 'tour' : null)
+                } else setPhase('setup')
+            })()
+            return () => { cancelled = true }
+        }
         // setup finished but the tour was interrupted (reload): resume it
         else if (setup === SETUP_DONE && !readFlag(tourKeyFor(uid))) setPhase('tour')
     }, [uid, pathname]) // eslint-disable-line react-hooks/exhaustive-deps

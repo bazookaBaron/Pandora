@@ -48,7 +48,7 @@ function ReauthPrompt({ host, onDone, onCancel }) {
         try { sessionStorage.setItem(REVEAL_AFTER_AUTH, host) } catch { /* private mode */ }
         const { error } = await supabase.auth.signInWithOAuth({
             provider,
-            options: { redirectTo: `${window.location.origin}/autoapply/account#sites` },
+            options: { redirectTo: `${window.location.origin}/autoapply/account?section=sites` },
         })
         if (error) {
             setBusy(false)
