@@ -236,11 +236,18 @@ const rawBodyCapture = (req, _res, buf) => {
 };
 // /api/hld/judge carries a base64 diagram screenshot (<= ~8MB decoded).
 app.use("/api/hld/judge", express.json({ limit: "12mb", verify: rawBodyCapture }));
+// /api/run accepts up to 512KB of file content (asserted in the handler) plus
+// JSON overhead/escaping, so it needs more than the 100kb default.
+app.use("/api/run", express.json({ limit: "600kb", verify: rawBodyCapture }));
+// AutoApply profile payloads are capped at 100KB by the router itself; leave
+// headroom for the envelope so a max-size profile isn't rejected at the parser.
+app.use("/api/autoapply", express.json({ limit: "1mb", verify: rawBodyCapture }));
 app.use(express.json({ limit: "100kb", verify: rawBodyCapture }));
 
 // ── Rate limiting ────────────────────────────────────────────────
-// All limiters bucket by user (JWT sub, mixed with IP) when a bearer token is
-// present, else by IP - see lib/rateKeys.js.
+// Limiters mounted before requireAuth (app.use / global) bucket by IP only;
+// per-route limiters are mounted AFTER requireAuth and bucket by the verified
+// user id - see lib/rateKeys.js (never key on an unverified JWT).
 const generalLimiter = makeLimiter({
   windowMs: 15 * 60 * 1000,
   max: 600,
@@ -510,8 +517,8 @@ const genGate = makeSemaphore(4);
 
 app.post(
   "/api/generate",
-  aiLimiter,
   requireAuth,
+  aiLimiter,
   upload.single("resume"),
   async (req, res) => {
     try {
@@ -843,7 +850,7 @@ async function callGemini(prompt, model = "gemini-3.1-flash-lite") {
   );
 }
 
-app.post("/api/hld/generate", aiLimiter, requireAuth, async (req, res) => {
+app.post("/api/hld/generate", requireAuth, aiLimiter, async (req, res) => {
   let reservation = null;
   try {
     const { description } = req.body || {};
@@ -900,7 +907,7 @@ Output ONLY the following JSON (no markdown, no extra text, use \\n for newlines
   }
 });
 
-app.post("/api/hld/judge", aiLimiter, requireAuth, async (req, res) => {
+app.post("/api/hld/judge", requireAuth, aiLimiter, async (req, res) => {
   let reservation = null;
   try {
     const { image_base64, frNfr, apiEndpoints, title } = req.body || {};
@@ -1002,7 +1009,7 @@ Give a structured evaluation. Output ONLY this JSON (no markdown, use \\n for ne
 });
 
 // ── Generic AI explanation (metered: ai_explanation) ─────────────
-app.post("/api/ai/explain", aiLimiter, requireAuth, async (req, res) => {
+app.post("/api/ai/explain", requireAuth, aiLimiter, async (req, res) => {
   let reservation = null;
   try {
     const { prompt, code, question } = req.body || {};
@@ -1899,12 +1906,18 @@ app.get("/api/stats/overview", requireAuth, async (req, res) => {
     const [norm, lldCount, hldCount, progRows, readinessRes] =
       await Promise.all([
         getAllDsaRows(),
-        supabaseAdmin
-          .from("lld_problems")
-          .select("*", { count: "exact", head: true }),
-        supabaseAdmin
-          .from("hld_questions")
-          .select("*", { count: "exact", head: true }),
+        // Catalog sizes change only on content deploys: cache the head counts
+        // alongside the cached DSA rows instead of two COUNTs per request.
+        cached("stats:lld-count", 600000, async () => {
+          const r = await supabaseAdmin.from("lld_problems").select("*", { count: "exact", head: true });
+          if (r.error) throw r.error;
+          return { count: r.count || 0 };
+        }),
+        cached("stats:hld-count", 600000, async () => {
+          const r = await supabaseAdmin.from("hld_questions").select("*", { count: "exact", head: true });
+          if (r.error) throw r.error;
+          return { count: r.count || 0 };
+        }),
         fetchAllPaged(() =>
           supabaseAdmin
             .from("user_problem_progress")
@@ -2889,7 +2902,7 @@ app.get("/api/jobs/analytics/trend", catalogLimiter, optionalAuth, async (req, r
 // Emails the operator directly. Rate-limited; body capped.
 const FEEDBACK_TO = process.env.FEEDBACK_TO_EMAIL || "harvardpark239@gmail.com";
 
-app.post("/api/feedback", aiLimiter, requireAuth, async (req, res) => {
+app.post("/api/feedback", requireAuth, aiLimiter, async (req, res) => {
   try {
     const { kind, message } = req.body || {};
     const k = kind === "bug" ? "bug" : "feature";
@@ -2982,8 +2995,8 @@ async function referralAuthUser(userId) {
 // sorted, capped at 20. Powers the signup + post-request autocomplete.
 app.get(
   "/api/profiles/companies",
-  catalogLimiter,
   requireAuth,
+  catalogLimiter,
   async (req, res) => {
     try {
       const q = String(req.query.q || "").trim().slice(0, 100);
@@ -3020,8 +3033,8 @@ app.get(
 // file:   resume  (PDF ≤10MB, %PDF- magic bytes, ≥100 bytes)
 app.post(
   "/api/referrals",
-  referralLimiter,
   requireAuth,
+  referralLimiter,
   upload.single("resume"),
   async (req, res) => {
     let reservation = null;
@@ -3525,7 +3538,7 @@ app.get("/api/company-subscriptions", requireAuth, async (req, res) => {
 // POST /api/company-subscriptions  { company_slug, company_name }
 // Subscribes the caller to a company. Gated by plan (Free: 0 slots) and by
 // the per-plan count-cap; both checked server-side, never trusting the client.
-app.post("/api/company-subscriptions", subscribeLimiter, requireAuth, async (req, res) => {
+app.post("/api/company-subscriptions", requireAuth, subscribeLimiter, async (req, res) => {
   try {
     const { company_slug, company_name } = req.body || {};
     const slug = String(company_slug || "").trim().toLowerCase();
@@ -3592,7 +3605,7 @@ app.post("/api/company-subscriptions", subscribeLimiter, requireAuth, async (req
 
 // DELETE /api/company-subscriptions/:slug — unsubscribe the caller from one
 // company. No quota refund logic needed (this isn't metered usage).
-app.delete("/api/company-subscriptions/:slug", subscribeLimiter, requireAuth, async (req, res) => {
+app.delete("/api/company-subscriptions/:slug", requireAuth, subscribeLimiter, async (req, res) => {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();
     const { data, error } = await supabaseAdmin
@@ -3631,7 +3644,7 @@ const runActive = new Set();
 const runGate = makeSemaphore(Number(process.env.RUN_MAX_CONCURRENT) || 6);
 const RUN_TIMEOUT_MS = Number(process.env.RUN_TIMEOUT_MS) || 30_000;
 
-app.post("/api/run", runLimiter, requireAuth, async (req, res) => {
+app.post("/api/run", requireAuth, runLimiter, async (req, res) => {
   if (runActive.has(req.user.id)) {
     return res.status(429).json({ message: "A run is already in progress." });
   }
@@ -3789,8 +3802,8 @@ app.get("/api/billing/status", requireAuth, (_req, res) => {
 //   → { order_id, amount, currency, keyId }
 app.post(
   "/api/payments/razorpay/order",
-  checkoutLimiter,
   requireAuth,
+  checkoutLimiter,
   async (req, res) => {
     try {
       if (!razorpay.isEnabled()) {
@@ -3837,8 +3850,8 @@ app.post(
 //   → { ok: true, plan }  (only when the signature is valid)
 app.post(
   "/api/payments/razorpay/verify",
-  checkoutLimiter,
   requireAuth,
+  checkoutLimiter,
   async (req, res) => {
     try {
       if (!razorpay.isEnabled()) {
@@ -3983,8 +3996,8 @@ app.get("/api/subscriptions/status", requireAuth, (_req, res) => {
 //   → { subscription_id, short_url, keyId }
 app.post(
   "/api/subscriptions/create",
-  checkoutLimiter,
   requireAuth,
+  checkoutLimiter,
   async (req, res) => {
     try {
       if (!razorpay.subscriptionsConfigured()) {
@@ -4074,8 +4087,8 @@ app.post(
 //   → { ok, plan, status }   (200 only when the signature is valid)
 app.post(
   "/api/subscriptions/verify",
-  checkoutLimiter,
   requireAuth,
+  checkoutLimiter,
   async (req, res) => {
     try {
       if (!razorpay.isEnabled()) {

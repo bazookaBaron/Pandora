@@ -79,8 +79,9 @@ export function _setDomainMap(m) {
  * 1. Free-mail / disposable domains never match.
  * 2. If the company is in the curated map, the email's registrable domain must
  *    equal the registrable domain of one of its mapped domains.
- * 3. Otherwise heuristic: the domain's registrable label must equal the
- *    normalised company name (or its first word, >= 3 chars).
+ * 3. Otherwise heuristic: the domain's registrable label must equal the FULL
+ *    normalised company name. No first-word / prefix matching: that let
+ *    "Bank of America" accept any @bank.com address.
  *
  * @returns {Promise<{ ok: boolean, domain: string|null, reason?: string }>}
  */
@@ -105,12 +106,10 @@ export async function emailMatchesCompany(email, company) {
       : { ok: false, domain: reg, reason: "domain_mismatch" };
   }
 
-  const label = reg.split(".")[0];
-  const firstWord = squash(String(company || "").trim().split(/\s+/)[0]);
+  const label = squash(reg.split(".")[0]);
   const candidates = new Set([wantNorm, squash(company)]);
-  if (firstWord.length >= 3) candidates.add(firstWord);
   candidates.delete("");
-  return candidates.has(label)
+  return label.length >= 2 && candidates.has(label)
     ? { ok: true, domain: reg }
     : { ok: false, domain: reg, reason: "domain_mismatch" };
 }
@@ -119,17 +118,39 @@ export function generateCode() {
   return String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
+let _warnedNoSecret = false;
+/**
+ * HMAC key for verification codes: COMPANY_VERIFY_SECRET only (never reuse the
+ * service-role key). In production an unset secret FAILS CLOSED (returns null,
+ * logged once); outside production a fixed dev key is used.
+ */
 function secret() {
-  return (
-    process.env.COMPANY_VERIFY_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    "dev-only-secret"
-  );
+  const s = process.env.COMPANY_VERIFY_SECRET;
+  if (s && s.length >= 16) return s;
+  if (process.env.NODE_ENV === "production") {
+    if (!_warnedNoSecret) {
+      _warnedNoSecret = true;
+      console.error("[companyVerify] COMPANY_VERIFY_SECRET is unset or shorter than 16 chars - work-email verification is disabled.");
+    }
+    return null;
+  }
+  return s || "dev-only-company-verify-secret";
+}
+
+/** False when verification must be refused (production without a secret). */
+export function verifySecretConfigured() {
+  return secret() !== null;
 }
 
 export function hashCode(userId, code) {
+  const key = secret();
+  if (!key) {
+    const e = new Error("company verification secret not configured");
+    e.code = "verify_unconfigured";
+    throw e;
+  }
   return crypto
-    .createHmac("sha256", secret())
+    .createHmac("sha256", key)
     .update(`${userId}|${code}`)
     .digest("hex");
 }

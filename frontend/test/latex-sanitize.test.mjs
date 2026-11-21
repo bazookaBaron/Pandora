@@ -22,6 +22,18 @@ const bad = [
   ["\\usepackage", "bare usepackage"],
   ["^^5cinput", "caret notation"],
   ["\\documentclass{exam}", "class"],
+  ["\\makeatletter\\@input{/etc/passwd}", "@input"],
+  ["\\@@input /etc/passwd ", "@@input"],
+  ["\\@iinput{x}", "@iinput"],
+  ["\\begin{filecontents}{x.tex}\\end{filecontents}", "filecontents env"],
+  ["\\begin { filecontents* } {x}", "filecontents* env"],
+  ["\\openin3=/etc/passwd \\read3 to\\x", "openin/read"],
+  ["\\read16 to \\x", "read terminal"],
+  ["\\immediate\\write 18{id}", "write 18 with space"],
+  ["\\write18{id}", "bare write18"],
+  ["\\IfFileExists{/etc/passwd}{a}{b}", "IfFileExists"],
+  ["\\pdffiledump length 100{/etc/passwd}", "pdffiledump"],
+  ["\\pdf@shellescape", "pdf@shellescape"],
 ];
 for (const [src, name] of bad) {
   test(`rejects ${name}`, () => {

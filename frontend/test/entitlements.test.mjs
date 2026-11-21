@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { effectivePlanFromRow } from "../lib/entitlements.js";
+import { effectivePlanFromRow, isMissingFunctionError } from "../lib/entitlements.js";
 import { computePeriodEnd } from "../lib/paymentsStore.js";
 
 const NOW = Date.parse("2026-06-15T00:00:00Z");
@@ -14,8 +14,14 @@ test("active paid row past its period end downgrades to free", () => {
   assert.equal(effectivePlanFromRow({ plan: "max", status: "active", provider: "razorpay", current_period_end: past }, NOW), "free");
   assert.equal(effectivePlanFromRow({ plan: "pro", status: "on_trial", current_period_end: past }, NOW), "free");
 });
-test("provider-backed active row without a period end is free; manual grant is honoured", () => {
-  assert.equal(effectivePlanFromRow({ plan: "pro", status: "active", provider: "razorpay", current_period_end: null }, NOW), "free");
+test("active row without a period end is honoured (provider-backed or manual grant)", () => {
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.equal(effectivePlanFromRow({ plan: "pro", status: "active", provider: "razorpay", current_period_end: null }, NOW), "pro");
+  } finally {
+    console.warn = warn;
+  }
   assert.equal(effectivePlanFromRow({ plan: "pro", status: "active", provider: null, current_period_end: null }, NOW), "pro");
 });
 test("cancelled/past_due honour the paid-through date only", () => {
@@ -39,4 +45,13 @@ test("computePeriodEnd starts from now for lapsed rows or a different plan", () 
   assert.equal(lapsed.getTime(), NOW + 30 * 86400000);
   const other = computePeriodEnd({ now: NOW, termDays: 365, plan: "max", existing: { plan: "pro", status: "active", current_period_end: future } });
   assert.equal(other.getTime(), NOW + 365 * 86400000);
+});
+
+test("reserve_usage fallback only for a missing function", () => {
+  assert.equal(isMissingFunctionError({ code: "PGRST202", message: "Could not find the function public.reserve_usage" }), true);
+  assert.equal(isMissingFunctionError({ code: "42883", message: "function public.reserve_usage(uuid) does not exist" }), true);
+  assert.equal(isMissingFunctionError({ code: "57014", message: "canceling statement due to statement timeout" }), false);
+  assert.equal(isMissingFunctionError({ code: "42501", message: "permission denied for function reserve_usage" }), false);
+  assert.equal(isMissingFunctionError({ code: "", message: "fetch failed" }), false);
+  assert.equal(isMissingFunctionError({ code: "42P01", message: 'relation "public.usage" does not exist' }), false);
 });

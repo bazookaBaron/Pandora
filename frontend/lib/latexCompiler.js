@@ -33,9 +33,18 @@ const FORBIDDEN_CS = [
   "lstinputlisting", "includegraphics", "includepdf", "directlua", "luaexec",
   "pdfshellescape", "ShellEscape", "write18", "InputIfFileExists",
   "openininput", "usetikzlibrary", "href\\s*\\{\\s*file", "mathchardef",
-
+  // file probes / readers and other shell-escape spellings
+  "IfFileExists", "iinput", "input@path", "filef@und", "pdf@shellescape",
+  "shellescape", "latelua", "luadirect", "pdffiledump", "pdfmdfivesum",
+  "filemdfivesum", "filesize", "filemoddate", "filedump", "everyeof",
+  "filecontents",
 ];
-const FORBIDDEN_RE = new RegExp("\\\\(?:" + FORBIDDEN_CS.join("|") + ")(?![A-Za-z])", "i");
+// `\\@*` also catches the LaTeX-internal spellings reachable once \makeatletter
+// is in effect (always true inside a .cls): \@input, \@@input, \@iinput, ...
+// `\\write` with the (?![A-Za-z]) guard already covers \write18 / \write 18.
+const FORBIDDEN_RE = new RegExp("\\\\@*(?:" + FORBIDDEN_CS.join("|") + ")(?![A-Za-z])", "i");
+// filecontents / filecontents* environments write arbitrary files.
+const FORBIDDEN_ENV_RE = /\\begin\s*\{\s*filecontents\*?\s*\}/i;
 
 const MAX_TEX_BYTES = 300 * 1024;
 
@@ -68,6 +77,9 @@ export function sanitizeLatex(src, label = "tex") {
 
   if (code.includes("^^")) {
     throw new LatexUnsafeError(`${label}: ^^ character notation is not allowed.`);
+  }
+  if (FORBIDDEN_ENV_RE.test(code)) {
+    throw new LatexUnsafeError(`${label}: filecontents is not allowed.`);
   }
   const bad = FORBIDDEN_RE.exec(code);
   if (bad) {

@@ -8,7 +8,7 @@
  *
  * Verification is OPTIONAL: it grants a "Verified" badge and a higher daily
  * accept limit (20 vs 3); nothing is blocked without it.
- * See sql/31 + sql/35_optional_company_verify.sql and lib/referralAccess.js.
+ * See sql/29 + sql/32_optional_company_verify.sql and lib/referralAccess.js.
  */
 import { requireAuth } from "../lib/requireAuth.js";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
@@ -19,6 +19,7 @@ import {
   generateCode,
   hashCode,
   codesEqual,
+  verifySecretConfigured,
 } from "../lib/companyVerify.js";
 
 const CODE_TTL_MS = 15 * 60 * 1000;
@@ -55,7 +56,7 @@ export async function getVerifiedCompany(userId) {
 }
 
 export function registerProfileCompanyRoutes(app, { fail }) {
-  app.get("/api/profile/company", companyLimiter, requireAuth, async (req, res) => {
+  app.get("/api/profile/company", requireAuth, companyLimiter, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from("profiles")
@@ -73,7 +74,7 @@ export function registerProfileCompanyRoutes(app, { fail }) {
     }
   });
 
-  app.put("/api/profile/company", companyLimiter, requireAuth, async (req, res) => {
+  app.put("/api/profile/company", requireAuth, companyLimiter, async (req, res) => {
     try {
       const raw = req.body && req.body.company;
       const company = typeof raw === "string" ? raw.trim() : "";
@@ -103,13 +104,14 @@ export function registerProfileCompanyRoutes(app, { fail }) {
 
   app.post(
     "/api/profile/company/verify-start",
-    startLimiter,
     requireAuth,
+    startLimiter,
     async (req, res) => {
       try {
         const workEmail = String((req.body && req.body.workEmail) || "").trim().toLowerCase();
         if (!workEmail || workEmail.length > 254) return bad(res, 400, "invalid_email");
         if (!resend.isEnabled()) return bad(res, 503, "email_unconfigured");
+        if (!verifySecretConfigured()) return bad(res, 503, "verification_unconfigured");
 
         const { company, verified } = await getVerifiedCompany(req.user.id);
         if (!company) return bad(res, 400, "set_company_first");
@@ -177,12 +179,13 @@ export function registerProfileCompanyRoutes(app, { fail }) {
 
   app.post(
     "/api/profile/company/verify-confirm",
-    confirmLimiter,
     requireAuth,
+    confirmLimiter,
     async (req, res) => {
       try {
         const code = String((req.body && req.body.code) || "").trim();
         if (!/^\d{6}$/.test(code)) return bad(res, 400, "invalid_code");
+        if (!verifySecretConfigured()) return bad(res, 503, "verification_unconfigured");
 
         const { data: row, error } = await supabaseAdmin
           .from("company_verification_codes")

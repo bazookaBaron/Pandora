@@ -49,4 +49,28 @@ test("work-email domain matching", async () => {
   assert.equal((await emailMatchesCompany("a@evilgoogle.com", "Google")).ok, false);
   assert.equal((await emailMatchesCompany("a@acme.co.in", "Acme Pvt Ltd")).ok, true);
   assert.equal((await emailMatchesCompany("a@other.com", "Acme Inc")).ok, false);
+  // No first-word matching: "Bank of America" must not accept @bank.com.
+  assert.equal((await emailMatchesCompany("a@bank.com", "Bank of America")).ok, false);
+  assert.equal((await emailMatchesCompany("a@bankofamerica.com", "Bank of America")).ok, true);
+  assert.equal((await emailMatchesCompany("a@tata.com", "Tata Consultancy Services")).ok, false);
+});
+
+test("company verify secret fails closed in production", async () => {
+  const { verifySecretConfigured, hashCode } = await import("../lib/companyVerify.js");
+  const prev = { env: process.env.NODE_ENV, s: process.env.COMPANY_VERIFY_SECRET };
+  const origErr = console.error;
+  console.error = () => {};
+  try {
+    process.env.NODE_ENV = "production";
+    delete process.env.COMPANY_VERIFY_SECRET;
+    assert.equal(verifySecretConfigured(), false);
+    assert.throws(() => hashCode("u", "123456"), /not configured/);
+    process.env.COMPANY_VERIFY_SECRET = "x".repeat(32);
+    assert.equal(verifySecretConfigured(), true);
+    assert.match(hashCode("u", "123456"), /^[0-9a-f]{64}$/);
+  } finally {
+    console.error = origErr;
+    if (prev.env === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = prev.env;
+    if (prev.s === undefined) delete process.env.COMPANY_VERIFY_SECRET; else process.env.COMPANY_VERIFY_SECRET = prev.s;
+  }
 });

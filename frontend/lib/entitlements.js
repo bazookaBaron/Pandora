@@ -113,8 +113,8 @@ export async function getUserPlan(userId) {
  * Any paid row that carries a current_period_end is only honoured while that
  * instant is in the future - including status 'active' / 'on_trial', so a
  * missed webhook can never leave a lapsed user on a paid plan forever.
- * An active paid row with NO period end is trusted only when it has no
- * provider (manually granted); provider-backed rows without an end are free.
+ * An active paid row with NO period end is honoured (manual grants and
+ * provider rows whose webhook carried no period alike) and logged.
  */
 export function effectivePlanFromRow(row, now = Date.now()) {
   if (!row) return "free";
@@ -129,7 +129,17 @@ export function effectivePlanFromRow(row, now = Date.now()) {
 
   if (status === "active" || status === "on_trial") {
     if (hasEnd) return end > now ? plan : "free";
-    return row.provider ? "free" : plan;
+    // Active with NO period end: honour it. A provider-backed row can lack the
+    // end when a webhook carried no period (or a legacy row predates the
+    // column); dropping a paying user to free would lock them out. Logged so
+    // the row can be repaired.
+    if (row.provider) {
+      console.warn(
+        "[entitlements] active provider-backed subscription without current_period_end; treating as active",
+        String(row.user_id || ""),
+      );
+    }
+    return plan;
   }
   if (status === "cancelled" || status === "past_due") {
     return hasEnd && end > now ? plan : "free";
@@ -434,10 +444,21 @@ export async function reserveUsage(userId, feature) {
     };
   }
 
-  // reserve_usage() not deployed yet -> degrade to the legacy (racy) path.
-  const msg = String(rpc.error.message || rpc.error.code || "");
-  if (!/PGRST202|does not exist|could not find|schema cache/i.test(`${rpc.error.code} ${msg}`)) {
+  // Degrade to the legacy (racy) path ONLY when reserve_usage() is not deployed
+  // (sql/30 not applied). Any other error (timeout, connection, permission)
+  // fails closed: throwing makes the caller 5xx instead of silently bypassing
+  // the atomic quota.
+  if (!isMissingFunctionError(rpc.error)) {
+    const msg = String(rpc.error.message || rpc.error.code || "");
     console.error("[entitlements] reserve_usage rpc failed:", msg);
+    const e = new Error("usage reservation unavailable");
+    e.status = 503;
+    e.code = "usage_unavailable";
+    throw e;
+  }
+  if (!_warnedNoReserveRpc) {
+    _warnedNoReserveRpc = true;
+    console.warn("[entitlements] reserve_usage() missing - apply sql/30_usage_reserve.sql; using non-atomic fallback.");
   }
   const gate = await canAccess(userId, feature);
   if (!gate.allowed) return gate;
@@ -446,6 +467,20 @@ export async function reserveUsage(userId, feature) {
     ...gate,
     reservation: { userId, feature, periodStart: startISO, atomic: false },
   };
+}
+
+let _warnedNoReserveRpc = false;
+
+/**
+ * True only for "function does not exist": PostgREST PGRST202 (not in schema
+ * cache) or Postgres 42883 (undefined_function). Exported for tests.
+ */
+export function isMissingFunctionError(err) {
+  if (!err) return false;
+  const code = String(err.code || "");
+  if (code === "PGRST202" || code === "42883") return true;
+  const msg = String(err.message || "");
+  return /could not find the function|function .* does not exist/i.test(msg);
 }
 
 /** Undo a reserveUsage() reservation (gated work failed). Never throws. */
