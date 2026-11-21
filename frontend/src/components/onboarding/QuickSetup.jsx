@@ -1,15 +1,10 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { goalsKeyFor, writeFlag } from './storage'
+import { ROLE_SUGGESTIONS } from '../../lib/roleSuggestions'
 import './firstrun.css'
 
 const AUTOAPPLY_ON = import.meta.env.VITE_AUTOAPPLY === '1'
-
-const ROLE_SUGGESTIONS = [
-    'Software Engineer', 'Product Associate', 'Product Manager', 'Business Analyst', 'Cyber Security Analyst',
-    'SAP Consultant', 'Data Analyst', 'Data Scientist', 'DevOps Engineer', 'QA Engineer', 'UI/UX Designer',
-    'Project Manager', 'Student / Fresher',
-]
 
 const GOALS = [
     ...(AUTOAPPLY_ON ? [{ id: 'autoapply', label: 'Auto-apply to jobs' }] : []),
