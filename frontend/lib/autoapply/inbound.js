@@ -4,7 +4,7 @@
  *   X-AA-Signature: hex(HMAC_SHA256(AA_INBOUND_SECRET, `${ts}.${rawBody}`))
  */
 import crypto from "node:crypto";
-import { classifyMail, expiresAtFor, companyFromMail } from "./classify.js";
+import { classifyMail, mailExpiresAt, companyFromMail } from "./classify.js";
 import { extractInterview } from "./interview.js";
 
 export const MAX_SKEW_S = 60;
@@ -58,9 +58,35 @@ export function mailDedupeKey(payload) {
   return crypto.createHash("sha256").update(material, "utf8").digest("hex");
 }
 
+const PASS = (v) => String(v || "").trim().toLowerCase() === "pass";
+const domainOf = (addr) => String(addr || "").trim().toLowerCase().replace(/^.*@/, "").replace(/>$/, "");
+/** a.example.com is aligned with example.com and vice versa (relaxed alignment, organisational-domain suffix). */
+const aligned = (a, b) => !!a && !!b && (a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`));
+
+/**
+ * Was this mail authenticated? `payload.auth` comes from the Email Worker: the verdicts Cloudflare Email Routing
+ * wrote ({ spf, dkim, dmarc, dkim_domains: [...], source }). true only for DMARC pass, or — when there is no DMARC
+ * verdict at all — a DKIM pass whose signing domain is aligned with the From domain. SPF alone is never enough
+ * (it checks the envelope, not the From the user sees). No `auth` (an older worker) -> false.
+ */
+export function mailAuthOk(payload) {
+  const p = payload || {};
+  const a = p.auth;
+  if (!a || typeof a !== "object") return false;
+  const dmarc = String(a.dmarc || "").trim().toLowerCase();
+  if (dmarc === "pass") return true;
+  if (dmarc && dmarc !== "none") return false; // fail / quarantine / reject / temperror / permerror
+  if (!PASS(a.dkim)) return false;
+  const from = domainOf(p.from);
+  const signers = (Array.isArray(a.dkim_domains) ? a.dkim_domains : []).map((d) => String(d || "").trim().toLowerCase()).filter(Boolean);
+  return signers.some((d) => aligned(d, from));
+}
+
 // The column / unique index is not there yet (main-db fallback, or sql/mail/03 not applied): store without it.
 const isMissingDedupe = (err) =>
   !!err && (["PGRST204", "42703", "42P10"].includes(err.code) || /dedupe_key|no unique or exclusion constraint/i.test(String(err.message || "")));
+// auth_ok comes with sql/mail/05 (and sql/27 for the main-db fallback)
+const isMissingAuthOk = (err) => !!err && /auth_ok/i.test(String(err.message || ""));
 
 const strArr = (v, max, len) =>
   (Array.isArray(v) ? v : []).filter((x) => typeof x === "string" && x).slice(0, max).map((x) => x.slice(0, len));
@@ -91,13 +117,15 @@ export async function storeInbound({ db, mailDb = db, payload }) {
   if (pErr) throw pErr;
 
   const receivedAt = p.received_at && !Number.isNaN(Date.parse(p.received_at)) ? new Date(p.received_at).toISOString() : new Date().toISOString();
+  const authOk = mailAuthOk(p);
   const row = {
     user_id: profile ? profile.user_id : null,
     alias: local.slice(0, 200),
     sender: String(p.from || "unknown").slice(0, 320),
     subject: p.subject == null ? null : String(p.subject).slice(0, 500),
-    codes: strArr(p.codes, 20, 64),
-    links: strArr(p.links, 50, 2000),
+    // Unauthenticated mail never carries codes / links: a spoofed "your code is ..." must not reach a task.
+    codes: authOk ? strArr(p.codes, 20, 64) : [],
+    links: authOk ? strArr(p.links, 50, 2000) : [],
     is_human: p.is_human === true,
     text_excerpt: p.text_excerpt == null ? null : String(p.text_excerpt).slice(0, 2000),
     raw_ref: p.raw_key == null ? null : String(p.raw_key).slice(0, 500),
@@ -108,21 +136,29 @@ export async function storeInbound({ db, mailDb = db, payload }) {
   const ics = typeof p.ics === "string" && p.ics ? p.ics.slice(0, 32_000) : null;
   const meetingLinks = strArr(p.meeting_links, 10, 2000);
   const fromName = p.from_name == null ? null : String(p.from_name).slice(0, 200);
-  const { category, kind } = classifyMail({ ...row, ics, meeting_links: meetingLinks });
+  // classified on the codes the mail claimed (so a spoofed OTP mail is recognised and labelled low-trust)
+  const { category, kind, low_trust: lowTrust } = classifyMail({ ...row, codes: strArr(p.codes, 20, 64), ics, meeting_links: meetingLinks, auth_ok: authOk });
   row.category = category;
   row.kind = kind;
   row.from_name = fromName;
   row.company = companyFromMail({ sender: row.sender, from_name: fromName, subject: row.subject });
   row.read_at = null;
-  // Only received / rejected mail expires (30 days); retention counts from arrival at Vloombox, so a late
-  // retry from the worker is not deleted at once. Everything else keeps expires_at NULL = never deleted.
-  row.expires_at = expiresAtFor(category, new Date());
+  row.auth_ok = authOk;
+  // Codes expire after 7 days, received / rejected after 30, unknown-alias mail after 3; retention counts from
+  // arrival at Vloombox, so a late retry from the worker is not deleted at once. Everything else keeps
+  // expires_at NULL = never deleted.
+  row.expires_at = mailExpiresAt({ category, user_id: row.user_id }, new Date());
   row.dedupe_key = mailDedupeKey(p);
   // INSERT ... ON CONFLICT (dedupe_key) DO NOTHING: a retried delivery inserts nothing and returns no row.
   let { data: inserted, error } = await mailDb
     .from("aa_mail_events")
     .upsert(row, { onConflict: "dedupe_key", ignoreDuplicates: true })
     .select("*");
+  if (error && isMissingAuthOk(error)) {
+    console.warn("[autoapply/inbound] auth_ok column missing (apply sql/mail/05), storing without it");
+    delete row.auth_ok;
+    ({ data: inserted, error } = await mailDb.from("aa_mail_events").upsert(row, { onConflict: "dedupe_key", ignoreDuplicates: true }).select("*"));
+  }
   if (error && isMissingDedupe(error)) {
     console.warn("[autoapply/inbound] dedupe_key unavailable, storing without it:", error.message || error.code);
     const { dedupe_key: _k, ...plain } = row;
@@ -132,7 +168,7 @@ export async function storeInbound({ db, mailDb = db, payload }) {
   const event = inserted && inserted[0];
   if (!event) {
     // Already stored by an earlier delivery of the same mail: no interview row, no notify, no push.
-    return { event: null, profile: profile || null, category, kind, interview: null, duplicate: true };
+    return { event: null, profile: profile || null, category, kind, interview: null, duplicate: true, auth_ok: authOk, low_trust: lowTrust };
   }
 
   let interview = null;
@@ -146,9 +182,10 @@ export async function storeInbound({ db, mailDb = db, payload }) {
     }
   }
 
-  if (profile) {
+  // only authenticated mail wakes a worker waiting for a code
+  if (profile && authOk) {
     const { error: nErr } = await mailDb.rpc("aa_notify_mail", { p_user: profile.user_id, p_event: event.id });
     if (nErr) console.warn("[autoapply/inbound] aa_notify_mail failed:", nErr.message || nErr);
   }
-  return { event, profile: profile || null, category, kind, interview, duplicate: false };
+  return { event, profile: profile || null, category, kind, interview, duplicate: false, auth_ok: authOk, low_trust: lowTrust };
 }

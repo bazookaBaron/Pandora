@@ -25,7 +25,7 @@ import * as realResend from "../services/resend.js";
 import { publicQuestions, validateAnswer, isValidKey, learnedKey, LEARNED_KEY_RE } from "../lib/autoapply/questions.js";
 import { decryptSecret } from "../lib/autoapply/vault.js";
 import { isEligiblePlan, usageFor } from "../lib/autoapply/limits.js";
-import { AAError, createAutoApplyOrder, verifyAutoApplyPayment, handleAutoApplyWebhook } from "../lib/autoapply/orders.js";
+import { AAError, createAutoApplyOrder, verifyAutoApplyPayment, handleAutoApplyWebhook, expirePendingOrders } from "../lib/autoapply/orders.js";
 import { verifyInbound, storeInbound } from "../lib/autoapply/inbound.js";
 import { mailDb as realMailDb } from "../lib/autoapply/mailDb.js";
 import { sendPushForMail, vapidConfig } from "../lib/autoapply/push.js";
@@ -106,6 +106,43 @@ async function defaultAuthenticate(req, res, next) {
 }
 
 const passThrough = (_req, _res, next) => next();
+
+/** Seconds since the access token was issued (JWT `iat`; the token itself was verified by authenticate), or null. */
+export function tokenAgeS(token, nowMs = Date.now()) {
+  const part = String(token || "").split(".")[1];
+  if (!part) return null;
+  try {
+    const claims = JSON.parse(Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+    const iat = Number(claims && claims.iat);
+    return Number.isFinite(iat) ? Math.floor(nowMs / 1000) - iat : null;
+  } catch {
+    return null;
+  }
+}
+export const REAUTH_MAX_AGE_S = 10 * 60;
+
+/** Tiny per-process TTL cache (bounded; oldest entry evicted first). */
+function ttlCache(ttlMs, max = 500) {
+  const m = new Map();
+  return {
+    get(k, nowMs) {
+      const e = m.get(k);
+      if (!e) return undefined;
+      if (e.exp <= nowMs) {
+        m.delete(k);
+        return undefined;
+      }
+      return e.v;
+    },
+    set(k, v, nowMs) {
+      if (m.size >= max) m.delete(m.keys().next().value);
+      m.set(k, { v, exp: nowMs + ttlMs });
+    },
+  };
+}
+const SUPPLY_TTL_MS = 60 * 1000;
+const STATS_TTL_MS = 5 * 60 * 1000;
+const STATS_MAX_ROWS = 5000;
 
 // ── alias ─────────────────────────────────────────────────────────────────────
 export function slugFirstName(s) {
@@ -222,6 +259,9 @@ export function createAutoApplyRouter(deps = {}) {
 
   const router = express.Router();
   router.use(authenticate);
+  const supplyCache = ttlCache(SUPPLY_TTL_MS);
+  const statsCache = ttlCache(STATS_TTL_MS);
+  const reauthMaxAgeS = deps.reauthMaxAgeS ?? REAUTH_MAX_AGE_S;
 
   const getProfile = async (userId) => {
     const { data, error } = await db.from("aa_profiles").select("*").eq("user_id", userId).maybeSingle();
@@ -354,6 +394,9 @@ export function createAutoApplyRouter(deps = {}) {
         if (b.consent !== true) throw bad("consent must be true when given.");
         if (!(existing && existing.consent_at)) patch.consent_at = now().toISOString();
       }
+      if (patch.onboarding_done === true && !(existing && existing.consent_at) && !patch.consent_at) {
+        throw new AAError(400, "consent_required", "Accept the AutoApply terms before finishing onboarding.");
+      }
       if (!existing && patch.contact_email === undefined && req.user.email) patch.contact_email = req.user.email;
 
       const needAlias = !(existing && existing.apply_alias);
@@ -426,9 +469,13 @@ export function createAutoApplyRouter(deps = {}) {
         parsed = { source: "none" };
       }
 
-      const { error } = await db.from("aa_profiles").upsert({ user_id: uid, resume_path: resumePath }, { onConflict: "user_id" });
+      const { data: profile, error } = await db
+        .from("aa_profiles")
+        .upsert({ user_id: uid, resume_path: resumePath }, { onConflict: "user_id" })
+        .select("*")
+        .single();
       if (error) throw error;
-      res.json({ resume_path: resumePath, parsed });
+      res.json({ resume_path: resumePath, parsed, profile });
     }),
   );
 
@@ -479,6 +526,10 @@ export function createAutoApplyRouter(deps = {}) {
       if (!Number.isInteger(wd) || wd < 1 || wd > AUTO_APPLY.window_days_max) throw bad(`window_days must be 1..${AUTO_APPLY.window_days_max}.`);
       const prof = await getProfile(req.user.id);
       const prefs = (prof && prof.prefs) || {};
+      // the scan below reads up to 5000 rows: cached 60 s per (user, kind, window, prefs)
+      const cacheKey = `${req.user.id}|${kind}|${wd}|${JSON.stringify(prefs)}`;
+      const hit = supplyCache.get(cacheKey, now().getTime());
+      if (hit) return res.json(hit);
       const since = new Date(now().getTime() - wd * 86400000).toISOString();
       const { data, error } = await db
         .from("aa_jobs")
@@ -492,13 +543,15 @@ export function createAutoApplyRouter(deps = {}) {
       const jobs = (data || []).filter((j) => matchesPrefs(j, prefs));
       const by_ats = {};
       for (const j of jobs) by_ats[j.ats] = (by_ats[j.ats] || 0) + 1;
-      res.json({
+      const out = {
         kind,
         window_days: wd,
         count: jobs.length,
         by_ats,
         sample: jobs.slice(0, 10).map(({ company, title, location, posted_at }) => ({ company, title, location, posted_at })),
-      });
+      };
+      supplyCache.set(cacheKey, out, now().getTime());
+      res.json(out);
     }),
   );
 
@@ -586,7 +639,10 @@ export function createAutoApplyRouter(deps = {}) {
     writeLimiter,
     wrap("batch/approve", async (req, res) => {
       const batch = await ownBatch(req.user.id, req.params.id);
-      const updated = await updateBatchIf(batch, ["review"], { status: "running", review_until: now().toISOString() });
+      // Batch first, then its tasks. If queueing fails after the flip, a retry finds the batch already approved
+      // ('running' with review_until set) and only re-runs the idempotent queueing step (200, not 409).
+      const retry = batch.status === "running" && !!batch.review_until;
+      const updated = retry ? batch : await updateBatchIf(batch, ["review"], { status: "running", review_until: now().toISOString() });
       const { error } = await db
         .from("aa_tasks")
         .update({ status: "queued", not_before: now().toISOString() })
@@ -624,19 +680,24 @@ export function createAutoApplyRouter(deps = {}) {
     wrap("batch/cancel", async (req, res) => {
       const batch = await ownBatch(req.user.id, req.params.id);
       const allowed = ["pending_payment", "paid", "shortlisting", "review", "running", "paused", "waiting_supply", "waiting_profile"];
-      let next;
-      if (batch.status === "pending_payment") next = "cancelled";
-      else next = Number(batch.credits_used) < Number(batch.credits_total) ? "refund_due" : "completed";
-      const updated = await updateBatchIf(batch, allowed, { status: next });
+      // already cancelled (a retry after a partial failure, or a double click): finish the task clean-up, 200
+      const done = ["cancelled", "refund_due", "refunding", "refunded"].includes(batch.status);
+      if (!done && !allowed.includes(batch.status)) {
+        throw new AAError(409, "invalid_state", `Batch is '${batch.status}'; this action needs one of: ${allowed.join(", ")}.`);
+      }
+      // Tasks first, then the batch: if the batch flip fails, a retry sees the same batch status and runs again;
+      // the task / needs-you updates are idempotent. (Batch first left a 'refund_due' batch with live tasks that
+      // a retry could no longer reach: 409.)
       if (batch.status !== "pending_payment") {
-        const { data: gone, error } = await db
+        const { error } = await db
           .from("aa_tasks")
           .update({ status: "cancelled", reason_code: "batch_cancelled" })
           .eq("batch_id", batch.id)
-          .in("status", ["shortlisted", "queued", "failed", "needs_you"])
-          .select("id");
+          .in("status", ["shortlisted", "queued", "failed", "needs_you"]);
         if (error) throw error;
-        const ids = (gone || []).map((t) => t.id);
+        const { data: cancelledTasks, error: tErr } = await db.from("aa_tasks").select("id").eq("batch_id", batch.id).eq("status", "cancelled");
+        if (tErr) throw tErr;
+        const ids = (cancelledTasks || []).map((t) => t.id);
         if (ids.length) {
           const { error: nErr } = await db
             .from("aa_needs_you")
@@ -645,6 +706,13 @@ export function createAutoApplyRouter(deps = {}) {
             .is("resolved_at", null);
           if (nErr) throw nErr;
         }
+      }
+      let updated = batch;
+      if (!done) {
+        let next;
+        if (batch.status === "pending_payment") next = "cancelled";
+        else next = Number(batch.credits_used) < Number(batch.credits_total) ? "refund_due" : "completed";
+        updated = await updateBatchIf(batch, allowed, { status: next });
       }
       if (batch.status === "waiting_profile") await closeProfileItemIfIdle(req.user.id);
       res.json({ batch: updated });
@@ -706,7 +774,8 @@ export function createAutoApplyRouter(deps = {}) {
         if (!["service", "product"].includes(kind)) throw bad("kind must be 'service' or 'product'.");
         qb = qb.eq("company_kind", kind);
       }
-      const { data, error } = await qb.limit(500);
+      // trigram index idx_aa_jobs_company_trgm (sql/27) serves the ILIKE; 200 rows are plenty for 10 names
+      const { data, error } = await qb.limit(200);
       if (error) throw error;
       const seen = new Map();
       const want = term.toLowerCase();
@@ -800,7 +869,12 @@ export function createAutoApplyRouter(deps = {}) {
       const { data: item, error } = await db.from("aa_needs_you").select("*").eq("id", id).eq("user_id", uid).maybeSingle();
       if (error) throw error;
       if (!item) throw notFound("Item not found.");
-      if (item.resolved_at) throw new AAError(409, "already_resolved", "This item is already resolved.");
+      const resolution = { done: "done_by_user", answer: "answered", dismiss: "dismissed" }[action];
+      if (item.resolved_at) {
+        // a retry of the same action (e.g. the response was lost) is a success, not a conflict
+        if (item.resolution === resolution) return res.json({ item });
+        throw new AAError(409, "already_resolved", "This item is already resolved.");
+      }
       if (item.kind === "profile" && action !== "dismiss") {
         throw new AAError(409, "invalid_action", "Complete your profile; this item closes on its own once it is complete.");
       }
@@ -819,17 +893,8 @@ export function createAutoApplyRouter(deps = {}) {
         value = v.value;
       }
 
-      const resolution = { done: "done_by_user", answer: "answered", dismiss: "dismissed" }[action];
-      const { data: claimed, error: cErr } = await db
-        .from("aa_needs_you")
-        .update({ resolved_at: now().toISOString(), resolution })
-        .eq("id", id)
-        .eq("user_id", uid)
-        .is("resolved_at", null)
-        .select("*");
-      if (cErr) throw cErr;
-      if (!claimed || !claimed[0]) throw new AAError(409, "already_resolved", "This item is already resolved.");
-
+      // Side effects first (each idempotent), the item's resolved flag LAST: if anything fails midway the item is
+      // still open and the same request can simply be retried.
       if (action === "answer") {
         const { error: aErr } = await db
           .from("aa_answers")
@@ -850,7 +915,23 @@ export function createAutoApplyRouter(deps = {}) {
         if (tErr) throw tErr;
       }
 
-      const out = { ...claimed[0] };
+      const { data: claimed, error: cErr } = await db
+        .from("aa_needs_you")
+        .update({ resolved_at: now().toISOString(), resolution })
+        .eq("id", id)
+        .eq("user_id", uid)
+        .is("resolved_at", null)
+        .select("*");
+      if (cErr) throw cErr;
+      let out = claimed && claimed[0];
+      if (!out) {
+        // resolved concurrently: same action -> success, else conflict
+        const { data: again, error: rErr } = await db.from("aa_needs_you").select("*").eq("id", id).eq("user_id", uid).maybeSingle();
+        if (rErr) throw rErr;
+        if (!again || again.resolution !== resolution) throw new AAError(409, "already_resolved", "This item is already resolved.");
+        out = again;
+      }
+      out = { ...out };
       if (key) out.answer_key = key;
       res.json({ item: out });
     }),
@@ -896,21 +977,28 @@ export function createAutoApplyRouter(deps = {}) {
   router.get(
     "/inbox/unread",
     wrap("inbox/unread", async (req, res) => {
-      const { data, error } = await mailDb
-        .from("aa_mail_events")
-        .select("id, kind, category")
-        .eq("user_id", req.user.id)
-        .in("category", NOTIFY_CATEGORIES)
-        .is("read_at", null)
-        .order("received_at", { ascending: false })
-        .limit(500);
+      const unread = () =>
+        mailDb.from("aa_mail_events").select("id", { count: "exact", head: true }).eq("user_id", req.user.id).in("category", NOTIFY_CATEGORIES).is("read_at", null);
+      const { count, error } = await unread();
       if (error) throw error;
       const by_kind = {};
-      for (const r of data || []) {
-        const k = r.kind || (r.category === "rejected" ? "rejection" : "other");
-        by_kind[k] = (by_kind[k] || 0) + 1;
+      if (count) {
+        // breakdown from the newest 200 unread only (the badge shows the total; the split is a hint)
+        const { data, error: kErr } = await mailDb
+          .from("aa_mail_events")
+          .select("kind, category")
+          .eq("user_id", req.user.id)
+          .in("category", NOTIFY_CATEGORIES)
+          .is("read_at", null)
+          .order("received_at", { ascending: false })
+          .limit(200);
+        if (kErr) throw kErr;
+        for (const r of data || []) {
+          const k = r.kind || (r.category === "rejected" ? "rejection" : "other");
+          by_kind[k] = (by_kind[k] || 0) + 1;
+        }
       }
-      res.json({ count: (data || []).length, by_kind });
+      res.json({ count: count || 0, by_kind });
     }),
   );
 
@@ -918,13 +1006,14 @@ export function createAutoApplyRouter(deps = {}) {
     "/inbox/read-all",
     writeLimiter,
     wrap("inbox/read-all", async (req, res) => {
-      const { error } = await mailDb
+      const { data, error } = await mailDb
         .from("aa_mail_events")
         .update({ read_at: now().toISOString() })
         .eq("user_id", req.user.id)
-        .is("read_at", null);
+        .is("read_at", null)
+        .select("id");
       if (error) throw error;
-      res.json({ ok: true });
+      res.json({ ok: true, count: (data || []).length });
     }),
   );
 
@@ -1025,14 +1114,38 @@ export function createAutoApplyRouter(deps = {}) {
       if (typeof p256dh !== "string" || typeof auth !== "string" || !p256dh || !auth || p256dh.length > 200 || auth.length > 100) {
         throw bad("keys.p256dh and keys.auth are required.");
       }
-      const { count, error: cErr } = await db.from("aa_push_subscriptions").select("id", { count: "exact", head: true }).eq("user_id", req.user.id);
-      if (cErr) throw cErr;
-      if ((count || 0) >= 20) throw new AAError(409, "too_many_subscriptions", "Too many devices subscribed; turn off notifications on one first.");
-      const { error } = await db
-        .from("aa_push_subscriptions")
-        .upsert({ user_id: req.user.id, endpoint, p256dh, auth }, { onConflict: "endpoint" });
-      if (error) throw error;
-      res.json({ ok: true });
+      const owned = () => new AAError(409, "endpoint_owned", "This device is subscribed for another account; unsubscribe there first.");
+      const { data: have, error: hErr } = await db.from("aa_push_subscriptions").select("id, user_id").eq("endpoint", endpoint).maybeSingle();
+      if (hErr) throw hErr;
+      if (have && have.user_id !== req.user.id) throw owned();
+      let row;
+      if (have) {
+        // own device: refresh the keys (only where the row is still ours)
+        const { data, error } = await db
+          .from("aa_push_subscriptions")
+          .update({ p256dh, auth })
+          .eq("endpoint", endpoint)
+          .eq("user_id", req.user.id)
+          .select("id, endpoint, created_at");
+        if (error) throw error;
+        if (!data || !data[0]) throw owned();
+        row = data[0];
+      } else {
+        const { count, error: cErr } = await db.from("aa_push_subscriptions").select("id", { count: "exact", head: true }).eq("user_id", req.user.id);
+        if (cErr) throw cErr;
+        if ((count || 0) >= 20) throw new AAError(409, "too_many_subscriptions", "Too many devices subscribed; turn off notifications on one first.");
+        // plain insert: a concurrent insert of the same endpoint by another user fails on the unique index
+        const { data, error } = await db
+          .from("aa_push_subscriptions")
+          .insert({ user_id: req.user.id, endpoint, p256dh, auth })
+          .select("id, endpoint, created_at");
+        if (error) {
+          if (error.code === "23505" || /duplicate key/i.test(String(error.message || ""))) throw owned();
+          throw error;
+        }
+        row = data && data[0];
+      }
+      res.json({ ok: true, subscription: row || { endpoint } });
     }),
   );
 
@@ -1054,14 +1167,19 @@ export function createAutoApplyRouter(deps = {}) {
     wrap("stats/replies", async (req, res) => {
       const uid = req.user.id;
       const at = now();
+      const hit = statsCache.get(uid, at.getTime());
+      if (hit) return res.json(hit);
       const since = new Date(at.getTime() - STATS_WINDOW_DAYS * 86400000).toISOString();
+      // bounded: newest STATS_MAX_ROWS of each (a 90-day window rarely holds more), cached 5 min per user
       const [t, m, iv] = await Promise.all([
-        db.from("aa_tasks").select("id, company, title, status, submitted_at").eq("user_id", uid).eq("status", "applied").gte("submitted_at", since).limit(10000),
-        mailDb.from("aa_mail_events").select("id, company, category, kind, received_at").eq("user_id", uid).in("category", ["rejected", "important", "other"]).gte("received_at", since).limit(10000),
-        mailDb.from("aa_interviews").select("mail_event_id, company").eq("user_id", uid).gte("created_at", since).limit(5000),
+        db.from("aa_tasks").select("id, company, title, status, submitted_at").eq("user_id", uid).eq("status", "applied").gte("submitted_at", since).order("submitted_at", { ascending: false }).limit(STATS_MAX_ROWS),
+        mailDb.from("aa_mail_events").select("id, company, category, kind, received_at").eq("user_id", uid).in("category", ["rejected", "important", "other"]).gte("received_at", since).order("received_at", { ascending: false }).limit(STATS_MAX_ROWS),
+        mailDb.from("aa_interviews").select("mail_event_id, company").eq("user_id", uid).gte("created_at", since).order("created_at", { ascending: false }).limit(STATS_MAX_ROWS),
       ]);
       for (const r of [t, m, iv]) if (r.error) throw r.error;
-      res.json(replyStats({ tasks: t.data || [], mails: m.data || [], interviews: iv.data || [], now: at }));
+      const out = replyStats({ tasks: t.data || [], mails: m.data || [], interviews: iv.data || [], now: at });
+      statsCache.set(uid, out, at.getTime());
+      res.json(out);
     }),
   );
 
@@ -1095,6 +1213,12 @@ export function createAutoApplyRouter(deps = {}) {
     "/accounts/reveal",
     revealLimiter,
     wrap("accounts/reveal", async (req, res) => {
+      // recent sign-in required: the access token must be at most 10 minutes old (the client re-authenticates /
+      // refreshes the session right before revealing)
+      const age = tokenAgeS(req.authToken, now().getTime());
+      if (age === null || age > reauthMaxAgeS || age < -300) {
+        throw new AAError(401, "reauth_required", "Confirm it's you: sign in again to reveal saved passwords.");
+      }
       const host = req.body && req.body.tenant_host;
       if (typeof host !== "string" || !host.trim() || host.length > 255) throw bad("tenant_host is required.");
       const { data: acct, error } = await db
@@ -1169,6 +1293,11 @@ export function createInboundHandler(deps = {}) {
 
 export function runAutoApplyRefunds(deps = {}) {
   return processRefunds({ db: deps.db || supabaseAdmin, razorpay: deps.razorpay || realRazorpay, limit: deps.limit });
+}
+
+/** Hourly: pending_payment orders older than 24 h -> 'cancelled' (lib/autoapply/orders.js expirePendingOrders). */
+export function runExpirePendingOrders(deps = {}) {
+  return expirePendingOrders({ db: deps.db || supabaseAdmin, now: deps.now });
 }
 
 /** Daily: delete expired mail from the mail db. */

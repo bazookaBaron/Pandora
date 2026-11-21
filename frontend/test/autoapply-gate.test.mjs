@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 
 import { profileReady, profileCheck, missingPayload, REQUIRED_QUESTIONS } from "../lib/autoapply/profileGate.js";
 
-const ROW = { user_id: "u1", profile: {}, resume_path: "u1/r.pdf", email_mode: "inbox", apply_alias: "asha.k7q2", onboarding_done: true };
+const ROW = { user_id: "u1", profile: {}, resume_path: "u1/r.pdf", email_mode: "inbox", apply_alias: "asha.k7q2", onboarding_done: true, consent_at: "2026-11-01T00:00:00Z" };
 const COMPLETE = {
   "fields.first_name": "Asha", "fields.last_name": "Rao", "fields.phone": "+91 98765 43210",
   "fields.city": "Bengaluru", "fields.country": "India", "fields.current_company": "Orbitronix",

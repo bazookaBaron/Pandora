@@ -41,7 +41,7 @@ AUTO_APPLY = {
 
 ## Status meanings
 
-Batch: `pending_payment` (order created) -> `paid` (API, after signature verify; ledger `purchase` +credits_total, `purchased_at`, `expires_at` = +90 d) -> `shortlisting` (scheduler) -> `review` (if review_before_apply; `review_until` set) -> `running` -> `waiting_supply` (no more matching jobs right now; scheduler keeps refilling) -> `completed` (credits_used = credits_total). User can `paused`/resume and `cancelled`. At `expires_at` with credits left: scheduler -> `refund_due`; API cron refunds `price_paise * remaining / credits_total` via Razorpay, writes ledger `refund` (-remaining), -> `refunded`. Cancel with credits left also goes to `refund_due`.
+Batch: `pending_payment` (order created) -> `paid` (API, after signature verify; ledger `purchase` +credits_total, `purchased_at`, `expires_at` = +90 d) -> `shortlisting` (scheduler) -> `review` (if review_before_apply; `review_until` set) -> `running` -> `waiting_supply` (no more matching jobs right now; scheduler keeps refilling) -> `completed` (credits_used = credits_total). User can `paused`/resume and `cancelled`. At `expires_at` with credits left: scheduler -> `refund_due`; API cron refunds `price_paise * remaining / credits_total` via Razorpay, writes ledger `refund` (-remaining), -> `refunded`. Cancel with credits left also goes to `refund_due`. The refunds cron claims each batch `refund_due` -> **`refunding`** (conditional update, so one API replica refunds it; a claim older than 30 min is re-claimed) -> `refunded`; a `refund_due` batch with no payment goes to `cancelled`. A payment that lands on an unpaid `cancelled` batch (cancelled or expired before the payment) or that would break the monthly cap is never dropped: the batch goes to `refund_due` with `purchased_at` + payment id, ledger `purchase` (+credits, `note` `late_payment_auto_refund` / `monthly_cap_auto_refund`) and is refunded in full. `pending_payment` orders older than 24 h are expired to `cancelled` by an API cron. Orders need `aa_profiles.consent_at`.
 
 Profile gate (`cloud_hunter/saas/profile_gate.py`, mirrored in `Pandora/frontend/lib/autoapply/profileGate.js`; migration `sql/22_autoapply_gate.sql`): a batch is only shortlisted / claimed when the user's profile is complete (onboarding done, resume file, apply email, name, phone, city, current company + title unless `facts.currently_employed = 'no'`, experience years, education, and every `required` question; a question with a form default counts once onboarding is done). Otherwise the scheduler (from `paid` / `shortlisting`) or the worker (from `running` / `waiting_supply`) moves the batch to **`waiting_profile`** with `aa_batches.waiting_detail = {reason: 'profile_incomplete', missing: [{key, label}], checked_at}`, and opens ONE needs-you item of kind `profile` per user. Each pass re-checks: once complete the batch goes to `shortlisting` (no tasks yet) or `running`, `waiting_detail` is cleared and the item is resolved `done_by_user`. From `waiting_profile` the user can pause (-> `paused`) or cancel (-> `refund_due` / `completed`); when no other batch of the user still waits, the API resolves the profile item `dismissed`. No credit is used while waiting; `expires_at` keeps running.
 
@@ -74,8 +74,11 @@ Key: env `AA_VAULT_KEY` = base64 of 32 random bytes. Secret string -> UTF-8 -> A
   "subject": "Verify your account", "received_at": "2026-11-16T10:00:00Z",
   "codes": ["482913"], "links": ["https://acme.wd3.myworkdayjobs.com/...verify..."],
   "is_human": false, "text_excerpt": "first 2000 chars of the text body", "raw_key": "mail/2026/11/16/<uuid>.eml",
-  "reply_to": null, "message_id": "<...>" }
+  "reply_to": null, "message_id": "<...>",
+  "auth": { "spf": "pass", "dkim": "pass", "dmarc": "pass", "dkim_domains": ["myworkday.com"], "source": "arc-authentication-results:mx.cloudflare.net" } }
 ```
+
+`auth` = the verdicts from the TOPMOST `ARC-Authentication-Results` / `Authentication-Results` header written by Cloudflare (`mx.cloudflare.net`, override with worker var `AA_AUTHSERV_IDS`), or null. The API stores `auth_ok` = DMARC pass, or (no DMARC verdict) a DKIM pass aligned with the From domain. Unauthenticated mail (`auth_ok` false) is stored with `codes` and `links` EMPTY, is never category `code`, and does not `aa_notify_mail`; workers must only use mail with `auth_ok IS TRUE`.
 
 The body also carries `"has_attachments": true|false` (the mail had a real, non-inline attachment other than a calendar invite; attachments are never stored), `"meeting_links": [url]` (Zoom / Meet / Teams / Webex / Chime / Skype / Calendly / GoodTime links, up to 5; kept out of `links`) and `"ics": "<text>"|null` (the first calendar invite, max 32 000 chars). `ics` and `meeting_links` only feed the classifier and the interview extractor; they are not stored on the mail row.
 
@@ -87,13 +90,13 @@ Alias resolution: local part before `@`; the user's alias is the first two dot-s
 
 | category | what | expires |
 |---|---|---|
-| `code` | verification code / OTP / "verify your email" / password reset | never |
+| `code` | verification code / OTP / "verify your email" / password reset | 7 days after receipt |
 | `received` | automated "we received your application / applied successfully" | 30 days after receipt |
 | `rejected` | clear rejection ("unfortunately ... not moving forward", "pursue other candidates", "position has been filled", "regret to inform", ...) that does not also invite to an interview / assessment / offer | 30 days after receipt |
 | `important` | assessment / test / interview / offer / next steps, or written by a person (`is_human`) | never |
 | `other` | everything else | never |
 
-`kind`: `interview` / `assessment` / `offer` / `recruiter` (inside `important`), `rejection` (= `rejected`), else NULL. Only `received` and `rejected` are ever deleted, so they are chosen only on a clear match; anything unsure is kept. Non-expiring rows have `expires_at` NULL. A daily cron (03:40 IST, on Railway) deletes rows with `category IN ('received','rejected') AND expires_at < now()` in batches of 500; that daily activity also keeps the free Supabase mail project from pausing.
+`kind`: `interview` / `assessment` / `offer` / `recruiter` (inside `important`), `rejection` (= `rejected`), else NULL. Only `received` and `rejected` are ever deleted, so they are chosen only on a clear match; anything unsure is kept. Non-expiring rows have `expires_at` NULL. Mail to an unknown alias (`user_id` NULL) expires 3 days after receipt, whatever the category. A daily cron (03:40 IST, on Railway) deletes rows with `category IN ('code','received','rejected') AND expires_at < now()`, then unknown-alias rows with `expires_at < now()`, in batches of 500; that daily activity also keeps the free Supabase mail project from pausing.
 
 ### Alerts
 
@@ -127,14 +130,14 @@ Workers wait for codes with `LISTEN aa_mail` on the MAIL database (`AA_MAIL_DB_U
 | `GET /api/autoapply/inbox` | `?tab=important\|all\|codes&category=&kind=&company=&unread=1&q=<text>&before=<received_at ISO>&limit=50` (default tab `all`; `q` matches sender, name, company, subject, text) | `{mails: [{id, sender, from_name, company, subject, codes, is_human, received_at, text_excerpt, category, kind, has_attachments, read_at, expires_at}], next_before: <ISO>\|null}` |
 | `GET /api/autoapply/inbox/:id` | | `{mail: {...list fields, links: [url]}, interview: {...}\|null}`; marks the mail read (404 if not the caller's) |
 | `GET /api/autoapply/inbox/unread` | | `{count, by_kind: {interview: n, rejection: n, ...}}` (unread `important` + `rejected`; nav badge) |
-| `POST /api/autoapply/inbox/read-all` | | `{ok}` |
+| `POST /api/autoapply/inbox/read-all` | | `{ok, count}` |
 | `GET /api/autoapply/inbox/companies` | | `{companies: [name]}` |
 | `GET /api/autoapply/interviews` | | `{interviews: [{id, mail_event_id, company, role, starts_at, ends_at, timezone, tz_assumed, time_text, duration_min, meeting_url, meeting_provider, schedule_url, location, mode, round, interview_type, source, created_at, mail: {...}}], now}` |
 | `GET /api/autoapply/push/key` | | `{enabled, key}` (VAPID public key; `enabled:false, key:null` when push is not configured) |
-| `POST /api/autoapply/push/subscribe` | `{endpoint, keys: {p256dh, auth}}` (PushSubscription JSON) | `{ok}` |
+| `POST /api/autoapply/push/subscribe` | `{endpoint, keys: {p256dh, auth}}` (PushSubscription JSON) | `{ok, subscription}`; 409 `endpoint_owned` when the endpoint belongs to another user |
 | `POST /api/autoapply/push/unsubscribe` | `{endpoint}` | `{ok}` |
 | `GET /api/autoapply/accounts` | | `{accounts: [{tenant_host, login_email, status, created_at, last_used_at}]}` |
-| `POST /api/autoapply/accounts/reveal` | `{tenant_host}` | `{password}` (rate-limited, logged) |
+| `POST /api/autoapply/accounts/reveal` | `{tenant_host}` | `{password}` (rate-limited, logged); 401 `reauth_required` unless the access token was issued in the last 10 min |
 | `POST /api/inbound/email` | HMAC, no auth | `{ok}`; `{ok, duplicate: true}` for a retried mail already stored (dedupe key = sha256(recipient + Message-ID), sql/mail/03; no second push) |
 
 Browser live updates: Supabase Realtime `postgres_changes` on `aa_tasks` and `aa_batches` filtered `user_id=eq.<uid>`.

@@ -44,7 +44,14 @@ export async function createAutoApplyOrder({ db, razorpay, getUserPlan, userId, 
   if (!isEligiblePlan(plan)) throw new AAError(403, "not_eligible", "AutoApply needs an active Pro or Max plan.");
   if (!razorpay.isEnabled()) throw new AAError(503, "checkout_unconfigured", "Payments are not configured.");
 
-  const purchased = await monthPurchased(db, userId, now);
+  const { data: prof, error: pErr } = await db.from("aa_profiles").select("consent_at").eq("user_id", userId).maybeSingle();
+  if (pErr) throw pErr;
+  if (!(prof && prof.consent_at)) {
+    throw new AAError(403, "consent_required", "Accept the AutoApply terms (Setup, first step) before buying a pack.");
+  }
+
+  // pending orders from the last 30 min count too: two checkouts opened side by side cannot both pass the cap
+  const purchased = await monthPurchased(db, userId, now, { includePending: true });
   if (purchased + input.pack_size > AUTO_APPLY.monthly_cap) {
     throw new AAError(
       409,
@@ -94,51 +101,105 @@ export async function createAutoApplyOrder({ db, razorpay, getUserPlan, userId, 
   };
 }
 
+// The ledger 'note' column comes with sql/27; until it is applied the row is written without it.
+const isMissingNote = (err) => !!err && (["PGRST204", "42703"].includes(err.code) || /\bnote\b/i.test(String(err.message || "")));
+
+async function insertPurchaseLedger(db, batch, paymentId, note) {
+  const row = {
+    user_id: batch.user_id,
+    batch_id: batch.id,
+    delta: batch.credits_total,
+    reason: "purchase",
+    razorpay_payment_id: batch.razorpay_payment_id || paymentId,
+  };
+  if (note) row.note = note;
+  let { error } = await db.from("aa_credit_ledger").insert(row);
+  if (error && note && isMissingNote(error)) {
+    const { note: _n, ...plain } = row;
+    ({ error } = await db.from("aa_credit_ledger").insert(plain));
+  }
+  if (error && !isDup(error)) throw error;
+}
+
+export const LATE_PAYMENT_NOTE = "late_payment_auto_refund";
+export const CAP_OVERFLOW_NOTE = "monthly_cap_auto_refund";
+
 /**
- * The single idempotent "paid" step. Safe to call any number of times, from
- * the verify route and from the webhook, in any order.
+ * The single idempotent "paid" step. Safe to call any number of times, from the verify route and from the
+ * webhook, in any order. A captured payment is never dropped:
+ *  • pending_payment (unpaid)  -> 'paid', unless it would break the monthly cap -> 'refund_due' (full refund);
+ *  • cancelled (unpaid, e.g. the user cancelled or the order expired before the payment landed)
+ *                              -> 'refund_due' with purchased_at + payment id, refunded in full by the refunds cron.
+ * In both refund cases the ledger gets the 'purchase' row (+credits) with a note, and the cron's 'refund' row
+ * (-credits) balances it.
  */
 export async function markBatchPaid({ db, batch, paymentId, now = new Date() }) {
   const purchasedAt = now.toISOString();
   const expiresAt = new Date(now.getTime() + AUTO_APPLY.credit_validity_days * DAY_MS).toISOString();
 
-  const { data: won, error } = await db
-    .from("aa_batches")
-    .update({
-      status: "paid",
-      purchased_at: purchasedAt,
-      expires_at: expiresAt,
-      razorpay_payment_id: paymentId,
-    })
-    .eq("id", batch.id)
-    // 'cancelled' too: a user who cancelled the pending order and then paid it
-    // anyway still gets the credits (the money was taken).
-    .in("status", ["pending_payment", "cancelled"])
-    .is("purchased_at", null)
-    .select("*");
-  if (error) throw error;
+  const { data: fresh, error: fErr } = await db.from("aa_batches").select("*").eq("id", batch.id).maybeSingle();
+  if (fErr) throw fErr;
+  let current = fresh || batch;
+  let note = null;
 
-  let current = won && won[0];
-  if (!current) {
-    const { data: again, error: rErr } = await db.from("aa_batches").select("*").eq("id", batch.id).maybeSingle();
-    if (rErr) throw rErr;
-    current = again;
+  if (current && !current.purchased_at) {
+    let next = null;
+    if (current.status === "pending_payment") {
+      const purchased = await monthPurchased(db, current.user_id, now, { excludeBatchId: current.id });
+      if (purchased + Number(current.credits_total || 0) > AUTO_APPLY.monthly_cap) {
+        next = "refund_due";
+        note = CAP_OVERFLOW_NOTE;
+      } else next = "paid";
+    } else if (current.status === "cancelled") {
+      next = "refund_due";
+      note = LATE_PAYMENT_NOTE;
+    }
+    if (next) {
+      const { data: won, error } = await db
+        .from("aa_batches")
+        .update({ status: next, purchased_at: purchasedAt, expires_at: expiresAt, razorpay_payment_id: paymentId })
+        .eq("id", current.id)
+        .eq("status", current.status)
+        .is("purchased_at", null)
+        .select("*");
+      if (error) throw error;
+      if (won && won[0]) {
+        current = won[0];
+        if (note) console.warn(`[autoapply] payment ${paymentId} for batch ${current.id}: ${note} (refund_due)`);
+      } else {
+        note = null;
+        const { data: again, error: rErr } = await db.from("aa_batches").select("*").eq("id", batch.id).maybeSingle();
+        if (rErr) throw rErr;
+        current = again;
+      }
+    }
   }
   if (!current || !current.purchased_at) {
-    // e.g. the batch was cancelled before payment landed — surface for manual handling.
-    console.warn(`[autoapply] payment ${paymentId} for batch ${batch.id} but batch is ${current && current.status}`);
+    // unknown batch state (should not happen: every unpaid status is handled above) — surface for manual handling
+    console.error(`[autoapply] payment ${paymentId} for batch ${batch.id} not recorded: batch is ${current && current.status}`);
     return current;
   }
+  if (current.razorpay_payment_id && paymentId && current.razorpay_payment_id !== paymentId) {
+    console.error(`[autoapply] second payment ${paymentId} for batch ${current.id} (paid with ${current.razorpay_payment_id}); refund it by hand`);
+  }
 
-  const { error: lErr } = await db.from("aa_credit_ledger").insert({
-    user_id: current.user_id,
-    batch_id: current.id,
-    delta: current.credits_total,
-    reason: "purchase",
-    razorpay_payment_id: current.razorpay_payment_id || paymentId,
-  });
-  if (lErr && !isDup(lErr)) throw lErr;
+  await insertPurchaseLedger(db, current, paymentId, note);
   return current;
+}
+
+export const PENDING_ORDER_TTL_MS = DAY_MS;
+
+/** Cron: pending_payment orders older than 24 h -> 'cancelled' (a payment that still lands is auto-refunded). */
+export async function expirePendingOrders({ db, now = new Date(), olderThanMs = PENDING_ORDER_TTL_MS } = {}) {
+  const { data, error } = await db
+    .from("aa_batches")
+    .update({ status: "cancelled" })
+    .eq("status", "pending_payment")
+    .is("purchased_at", null)
+    .lt("created_at", new Date(now.getTime() - olderThanMs).toISOString())
+    .select("id");
+  if (error) throw error;
+  return { expired: (data || []).length };
 }
 
 export async function verifyAutoApplyPayment({ db, razorpay, userId, body, now = new Date() }) {

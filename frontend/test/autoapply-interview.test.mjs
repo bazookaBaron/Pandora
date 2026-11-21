@@ -288,7 +288,7 @@ test("backfillMail: re-classifies, fixes expiry, extracts interviews once", asyn
   assert.equal(s.scanned, 5);
   assert.equal(s.interviews, 1);
   const by = (id) => mailDb.rows("aa_mail_events").find((r) => r.id === id);
-  assert.equal(by(1).expires_at, null, "codes are kept");
+  assert.equal(by(1).expires_at, "2026-11-08T00:00:00.000Z", "codes expire 7 days after receipt");
   assert.equal(by(2).category, "rejected");
   assert.equal(by(2).expires_at, "2026-12-01T00:00:00.000Z", "30 days after receipt");
   assert.equal(by(3).expires_at, null);

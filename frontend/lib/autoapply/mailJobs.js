@@ -1,14 +1,15 @@
 /**
  * Scheduled mail jobs (run from server.js crons on Railway):
- *   cleanupExpiredMail  daily: delete expired received / rejected rows from the mail db in batches (this daily
- *                       activity also keeps the free Supabase project from pausing). Rows with expires_at NULL
- *                       (codes, important, other) are never deleted.
+ *   cleanupExpiredMail  daily: delete expired code (7 d) / received / rejected (30 d) rows, and every row of an
+ *                       unknown alias (user_id NULL, 3 d), from the mail db in batches (this daily activity also
+ *                       keeps the free Supabase project from pausing). A user's rows with expires_at NULL
+ *                       (important, other) are never deleted.
  *   sendDailyAlerts     daily ~7 PM IST: ONE short email per user with unalerted interview / assessment / offer /
  *                       rejection / other important mail
  *   backfillMail        one-off (scripts/aa-mail-backfill.mjs): re-classify old rows, set kind / company /
  *                       expires_at, extract interviews
  */
-import { classifyMail, companyFromMail, expiresAtFor, NOTIFY_CATEGORIES, RETENTION_DAYS } from "./classify.js";
+import { classifyMail, companyFromMail, mailExpiresAt, NOTIFY_CATEGORIES, RETENTION_DAYS } from "./classify.js";
 import { extractInterview } from "./interview.js";
 
 /** The only categories the cleanup may delete (belt and braces next to expires_at NULL). */
@@ -18,21 +19,22 @@ export const ALERT_LOOKBACK_MS = 24 * 3600 * 1000;
 
 export async function cleanupExpiredMail({ mailDb, now = new Date(), batchSize = 500, maxBatches = 200 } = {}) {
   let deleted = 0;
-  for (let i = 0; i < maxBatches; i++) {
-    const { data, error } = await mailDb
-      .from("aa_mail_events")
-      .select("id")
-      .in("category", EXPIRING_CATEGORIES)
-      .lt("expires_at", now.toISOString())
-      .order("expires_at", { ascending: true })
-      .limit(batchSize);
-    if (error) throw error;
-    const ids = (data || []).map((r) => r.id);
-    if (!ids.length) break;
-    const { error: dErr } = await mailDb.from("aa_mail_events").delete().in("id", ids);
-    if (dErr) throw dErr;
-    deleted += ids.length;
-    if (ids.length < batchSize) break;
+  // pass 1: the user's expiring categories; pass 2: unknown-alias mail (user_id NULL), any category
+  const passes = [(q) => q.in("category", EXPIRING_CATEGORIES), (q) => q.is("user_id", null)];
+  for (const scope of passes) {
+    for (let i = 0; i < maxBatches; i++) {
+      const { data, error } = await scope(mailDb.from("aa_mail_events").select("id"))
+        .lt("expires_at", now.toISOString())
+        .order("expires_at", { ascending: true })
+        .limit(batchSize);
+      if (error) throw error;
+      const ids = (data || []).map((r) => r.id);
+      if (!ids.length) break;
+      const { error: dErr } = await mailDb.from("aa_mail_events").delete().in("id", ids);
+      if (dErr) throw dErr;
+      deleted += ids.length;
+      if (ids.length < batchSize) break;
+    }
   }
   return { deleted };
 }
@@ -107,24 +109,38 @@ export async function sendDailyAlerts({ db, mailDb, resend, getAuthEmail = async
     byUser.get(r.user_id).push(r);
   }
 
-  const stats = { users: byUser.size, sent: 0, skipped: 0, failed: 0, deferred: 0 };
+  // Every API replica runs this cron: each user's rows are CLAIMED (alerted_at = this run's stamp, only where
+  // still NULL, RETURNING id) before the email goes out, so a second replica finds nothing left to send. A failed
+  // or skipped send hands the claimed rows back (alerted_at -> NULL, only rows carrying this run's stamp).
+  const stamp = now.toISOString();
+  const stats = { users: byUser.size, sent: 0, skipped: 0, failed: 0, deferred: 0, claimed_elsewhere: 0 };
   for (const [uid, events] of byUser) {
-    const ids = events.map((e) => e.id);
+    if (stats.sent >= maxSends) { stats.deferred++; continue; }   // leftovers go to the next run
+    const { data: claimedRows, error: cErr } = await mailDb
+      .from("aa_mail_events")
+      .update({ alerted_at: stamp })
+      .in("id", events.map((e) => e.id))
+      .is("alerted_at", null)
+      .select("id");
+    if (cErr) { console.error("[autoapply/alerts] claim failed:", cErr.message || cErr); stats.failed++; continue; }
+    const mine = new Set((claimedRows || []).map((r) => r.id));
+    const claimed = events.filter((e) => mine.has(e.id));
+    if (!claimed.length) { stats.claimed_elsewhere++; continue; }
+    const giveBack = () => mailDb.from("aa_mail_events").update({ alerted_at: null }).in("id", [...mine]).eq("alerted_at", stamp);
+
     const { data: prof } = await db.from("aa_profiles").select("contact_email, alert_prefs").eq("user_id", uid).maybeSingle();
     const prefs = (prof && prof.alert_prefs) || {};
-    const markAlerted = () => mailDb.from("aa_mail_events").update({ alerted_at: now.toISOString() }).in("id", ids);
-
-    if (prefs.email === false) { await markAlerted(); stats.skipped++; continue; }
-    if (stats.sent >= maxSends) { stats.deferred++; continue; }   // leftovers go to the next run
+    if (prefs.email === false) { stats.skipped++; continue; }     // stays alerted: the user opted out
     const to = (prof && prof.contact_email) || (await getAuthEmail(uid));
-    if (!to) { await markAlerted(); stats.skipped++; continue; }
+    if (!to) { stats.skipped++; continue; }
     try {
-      const r = await resend.sendEmail({ to, ...buildAlertEmail({ events: [...events].reverse(), baseUrl }) });
-      if (r && r.id) { await markAlerted(); stats.sent++; }
-      else if (r && r.skipped) stats.skipped++;      // Resend not configured: leave unalerted
-      else stats.failed++;
+      const r = await resend.sendEmail({ to, ...buildAlertEmail({ events: [...claimed].reverse(), baseUrl }) });
+      if (r && r.id) stats.sent++;
+      else if (r && r.skipped) { await giveBack(); stats.skipped++; }   // Resend not configured: leave unalerted
+      else { await giveBack(); stats.failed++; }
     } catch (e) {
       console.error("[autoapply/alerts]", (e && e.message) || String(e));
+      await giveBack();
       stats.failed++;
     }
   }
@@ -160,7 +176,7 @@ export async function backfillMail({ mailDb, batchSize = 500, maxBatches = 1000,
       const trusted = r.kind != null && Object.hasOwn(RETENTION_DAYS, r.category);
       const { category, kind } = trusted ? { category: r.category, kind: r.kind } : classifyMail(r);
       const company = r.company || companyFromMail({ sender: r.sender, from_name: r.from_name, subject: r.subject });
-      const expires_at = expiresAtFor(category, r.received_at || new Date());
+      const expires_at = mailExpiresAt({ category, user_id: r.user_id }, r.received_at || new Date());
       if (category === "rejected") stats.rejected++;
       if (category === "received") stats.received++;
       // compare instants, not strings: Postgres returns '+00:00' where toISOString() writes 'Z'

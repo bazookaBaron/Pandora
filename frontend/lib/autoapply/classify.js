@@ -1,19 +1,24 @@
 /**
  * Mail categories, kinds and retention. Pure.
- *   code       verification code / OTP / verify-your-email / password reset      -> kept
+ *   code       verification code / OTP / verify-your-email / password reset      -> deleted 7 days after receipt
  *   received   automated "we received your application / applied successfully"   -> deleted 30 days after receipt
  *   rejected   clear rejection ("unfortunately ... not moving forward", "position has been filled")
  *                                                                                 -> deleted 30 days after receipt
  *   important  assessment / test / interview / offer / next steps / person-written -> kept
  *   other      everything else                                                   -> kept
- * Only received and rejected are ever deleted, so they are chosen only when clearly matched; a rejection that
+ * Mail to an unknown alias (no user) is deleted 3 days after receipt, whatever its category.
+ * Unauthenticated mail (auth_ok false: no DMARC / aligned DKIM pass) is low-trust: never 'code' (its codes and
+ * links are not stored, so no task can use them), flagged low_trust.
+ * Of the user's mail, only codes, received and rejected are ever deleted, so they are chosen only when clearly matched; a rejection that
  * also invites to an interview / assessment / offer is not a rejection. Anything unsure is kept.
  *
  * kind (finer label, for filters and notifications):
  *   interview | assessment | offer | recruiter  (category important), rejection (category rejected), null otherwise.
  */
-export const RETENTION_DAYS = { code: null, received: 30, rejected: 30, important: null, other: null };
+export const RETENTION_DAYS = { code: 7, received: 30, rejected: 30, important: null, other: null };
 export const CATEGORIES = Object.keys(RETENTION_DAYS);
+/** Mail to an alias no user owns (user_id NULL) is kept this long, whatever its category. */
+export const UNKNOWN_ALIAS_DAYS = 3;
 export const KINDS = ["interview", "assessment", "offer", "recruiter", "rejection"];
 /** Categories that alert the user (push + daily digest + unread badge). */
 export const NOTIFY_CATEGORIES = ["important", "rejected"];
@@ -104,8 +109,8 @@ function importantKind(subject, all, isHuman, hasIcs) {
 }
 
 /**
- * @param {{subject?: string, text_excerpt?: string, text?: string, codes?: string[], is_human?: boolean, ics?: string|null, meeting_links?: string[]}} m
- * @returns {{category: 'code'|'received'|'rejected'|'important'|'other', kind: string|null, retention_days: number|null}}
+ * @param {{subject?: string, text_excerpt?: string, text?: string, codes?: string[], is_human?: boolean, ics?: string|null, meeting_links?: string[], auth_ok?: boolean}} m
+ * @returns {{category: 'code'|'received'|'rejected'|'important'|'other', kind: string|null, retention_days: number|null, low_trust: boolean}}
  */
 export function classifyMail(m = {}) {
   const subject = String(m.subject || "");
@@ -116,17 +121,18 @@ export function classifyMail(m = {}) {
   const isHuman = m.is_human === true;
   const codes = Array.isArray(m.codes) ? m.codes : [];
   const hasIcs = typeof m.ics === "string" && /BEGIN:VEVENT/i.test(m.ics);
+  const lowTrust = m.auth_ok === false;
 
   let category;
   if (!hasIcs && isRejection(all)) category = "rejected";
   else if (hasIcs || any(STRONG_IMPORTANT, all)) category = "important";
   else if (!isHuman && (any(RECEIVED, subject) || any(RECEIVED, head))) category = "received";
   else if (!isHuman && any(WEAK_IMPORTANT, all)) category = "important";
-  else if (!isHuman && (any(CODE_SUBJECT, subject) || (codes.length > 0 && any(CODE_BODY, all)))) category = "code";
+  else if (!isHuman && (any(CODE_SUBJECT, subject) || (codes.length > 0 && any(CODE_BODY, all)))) category = lowTrust ? "other" : "code";
   else if (isHuman) category = "important";
   else category = "other";
   const kind = category === "rejected" ? "rejection" : category === "important" ? importantKind(subject, all, isHuman, hasIcs) : null;
-  return { category, kind, retention_days: RETENTION_DAYS[category] ?? null };
+  return { category, kind, retention_days: RETENTION_DAYS[category] ?? null, low_trust: lowTrust };
 }
 
 /** ISO expiry for a category, or null when the mail is never deleted. */
@@ -134,6 +140,12 @@ export function expiresAtFor(category, receivedAt = new Date()) {
   const days = RETENTION_DAYS[category];
   if (days == null) return null;
   return new Date(new Date(receivedAt).getTime() + days * 86_400_000).toISOString();
+}
+
+/** ISO expiry for one stored mail: unknown alias (user_id null) -> 3 days, else by category (null = kept). */
+export function mailExpiresAt({ category, user_id } = {}, receivedAt = new Date()) {
+  if (user_id === null || user_id === undefined) return new Date(new Date(receivedAt).getTime() + UNKNOWN_ALIAS_DAYS * 86_400_000).toISOString();
+  return expiresAtFor(category, receivedAt);
 }
 
 // ── company name from a mail ───────────────────────────────────────────────

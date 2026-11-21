@@ -69,7 +69,8 @@ function evaluate(user, answers) {
   const u = user || {};
   const a = answers || u.answers || {};
   const p = isObj(u.profile) ? u.profile : {};
-  const done = !!u.onboarding_done;
+  // onboarding counts as finished only with the AutoApply consent recorded (aa_profiles.consent_at)
+  const done = !!u.onboarding_done && !!u.consent_at;
   const miss = [];
   if (!done) miss.push("onboarding");
   if (!s(u.resume_path)) miss.push("resume");
