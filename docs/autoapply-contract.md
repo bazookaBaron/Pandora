@@ -137,7 +137,7 @@ Workers wait for codes with `LISTEN aa_mail` on the MAIL database (`AA_MAIL_DB_U
 | `POST /api/autoapply/push/subscribe` | `{endpoint, keys: {p256dh, auth}}` (PushSubscription JSON) | `{ok, subscription}`; 409 `endpoint_owned` when the endpoint belongs to another user |
 | `POST /api/autoapply/push/unsubscribe` | `{endpoint}` | `{ok}` |
 | `GET /api/autoapply/accounts` | | `{accounts: [{tenant_host, login_email, status, created_at, last_used_at}]}` |
-| `POST /api/autoapply/accounts/reveal` | `{tenant_host}` | `{password}` (rate-limited, logged); 401 `reauth_required` unless the access token was issued in the last 10 min |
+| `POST /api/autoapply/accounts/reveal` | `{tenant_host}` | `{password}` (rate-limited, logged); 401 `reauth_required` unless the newest `amr` sign-in timestamp of the access token is within 10 min (a session refresh does not count) |
 | `POST /api/inbound/email` | HMAC, no auth | `{ok}`; `{ok, duplicate: true}` for a retried mail already stored (dedupe key = sha256(recipient + Message-ID), sql/mail/03; no second push) |
 
 Browser live updates: Supabase Realtime `postgres_changes` on `aa_tasks` and `aa_batches` filtered `user_id=eq.<uid>`.

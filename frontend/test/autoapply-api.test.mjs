@@ -87,9 +87,11 @@ before(async () => {
         const uid = String(req.headers.authorization || "").replace(/^Bearer /, "");
         if (!USERS[uid]) return res.status(401).json({ error: { code: "auth_required", message: "x" } });
         req.user = { id: uid, email: `${uid.slice(-4)}@mail.test` };
-        // a JWT-shaped token whose iat is X-Test-Token-Age seconds ago (default: just issued)
+        // a JWT-shaped token: fresh iat, last sign-in (amr) X-Test-Token-Age seconds ago (default: just now)
         const age = Number(req.headers["x-test-token-age"] || 0);
-        const claims = Buffer.from(JSON.stringify({ sub: uid, iat: Math.floor(Date.now() / 1000) - age })).toString("base64url");
+        const nowS = Math.floor(Date.now() / 1000);
+        const amr = req.headers["x-test-no-amr"] ? undefined : [{ method: "password", timestamp: nowS - age }];
+        const claims = Buffer.from(JSON.stringify({ sub: uid, iat: nowS, amr })).toString("base64url");
         req.authToken = `h.${claims}.s`;
         next();
       },
@@ -424,15 +426,18 @@ test("accounts list + reveal (vault) + rate limit 10/hour", async () => {
   assert.equal(l.json.accounts.length, 1);
   assert.ok(!("secret_ciphertext" in l.json.accounts[0]));
   const stale = await call("POST", "/api/autoapply/accounts/reveal", { body: { tenant_host: "acme.wd3.myworkdayjobs.com" }, headers: { "X-Test-Token-Age": "900" } });
-  assert.equal(stale.status, 401, "a token older than 10 min needs a fresh sign-in");
+  assert.equal(stale.status, 401, "a sign-in older than 10 min needs a fresh one, even with a just-refreshed token");
   assert.equal(stale.json.error.code, "reauth_required");
+  const noAmr = await call("POST", "/api/autoapply/accounts/reveal", { body: { tenant_host: "acme.wd3.myworkdayjobs.com" }, headers: { "X-Test-No-Amr": "1" } });
+  assert.equal(noAmr.status, 401, "a token without amr cannot prove a recent sign-in");
+  assert.equal(noAmr.json.error.code, "reauth_required");
   const r = await call("POST", "/api/autoapply/accounts/reveal", { body: { tenant_host: "acme.wd3.myworkdayjobs.com" } });
   assert.equal(r.status, 200);
   assert.equal(r.json.password, "Pw!12345");
   const nf = await call("POST", "/api/autoapply/accounts/reveal", { body: { tenant_host: "nope.example.com" } });
   assert.equal(nf.status, 404);
   let last;
-  for (let i = 0; i < 8; i++) last = await call("POST", "/api/autoapply/accounts/reveal", { body: { tenant_host: "acme.wd3.myworkdayjobs.com" } });
+  for (let i = 0; i < 7; i++) last = await call("POST", "/api/autoapply/accounts/reveal", { body: { tenant_host: "acme.wd3.myworkdayjobs.com" } });
   assert.equal(last.status, 429);
   assert.equal(last.json.error.code, "rate_limited");
 });

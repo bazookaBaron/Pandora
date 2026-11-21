@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import express from "express";
 
-import { createAutoApplyRouter, tokenAgeS } from "../routes/autoapply.js";
+import { createAutoApplyRouter, authAgeS } from "../routes/autoapply.js";
 import { markBatchPaid, expirePendingOrders, LATE_PAYMENT_NOTE, CAP_OVERFLOW_NOTE } from "../lib/autoapply/orders.js";
 import { processRefunds, STALE_CLAIM_MS } from "../lib/autoapply/refunds.js";
 import { monthPurchased } from "../lib/autoapply/limits.js";
@@ -157,12 +157,18 @@ test("mailAuthOk: DMARC pass, or aligned DKIM without a DMARC verdict; SPF alone
   assert.equal(mailAuthOk({ from: "a@acme.com" }), false, "no verdict (old worker) is unauthenticated");
 });
 
-test("tokenAgeS reads the JWT iat", () => {
-  const tok = (iat) => `h.${Buffer.from(JSON.stringify({ iat })).toString("base64url")}.s`;
-  const nowMs = Date.UTC(2026, 10, 21);
-  assert.equal(tokenAgeS(tok(nowMs / 1000 - 30), nowMs), 30);
-  assert.equal(tokenAgeS("garbage", nowMs), null);
-  assert.equal(tokenAgeS(undefined, nowMs), null);
+test("authAgeS uses the newest amr timestamp, never iat", () => {
+  const tok = (claims) => `h.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.s`;
+  const nowS = Date.UTC(2026, 10, 21) / 1000;
+  const nowMs = nowS * 1000;
+  // refreshed token (fresh iat) over an old sign-in: still old
+  assert.equal(authAgeS(tok({ iat: nowS, amr: [{ method: "oauth", timestamp: nowS - 3600 }] }), nowMs), 3600);
+  // the newest of several methods counts (e.g. password then a recent reauthentication)
+  assert.equal(authAgeS(tok({ iat: nowS, amr: [{ method: "password", timestamp: nowS - 7200 }, { method: "otp", timestamp: nowS - 30 }] }), nowMs), 30);
+  assert.equal(authAgeS(tok({ iat: nowS }), nowMs), null, "no amr -> unknown");
+  assert.equal(authAgeS(tok({ iat: nowS, amr: [{ method: "password" }] }), nowMs), null);
+  assert.equal(authAgeS("garbage", nowMs), null);
+  assert.equal(authAgeS(undefined, nowMs), null);
 });
 
 // ── API: consent, retry-safe mutations, push ownership, read-all ────────────

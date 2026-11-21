@@ -107,14 +107,21 @@ async function defaultAuthenticate(req, res, next) {
 
 const passThrough = (_req, _res, next) => next();
 
-/** Seconds since the access token was issued (JWT `iat`; the token itself was verified by authenticate), or null. */
-export function tokenAgeS(token, nowMs = Date.now()) {
+/**
+ * Seconds since the user last actually authenticated: the newest `amr[].timestamp` of the Supabase access token
+ * (the token itself was verified by authenticate). Not `iat`: a session refresh re-issues the token with a fresh
+ * iat but keeps amr, so only a real sign-in / reauthentication resets this. null when amr is missing / unusable.
+ */
+export function authAgeS(token, nowMs = Date.now()) {
   const part = String(token || "").split(".")[1];
   if (!part) return null;
   try {
     const claims = JSON.parse(Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
-    const iat = Number(claims && claims.iat);
-    return Number.isFinite(iat) ? Math.floor(nowMs / 1000) - iat : null;
+    const stamps = (Array.isArray(claims && claims.amr) ? claims.amr : [])
+      .map((a) => Number(a && a.timestamp))
+      .filter((t) => Number.isFinite(t) && t > 0);
+    if (!stamps.length) return null;
+    return Math.floor(nowMs / 1000) - Math.max(...stamps);
   } catch {
     return null;
   }
@@ -1213,9 +1220,9 @@ export function createAutoApplyRouter(deps = {}) {
     "/accounts/reveal",
     revealLimiter,
     wrap("accounts/reveal", async (req, res) => {
-      // recent sign-in required: the access token must be at most 10 minutes old (the client re-authenticates /
-      // refreshes the session right before revealing)
-      const age = tokenAgeS(req.authToken, now().getTime());
+      // recent sign-in required: the newest amr authentication must be at most 10 minutes old (the client signs
+      // in again right before revealing; a plain session refresh does not count)
+      const age = authAgeS(req.authToken, now().getTime());
       if (age === null || age > reauthMaxAgeS || age < -300) {
         throw new AAError(401, "reauth_required", "Confirm it's you: sign in again to reveal saved passwords.");
       }
