@@ -42,6 +42,29 @@ function Bars({ title, rows }) {
     )
 }
 
+// Two-segment split bar (tech vs product, India vs USA).
+function Split({ title, parts, note }) {
+    const total = parts.reduce((a, p) => a + p.value, 0)
+    if (!total) return null
+    return (
+        <div style={card}>
+            <h2 style={h2}>{title}</h2>
+            <div style={{ display: 'flex', height: 12, borderRadius: 6, overflow: 'hidden', background: 'var(--subtle)' }} role="img"
+                aria-label={parts.map((p) => `${p.label} ${Math.round((p.value / total) * 100)}%`).join(', ')}>
+                {parts.map((p, i) => (
+                    <span key={p.label} style={{ width: `${(p.value / total) * 100}%`, background: i === 0 ? 'var(--accent)' : 'var(--muted)' }} />
+                ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: '0.72rem', marginTop: 8, color: 'var(--muted)' }}>
+                {parts.map((p) => (
+                    <span key={p.label}><b style={{ color: 'var(--bright)' }}>{Math.round((p.value / total) * 100)}%</b> {p.label} · {fmt(p.value)}</span>
+                ))}
+            </div>
+            {note && <div style={{ fontSize: '0.66rem', color: 'var(--faint)', marginTop: 6 }}>{note}</div>}
+        </div>
+    )
+}
+
 function Trend({ points }) {
     const W = 600, H = 90, P = 6
     const vals = points.map((p) => p.open)
@@ -88,7 +111,13 @@ export default function MarketAnalytics() {
         )
     }
 
-    const fam = (data.families || []).slice(0, 10).map((f) => ({ label: f.label, value: f.count }))
+    const fam = (data.families || []).slice(0, 12).map((f) => ({
+        label: f.label + (f.family === 'product' ? ' (product)' : ''), value: f.count }))
+    const rs = Object.fromEntries((data.roleSplit || []).map((r) => [r.label, r.count]))
+    const roleParts = [{ label: 'Tech', value: rs.tech || 0 }, { label: 'Product-associated', value: rs.product || 0 }]
+    const cs = Object.fromEntries((data.countrySplit || []).map((r) => [r.label, r.count]))
+    const countryParts = [{ label: 'India', value: cs.IN || 0 }, { label: 'USA', value: cs.US || 0 }]
+    const days = data.windowDays || 15
     const sen = [...(data.seniority || [])]
         .sort((a, b) => SEN_ORDER.indexOf(a.label) - SEN_ORDER.indexOf(b.label))
         .map((s) => ({ label: SEN_LABEL[s.label] || s.label, value: s.count }))
@@ -108,7 +137,12 @@ export default function MarketAnalytics() {
             {trend.length >= 2 && <Trend points={trend} />}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-                <Bars title="Top role families" rows={fam} />
+                <Split title={`Tech vs product (${COUNTRIES.find(([k]) => k === country)[1]})`} parts={roleParts} />
+                <Split title="India vs USA (whole pool)" parts={countryParts} />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+                <Bars title="Role categories" rows={fam} />
                 <Bars title="Experience level" rows={sen} />
             </div>
 
@@ -132,7 +166,7 @@ export default function MarketAnalytics() {
             </div>
 
             <p style={{ fontSize: '0.66rem', color: 'var(--faint)', margin: 0 }}>
-                Based on {fmt(data.openNow)} jobs crawled in the last 3 days from {fmt(data.companies)} company career sites + LinkedIn.
+                Based on {fmt(data.openNow)} tech and product jobs posted in the last {days} days from {fmt(data.companies)} company career sites + LinkedIn.
             </p>
         </div>
     )
