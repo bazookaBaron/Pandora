@@ -55,8 +55,10 @@ export default function CompanySelector({ selected = [], onChange }) {
                         padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
                     }}>
                         {c}
-                        <button onClick={(e) => { e.stopPropagation(); remove(c) }}
-                            style={{ background: 'none', border: 'none', color: '#22d3ee', cursor: 'pointer', padding: 0, lineHeight: 1, fontSize: 12 }}>
+                        <button type="button" aria-label={`Remove ${c}`}
+                            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); remove(c) }}
+                            style={{ background: 'none', border: 'none', color: '#22d3ee', cursor: 'pointer', padding: '4px 6px', margin: '-4px -6px -4px 0', lineHeight: 1, fontSize: 14, minWidth: 24, minHeight: 24, touchAction: 'manipulation' }}>
                             ×
                         </button>
                     </span>
@@ -80,7 +82,7 @@ export default function CompanySelector({ selected = [], onChange }) {
                     />
                 )}
                 {selected.length > 0 && (
-                    <button onClick={(e) => { e.stopPropagation(); clear() }}
+                    <button type="button" aria-label="Clear all companies" onClick={(e) => { e.preventDefault(); e.stopPropagation(); clear() }}
                         title="Clear all"
                         style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 14, marginLeft: 'auto', padding: '0 2px' }}>
                         ×

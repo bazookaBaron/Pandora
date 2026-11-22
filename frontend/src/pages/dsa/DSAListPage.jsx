@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useCallback, useRef } from 'react'
+import { memo, useState, useEffect, useCallback, useRef, createContext, useContext } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { Lock } from 'lucide-react'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
@@ -54,7 +54,11 @@ function Pagination({ page, totalPages, onChange }) {
     )
 }
 
+// Clicking a company logo on a row toggles that company in the current filter (no navigation)
+const CompanyPickContext = createContext(null)
+
 function CompanyBadges({ companies = [], isMobile = false }) {
+    const pick = useContext(CompanyPickContext)
     const [expanded, setExpanded] = useState(false)
     if (!companies.length) return null
 
@@ -69,11 +73,12 @@ function CompanyBadges({ companies = [], isMobile = false }) {
             overflow: expanded ? 'visible' : 'hidden',
         }}>
             {shown.map(c => (
-                <Link key={c} to={`/dsa/company/${encodeURIComponent(c)}`}
-                    style={{ textDecoration: 'none', flexShrink: 0 }}
-                    onClick={e => e.stopPropagation()}>
+                <button key={c} type="button" title={pick?.selected.includes(c) ? `Remove ${c} from filter` : `Filter by ${c}`}
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', flexShrink: 0,
+                             opacity: pick && pick.selected.length && !pick.selected.includes(c) ? 0.55 : 1 }}
+                    onClick={e => { e.preventDefault(); e.stopPropagation(); pick?.toggle(c) }}>
                     <CompanyLogo company={c} />
-                </Link>
+                </button>
             ))}
             {overflow > 0 && (
                 <button
@@ -198,8 +203,9 @@ export default function DSAListPage({ filterCompany }) {
     // Read filters from URL params. `q` is written on a 300ms debounce below, so
     // reading it back here gives us the debounced search term for the query key.
     const search = searchParams.get('q') || ''
-    const companies = searchParams.get('company')
-        ? searchParams.get('company').split(',')
+    // 'company' present but empty = the user removed every company (even the page's own one on /dsa/company/X)
+    const companies = searchParams.has('company')
+        ? (searchParams.get('company') || '').split(',').filter(Boolean)
         : filterCompany ? [filterCompany] : []
     const difficulties = searchParams.get('difficulty') ? searchParams.get('difficulty').split(',') : []
     const sort = searchParams.get('sort') || 'id'
@@ -237,11 +243,12 @@ export default function DSAListPage({ filterCompany }) {
     const updateParam = useCallback((key, value) => {
         setSearchParams(p => {
             const n = new URLSearchParams(p)
-            if (!value || (Array.isArray(value) && !value.length)) n.delete(key)
+            if (key === 'company' && filterCompany && Array.isArray(value) && !value.length) n.set(key, '')
+            else if (!value || (Array.isArray(value) && !value.length)) n.delete(key)
             else n.set(key, Array.isArray(value) ? value.join(',') : value)
             return n
         }, { replace: true })
-    }, [setSearchParams])
+    }, [setSearchParams, filterCompany])
 
     // ── Single authenticated catalog query ─────────────────────────────
     // Tier caps are enforced server-side: a free user gets at most
@@ -357,8 +364,13 @@ export default function DSAListPage({ filterCompany }) {
         }
     }
 
+    const companyPick = {
+        selected: companies,
+        toggle: (c) => updateParam('company', companies.includes(c) ? companies.filter(x => x !== c) : [...companies, c]),
+    }
+
     return (
-        <>
+        <CompanyPickContext.Provider value={companyPick}>
             <Navbar />
             <div className="has-tilebar" style={{ paddingTop: 56, minHeight: '100vh' }}>
                 <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 16px' }}>
@@ -601,6 +613,6 @@ export default function DSAListPage({ filterCompany }) {
                     )}
                 </div>
             </div>
-        </>
+        </CompanyPickContext.Provider>
     )
 }
