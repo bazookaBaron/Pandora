@@ -25,7 +25,7 @@ export default function DSACompanyPage() {
                             <div style={{
                                 width: 48, height: 48, borderRadius: 10, background: 'var(--panel)',
                                 border: '2px solid var(--subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                fontSize: '1.2rem', fontWeight: 900, color: 'var(--pop)', flexShrink: 0,
+                                fontSize: '1.2rem', fontWeight: 900, color: '#22d3ee', flexShrink: 0,
                             }}>
                                 {decoded.charAt(0).toUpperCase()}
                             </div>

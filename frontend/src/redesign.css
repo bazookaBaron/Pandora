@@ -64,7 +64,7 @@ textarea.input-field { height: auto; padding: var(--sp-2) var(--sp-3); }
 .icon-btn:hover { border-color: var(--subtle-strong); }
 
 /* Segmented controls become underline tabs */
-.profile-segment { display: flex; gap: var(--sp-1); padding: 0; background: none; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; max-width: none !important; min-width: 0 !important; overflow: visible; height: auto; }
+.profile-segment { display: flex; gap: var(--sp-1); padding: 0; background: none; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; max-width: none !important; min-width: 0 !important; overflow-x: auto; }
 .profile-segment-btn {
     flex: 0 0 auto; padding: 0 var(--sp-3); height: var(--ctl-h); font-size: var(--fs-sm); font-weight: 500; text-transform: none; letter-spacing: 0;
     border-radius: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; color: var(--muted);
@@ -90,5 +90,5 @@ textarea.input-field { height: auto; padding: var(--sp-2) var(--sp-3); }
 
 /* Jobs filter row */
 .jobs-filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
-.jobs-filters .input-field { width: auto; flex: 0 0 auto; min-width: 140px; max-width: 100%; }
-@media (max-width: 640px) { .jobs-filters .input-field { flex: 1 1 100%; } }
+.jobs-filters .input-field { width: auto; flex: 0 1 148px; min-width: 0; }
+@media (max-width: 640px) { .jobs-filters .input-field { flex: 1 1 calc(50% - var(--sp-2)); } }
