@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useCallback, useRef } from 'react'
+import { memo, useState, useEffect, useCallback, useRef, createContext, useContext } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { Lock } from 'lucide-react'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
@@ -54,7 +54,11 @@ function Pagination({ page, totalPages, onChange }) {
     )
 }
 
+// Clicking a company logo on a row toggles that company in the current filter (no navigation)
+const CompanyPickContext = createContext(null)
+
 function CompanyBadges({ companies = [], isMobile = false }) {
+    const pick = useContext(CompanyPickContext)
     const [expanded, setExpanded] = useState(false)
     if (!companies.length) return null
 
@@ -69,11 +73,12 @@ function CompanyBadges({ companies = [], isMobile = false }) {
             overflow: expanded ? 'visible' : 'hidden',
         }}>
             {shown.map(c => (
-                <Link key={c} to={`/dsa/company/${encodeURIComponent(c)}`}
-                    style={{ textDecoration: 'none', flexShrink: 0 }}
-                    onClick={e => e.stopPropagation()}>
+                <button key={c} type="button" title={pick?.selected.includes(c) ? `Remove ${c} from filter` : `Filter by ${c}`}
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', flexShrink: 0,
+                             opacity: pick && pick.selected.length && !pick.selected.includes(c) ? 0.55 : 1 }}
+                    onClick={e => { e.preventDefault(); e.stopPropagation(); pick?.toggle(c) }}>
                     <CompanyLogo company={c} />
-                </Link>
+                </button>
             ))}
             {overflow > 0 && (
                 <button
@@ -359,8 +364,13 @@ export default function DSAListPage({ filterCompany }) {
         }
     }
 
+    const companyPick = {
+        selected: companies,
+        toggle: (c) => updateParam('company', companies.includes(c) ? companies.filter(x => x !== c) : [...companies, c]),
+    }
+
     return (
-        <>
+        <CompanyPickContext.Provider value={companyPick}>
             <Navbar />
             <div className="has-tilebar" style={{ paddingTop: 56, minHeight: '100vh' }}>
                 <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 16px' }}>
@@ -603,6 +613,6 @@ export default function DSAListPage({ filterCompany }) {
                     )}
                 </div>
             </div>
-        </>
+        </CompanyPickContext.Provider>
     )
 }
