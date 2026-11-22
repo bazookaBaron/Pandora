@@ -530,6 +530,9 @@ export default function SetupSection({ initialStep = null }) {
 
     return (
         <div>
+            <select className="input-field provider-select aa-step-select" aria-label="Setup step" value={stepId} onChange={(e) => go(e.target.value)}>
+                {STEPS.map((s, i) => <option key={s.id} value={s.id}>{`${i + 1}. ${s.label}`}</option>)}
+            </select>
             <ol className="aa-steps" aria-label="Setup steps">
                 {STEPS.map((s, i) => (
                     <li key={s.id}>

@@ -39,7 +39,7 @@ export default function CompanySelector({ selected = [], onChange }) {
                     cursor: 'text',
                     minHeight: 36,
                     alignItems: 'center',
-                    boxShadow: open ? '0 0 0 2px rgba(34,211,238,0.15)' : 'none',
+                    boxShadow: open ? '0 0 0 2px rgba(109, 141, 255,0.15)' : 'none',
                     transition: 'border-color 0.15s, box-shadow 0.15s',
                 }}
                 onClick={() => { setOpen(true); }}
@@ -50,8 +50,8 @@ export default function CompanySelector({ selected = [], onChange }) {
                 {selected.map(c => (
                     <span key={c} style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
-                        background: 'rgba(34,211,238,0.1)', color: '#22d3ee',
-                        border: '1px solid rgba(34,211,238,0.25)', borderRadius: 4,
+                        background: 'rgba(109, 141, 255,0.1)', color: '#22d3ee',
+                        border: '1px solid rgba(109, 141, 255,0.25)', borderRadius: 4,
                         padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
                     }}>
                         {c}

@@ -73,7 +73,7 @@ export function UpgradeButton({ children = 'Unlock Pro', size = 'md' }) {
                 background: 'linear-gradient(135deg, #22d3ee, #a78bfa)',
                 color: 'var(--surface)', fontWeight: 900, fontSize: fs,
                 textTransform: 'uppercase', letterSpacing: '0.06em',
-                boxShadow: '0 4px 20px rgba(34,211,238,0.25)',
+                boxShadow: '0 4px 20px rgba(109, 141, 255,0.25)',
             }}
         >
             <LockIcon size={14} />
