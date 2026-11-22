@@ -34,7 +34,7 @@ export default function CompanySelector({ selected = [], onChange }) {
                     gap: 4,
                     padding: '6px 10px',
                     background: 'var(--panel)',
-                    border: `1px solid ${open ? '#22d3ee' : 'var(--subtle)'}`,
+                    border: `1px solid ${open ? 'var(--pop)' : 'var(--subtle)'}`,
                     borderRadius: 6,
                     cursor: 'text',
                     minHeight: 36,
@@ -50,13 +50,13 @@ export default function CompanySelector({ selected = [], onChange }) {
                 {selected.map(c => (
                     <span key={c} style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
-                        background: 'rgba(109, 141, 255,0.1)', color: '#22d3ee',
+                        background: 'rgba(109, 141, 255,0.1)', color: 'var(--pop)',
                         border: '1px solid rgba(109, 141, 255,0.25)', borderRadius: 4,
                         padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
                     }}>
                         {c}
                         <button onClick={(e) => { e.stopPropagation(); remove(c) }}
-                            style={{ background: 'none', border: 'none', color: '#22d3ee', cursor: 'pointer', padding: 0, lineHeight: 1, fontSize: 12 }}>
+                            style={{ background: 'none', border: 'none', color: 'var(--pop)', cursor: 'pointer', padding: 0, lineHeight: 1, fontSize: 12 }}>
                             ×
                         </button>
                     </span>
