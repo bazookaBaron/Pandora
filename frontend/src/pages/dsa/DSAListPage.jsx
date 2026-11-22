@@ -198,8 +198,9 @@ export default function DSAListPage({ filterCompany }) {
     // Read filters from URL params. `q` is written on a 300ms debounce below, so
     // reading it back here gives us the debounced search term for the query key.
     const search = searchParams.get('q') || ''
-    const companies = searchParams.get('company')
-        ? searchParams.get('company').split(',')
+    // 'company' present but empty = the user removed every company (even the page's own one on /dsa/company/X)
+    const companies = searchParams.has('company')
+        ? (searchParams.get('company') || '').split(',').filter(Boolean)
         : filterCompany ? [filterCompany] : []
     const difficulties = searchParams.get('difficulty') ? searchParams.get('difficulty').split(',') : []
     const sort = searchParams.get('sort') || 'id'
@@ -237,11 +238,12 @@ export default function DSAListPage({ filterCompany }) {
     const updateParam = useCallback((key, value) => {
         setSearchParams(p => {
             const n = new URLSearchParams(p)
-            if (!value || (Array.isArray(value) && !value.length)) n.delete(key)
+            if (key === 'company' && filterCompany && Array.isArray(value) && !value.length) n.set(key, '')
+            else if (!value || (Array.isArray(value) && !value.length)) n.delete(key)
             else n.set(key, Array.isArray(value) ? value.join(',') : value)
             return n
         }, { replace: true })
-    }, [setSearchParams])
+    }, [setSearchParams, filterCompany])
 
     // ── Single authenticated catalog query ─────────────────────────────
     // Tier caps are enforced server-side: a free user gets at most
