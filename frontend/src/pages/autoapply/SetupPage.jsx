@@ -525,19 +525,62 @@ export default function SetupSection({ initialStep = null }) {
         }
     }, [me.data, draft])
 
-    const go = (id) => setParams({ step: id }, { replace: false })
-    const next = () => { if (idx < STEPS.length - 1) go(STEPS[idx + 1].id) }
+    // Which steps are complete (server state), so later steps stay locked until the previous one is done.
+    const m = me.data || {}
+    const prof = profileJson(m)
+    const missing = (m.readiness?.missing || m.profile_check?.missing || []).map((x) => (x && typeof x === 'object' ? x.key : String(x || '')))
+    const NON_ANSWER = new Set(['onboarding', 'resume', 'email', 'prefs', 'titles', 'consent'])
+    const resumeDone = !!(m.resume_path || prof.resume_path) && !missing.includes('resume')
+    const done = {
+        resume: resumeDone,
+        answers: resumeDone && !missing.some((k) => !NON_ANSWER.has(k)),
+        prefs: Array.isArray(m.prefs?.titles) && m.prefs.titles.length > 0,
+        email: !missing.includes('email') && !!(m.prefs || m.consent_at || m.onboarding_done || m.email || m.portal_email),
+        consent: !!(m.consent_at && m.onboarding_done),
+    }
+    const [reached, setReached] = useState(0)          // steps opened with Continue in this visit stay open
+    const unlocked = (i) => i === 0 || i <= reached || STEPS.slice(0, i).every((s) => done[s.id])
+    const go = (id) => {
+        const i = STEPS.findIndex((s) => s.id === id)
+        if (i >= 0 && unlocked(i)) setParams({ step: id }, { replace: false })
+    }
+    const next = () => {
+        if (idx < STEPS.length - 1) {
+            setReached((r) => Math.max(r, idx + 1))
+            setParams({ step: STEPS[idx + 1].id }, { replace: false })
+        }
+    }
+    // a deep link to a locked step falls back to the first unfinished one
+    useEffect(() => {
+        if (me.data && !unlocked(idx)) {
+            const first = STEPS.findIndex((s) => !done[s.id])
+            setParams({ step: STEPS[Math.max(0, first)].id }, { replace: true })
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [me.data, idx])
+    const allDone = STEPS.every((s) => done[s.id])
 
     return (
         <div>
-            <ol className="aa-steps" aria-label="Setup steps">
-                {STEPS.map((s, i) => (
-                    <li key={s.id}>
-                        <button type="button" aria-current={s.id === stepId ? 'step' : undefined} onClick={() => go(s.id)}>
-                            <span className="aa-step-n">{i + 1}</span>{s.label}
-                        </button>
-                    </li>
-                ))}
+            {!allDone && (
+                <p className="aa-setup-intro">
+                    Fill in these details once and we'll start applying for you. Each step unlocks when the one before it is done.
+                </p>
+            )}
+            <ol className="aa-pipe" aria-label="Setup steps">
+                {STEPS.map((s, i) => {
+                    const open = unlocked(i)
+                    const state = s.id === stepId ? 'current' : done[s.id] ? 'done' : open ? 'open' : 'locked'
+                    return (
+                        <li key={s.id} className={`aa-pipe-step is-${state}`}>
+                            <button type="button" disabled={!open} aria-current={s.id === stepId ? 'step' : undefined}
+                                title={open ? s.label : 'Finish the previous step first'} onClick={() => go(s.id)}>
+                                <span className="aa-pipe-dot" aria-hidden="true">{state === 'done' ? '✓' : state === 'locked' ? '🔒' : i + 1}</span>
+                                <span className="aa-pipe-label">{s.label}</span>
+                            </button>
+                        </li>
+                    )
+                })}
             </ol>
             {me.data && (
                 <>

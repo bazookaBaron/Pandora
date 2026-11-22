@@ -58,7 +58,7 @@
     --sp-7: 48px;
     --border-strong: var(--subtle-strong);
     --text-muted: var(--muted);
-    --nav-h: 120px; /* top bar (56) + tab row (64) */
+    --nav-h: 100px; /* top bar (56) + compact tab row (44) */
     --transition: 0.18s ease;
     color-scheme: dark;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
@@ -629,53 +629,53 @@ h3 {
 
 html[data-nav-compact] { --nav-h: 56px; }
 
-/* ── Primary section tabs: Jobs / Auto Apply / Referrals, equal width ── */
+/* ── Primary section tabs: Jobs / Auto Apply / Referrals — compact centred pills ── */
 .nav-tabs {
     position: fixed;
     top: 56px;
     left: 0;
     right: 0;
     z-index: 99;
-    display: grid;
-    grid-template-columns: repeat(var(--tab-count, 3), minmax(0, 1fr));
-    gap: var(--sp-2);
-    padding: var(--sp-2) 24px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 16px;
     background: var(--nav-bg);
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--subtle);
 }
 .nav-tab {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    height: 48px;
+    height: 28px;
     min-width: 0;
-    padding: 0 var(--sp-3);
+    padding: 0 14px;
     border: 1px solid var(--border-strong);
-    border-radius: var(--radius);
-    background: var(--panel);
+    border-radius: 999px;
+    background: transparent;
     color: var(--accent);
-    font-size: 0.86rem;
+    font-size: 0.74rem;
     font-weight: 700;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.03em;
     text-decoration: none;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     transition: color var(--transition), border-color var(--transition), background var(--transition);
 }
 .nav-tab:hover { color: var(--pop); border-color: var(--pop); background: var(--pop-dim); }
 .nav-tab.active {
-    background: var(--pop);
+    background: var(--pop-dim);
     border-color: var(--pop);
-    color: var(--surface);
-    font-weight: 900;
+    color: var(--pop);
+    font-weight: 800;
 }
-.nav-tab.active:hover { color: var(--surface); background: var(--pop); }
+.nav-tab.active:hover { color: var(--pop); background: var(--pop-dim); }
 @media (max-width: 767px) {
-    .nav-tabs { padding: var(--sp-2) 12px; gap: 6px; }
-    .nav-tab { font-size: 0.78rem; padding: 0 6px; }
+    .nav-tabs { padding: 0 10px; gap: 6px; }
+    .nav-tab { font-size: 0.72rem; padding: 0 12px; flex: 0 1 auto; }
 }
 
 /* ── Top Navigation Bar ─────────────────────────────────────────────── */

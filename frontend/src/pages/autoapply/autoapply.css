@@ -165,6 +165,28 @@
 .aa-steps button[aria-current="step"] { background: var(--pop); color: var(--surface); border-color: var(--pop); }
 .aa-steps .aa-step-n { opacity: 0.7; }
 
+/* setup: horizontal locked pipeline */
+.aa-setup-intro { margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--pop); border-radius: var(--radius);
+    background: var(--pop-dim); color: var(--bright); font-size: 0.8rem; line-height: 1.5; }
+.aa-pipe { display: flex; align-items: flex-start; list-style: none; padding: 0; margin: 0 0 20px; }
+.aa-pipe-step { flex: 1 1 0; min-width: 0; position: relative; }
+.aa-pipe-step:not(:last-child)::after { content: ''; position: absolute; top: 14px; left: calc(50% + 16px); right: calc(-50% + 16px);
+    height: 2px; background: var(--subtle); }
+.aa-pipe-step.is-done:not(:last-child)::after { background: var(--pop); }
+.aa-pipe-step button { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; background: none; border: 0;
+    padding: 0; font: inherit; cursor: pointer; color: var(--muted); }
+.aa-pipe-step button:disabled { cursor: not-allowed; opacity: 0.55; }
+.aa-pipe-dot { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.72rem; font-weight: 900; border: 1px solid var(--subtle); background: var(--panel); color: var(--muted); }
+.aa-pipe-label { font-size: 0.62rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.aa-pipe-step.is-current .aa-pipe-dot { background: var(--pop); border-color: var(--pop); color: var(--surface); }
+.aa-pipe-step.is-current .aa-pipe-label { color: var(--pop); }
+.aa-pipe-step.is-done .aa-pipe-dot { border-color: var(--pop); color: var(--pop); background: var(--pop-dim); }
+.aa-pipe-step.is-done .aa-pipe-label, .aa-pipe-step.is-open .aa-pipe-label { color: var(--accent); }
+.aa-pipe-step.is-locked .aa-pipe-dot { font-size: 0.66rem; }
+@media (max-width: 480px) { .aa-pipe-label { font-size: 0.56rem; letter-spacing: 0.02em; } }
+
 .aa-field { display: flex; flex-direction: column; gap: 0; }
 .aa-field .field-label { margin-bottom: 6px; }
 .aa-check { display: flex; gap: 10px; align-items: flex-start; font-size: 0.8rem; color: var(--accent); line-height: 1.5; cursor: pointer; }
