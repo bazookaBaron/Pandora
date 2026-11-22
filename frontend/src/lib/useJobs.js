@@ -125,8 +125,8 @@ export function useJobsTrend(granularity, enabled) {
     return { ...query, data: query.data || EMPTY_TREND }
 }
 
-// Daily Adzuna market snapshot (server reads stored rows only). { ready:false }
-// until the first snapshot has been taken.
+// Market analytics computed from our own crawler pool (server caches 30 min).
+// { ready:false } until the analytics RPC exists.
 export function useMarketAnalytics(country) {
     const c = country === 'US' ? 'US' : 'IN'
     return useQuery({
@@ -134,5 +134,15 @@ export function useMarketAnalytics(country) {
         queryFn: () => apiFetch('/api/market/analytics?country=' + c),
         staleTime: 10 * 60_000,
         placeholderData: keepPreviousData,
+    })
+}
+
+// Latest "search more for this role" request of the signed-in user.
+export function useSearchRequest(enabled) {
+    return useQuery({
+        queryKey: ['jobs-search-request'],
+        queryFn: () => apiFetch('/api/jobs/request-search'),
+        enabled: !!enabled,
+        staleTime: 60_000,
     })
 }

@@ -22,8 +22,6 @@ import {
 import { compileLatexToPdf } from "./lib/latexCompiler.js";
 import { buildFilename } from "./lib/filename.js";
 import { requireAuth, optionalAuth } from "./lib/requireAuth.js";
-import { runMarketSnapshots, loadMarketAnalytics } from "./lib/marketSnapshot.js";
-import { isAdminUser as isMarketAdmin } from "./lib/autoapply/health.js";
 import {
   canAccess,
   reserveUsage,
@@ -2894,57 +2892,110 @@ app.get("/api/jobs/analytics/trend", catalogLimiter, optionalAuth, async (req, r
   }
 });
 
-// ── Market analytics (Adzuna daily snapshots; see lib/marketSnapshot.js) ──
-// Reads stored rows only — never calls Adzuna from a user request.
+// ── Market analytics (our own crawler pool only) ──────────────────
+// Live aggregates come from the crawler.market_analytics RPC (sql/37); the
+// 30-day trend from the crawler's daily public.jobs_market_snapshot_daily
+// (its by_country jsonb holds open-job counts per country).
 app.get("/api/market/analytics", catalogLimiter, optionalAuth, async (req, res) => {
   const country = String(req.query.country || "IN").toUpperCase() === "US" ? "US" : "IN";
   try {
     const key = `market-analytics:${country}`;
     const wasHit = hasFresh(key);
-    const payload = await cached(key, 600000, () => loadMarketAnalytics(supabaseAdmin, country));
-    res.set("Cache-Control", "public, max-age=300, s-maxage=600");
+    const payload = await cached(key, 30 * 60 * 1000, async () => {
+      const [rpc, snap] = await Promise.all([
+        jobsDb().rpc("market_analytics", { p_country: country }),
+        supabaseAdmin
+          .from(JOBS_SNAPSHOT_TABLE)
+          .select("snapshot_date, by_country")
+          .order("snapshot_date", { ascending: false })
+          .limit(30),
+      ]);
+      if (rpc.error) throw rpc.error;
+      const d = rpc.data || {};
+      const trend = ((snap.data) || [])
+        .map((r) => ({ date: r.snapshot_date, open: Number(r.by_country && r.by_country[country]) }))
+        .filter((r) => Number.isFinite(r.open))
+        .reverse();
+      return {
+        ready: true,
+        country,
+        openNow: d.open_now || 0,
+        new24h: d.new_24h || 0,
+        companies: d.companies || 0,
+        trend,
+        families: d.families || [],
+        seniority: d.seniority || [],
+        topCompanies: d.top_companies || [],
+        companyTypes: d.company_types || [],
+        generatedAt: new Date().toISOString(),
+      };
+    });
+    res.set("Cache-Control", "public, max-age=300, s-maxage=1800");
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
     res.json(payload);
   } catch (err) {
+    const msg = String((err && err.message) || err);
+    if (/does not exist|schema cache|PGRST1|PGRST2|Could not find the function/i.test(msg)) {
+      return res.json({ ready: false, country });
+    }
     fail(res, err, "market/analytics", "Failed to load market analytics.");
   }
 });
 
-let marketRunning = false;
-async function runMarketJob(opts = {}) {
-  if (marketRunning) return { skipped: "already_running" };
-  marketRunning = true;
+// ── On-demand "search more for this role" (picked up by the crawler's
+// discovery worker via public.aa_discovery_requests) ───────────────
+const SEARCH_REQ_WINDOW_MS = 24 * 3600 * 1000;
+app.get("/api/jobs/request-search", requireAuth, async (req, res) => {
   try {
-    const r = await runMarketSnapshots({ supabase: supabaseAdmin, force: opts.force === true });
-    invalidate("market-analytics:");
-    console.log("[market] daily snapshot", r);
-    return r;
-  } catch (e) {
-    console.error("[market] daily snapshot failed:", (e && e.message) || e);
-    return { error: true };
-  } finally {
-    marketRunning = false;
+    const { data, error } = await supabaseAdmin
+      .from("aa_discovery_requests")
+      .select("status, titles, country, seniority, requested_at, finished_at, found")
+      .eq("user_id", req.user.id)
+      .order("requested_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    res.json({ request: data || null });
+  } catch (err) {
+    fail(res, err, "jobs/request-search", "Failed to load search request.");
   }
-}
-
-// Admin-only manual trigger (AA_ADMIN_EMAILS / AA_ADMIN_USER_IDS). Responds
-// immediately; the run takes ~4 min (rate-limited). Guarded in-DB, so a repeat
-// the same day is a no-op.
-app.post("/api/market/refresh", requireAuth, async (req, res) => {
-  if (!isMarketAdmin(req.user)) return res.status(403).json({ error: "Admins only." });
-  if (marketRunning) return res.status(202).json({ started: false, reason: "already_running" });
-  runMarketJob({ force: true });
-  res.status(202).json({ started: true });
 });
 
-if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY) {
-  cron.schedule("30 2 * * *", () => runMarketJob(), { timezone: "Asia/Kolkata" });
-  // Catch-up after a deploy/restart that straddled 02:30; the in-DB guard makes it a no-op if done.
-  const t = setTimeout(() => runMarketJob(), 120000);
-  if (t.unref) t.unref();
-} else {
-  console.warn("[market] daily market snapshot disabled (needs SUPABASE_SERVICE_ROLE_KEY + ADZUNA_APP_ID/KEY)");
-}
+app.post("/api/jobs/request-search", requireAuth, catalogLimiter, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const titles = (Array.isArray(b.titles) ? b.titles : [])
+      .map((t) => String(t || "").trim().slice(0, 80))
+      .filter(Boolean)
+      .slice(0, 5);
+    const country = String(b.country || "").toUpperCase();
+    if (!titles.length) return res.status(400).json({ error: "titles required" });
+    if (country !== "IN" && country !== "US") return res.status(400).json({ error: "country must be IN or US" });
+    const seniority = b.seniority ? String(b.seniority).trim().toLowerCase().slice(0, 20) : null;
+
+    const { data: last } = await supabaseAdmin
+      .from("aa_discovery_requests")
+      .select("requested_at")
+      .eq("user_id", req.user.id)
+      .order("requested_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (last && Date.now() - new Date(last.requested_at).getTime() < SEARCH_REQ_WINDOW_MS) {
+      const retryAt = new Date(new Date(last.requested_at).getTime() + SEARCH_REQ_WINDOW_MS).toISOString();
+      return res.status(429).json({ error: "rate_limited", message: "You can request one extra search per day.", retryAt });
+    }
+    const { error } = await supabaseAdmin
+      .from("aa_discovery_requests")
+      .insert({ user_id: req.user.id, titles, country, seniority });
+    if (error) {
+      if (error.code === "23505") return res.status(429).json({ error: "already_queued", message: "You already have a search queued." });
+      throw error;
+    }
+    res.status(202).json({ queued: true });
+  } catch (err) {
+    fail(res, err, "jobs/request-search", "Failed to queue search.");
+  }
+});
 
 // ── Feedback (feature request / bug report) ──────────────────────
 // Emails the operator directly. Rate-limited; body capped.
