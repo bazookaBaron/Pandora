@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import Navbar from '../../components/Navbar'
 import { PageContainer, PageHeader } from '../../components/shared/Layout'
-import { useJobs, useJobFacet } from '../../lib/useJobs'
+import { useJobs, useJobFacet, useSearchRequest } from '../../lib/useJobs'
+import { apiFetch } from '../../lib/apiClient'
 import MarketAnalytics from './MarketAnalytics'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
 import { LockedSlice } from '../../components/shared/PaywallGate'
@@ -379,6 +380,21 @@ function ListingsView() {
     const { data, isLoading, isFetching, error, refetch } =
         useJobs({ search, company, location: locationParam, locationType, companyType, source, seniority, postedWithin, sort, page })
 
+    const { user } = useAuth()
+    const searchReq = useSearchRequest(!!user)
+    const [reqState, setReqState] = useState('')
+    const requestMore = async () => {
+        setReqState('sending')
+        try {
+            const country = /united states|usa|\bus\b/i.test(locationParam) ? 'US' : 'IN'
+            await apiFetch('/api/jobs/request-search', { json: { titles: [search], country, seniority: seniority || undefined } })
+            setReqState('queued')
+        } catch (e) {
+            setReqState(e && e.status === 429 ? 'limited' : 'error')
+        }
+        searchReq.refetch()
+    }
+
     const sourceOptions = useMemo(
         () => [{ value: '', label: 'All sources' }, ...(data.facets?.sources || []).map((s) => ({ value: s, label: s }))],
         [data.facets],
@@ -449,6 +465,19 @@ function ListingsView() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 6, opacity: isFetching ? 0.6 : 1, transition: 'opacity .15s' }}>
                         {data.items.map((j) => <JobCard key={j.id} j={j} />)}
                     </div>
+                    {user && search && !isLoading && data.total < 10 && (
+                        <div style={{ marginTop: 14, fontSize: '0.74rem', color: 'var(--muted)' }}>
+                            {reqState === 'queued' || searchReq.data?.request?.status === 'queued'
+                                ? 'We are searching more sources for this role. Check back later.'
+                                : reqState === 'limited' ? 'You can request one extra search per day.'
+                                : (
+                                    <button type="button" onClick={requestMore} disabled={reqState === 'sending'}
+                                        style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--subtle)', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.74rem', fontWeight: 700 }}>
+                                        Search more for this role
+                                    </button>
+                                )}
+                        </div>
+                    )}
                     {data.locked > 0 && (
                         <LockedSlice count={data.locked} noun="job listings" variant="row" rows={3} />
                     )}
