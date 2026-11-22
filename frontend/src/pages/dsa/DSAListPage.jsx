@@ -42,7 +42,7 @@ function Pagination({ page, totalPages, onChange }) {
                 ? <span key={`e${idx}`} style={{ color: 'var(--faint)', fontSize: '0.78rem', padding: '0 4px' }}>…</span>
                 : <button key={p} onClick={() => onChange(p)} style={{
                     width: 32, height: 32, borderRadius: 6, border: `1px solid ${p === page ? '#22d3ee' : 'var(--subtle)'}`,
-                    background: p === page ? 'rgba(109, 141, 255,0.12)' : 'none',
+                    background: p === page ? 'rgba(34,211,238,0.12)' : 'none',
                     color: p === page ? '#22d3ee' : 'var(--muted)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: p === page ? 900 : 400,
                 }}>{p}</button>
             )}
@@ -155,7 +155,7 @@ const ProblemRow = memo(function ProblemRow({ p, prog, isMobile, onToggleStatus,
         return (
             <div style={{
                 padding: '12px', borderBottom: '1px solid rgba(39,39,42,0.5)',
-                background: isSolved ? 'rgba(109, 141, 255,0.03)' : 'transparent',
+                background: isSolved ? 'rgba(34,211,238,0.03)' : 'transparent',
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <FluidCheckbox checked={isSolved} onChange={handleToggleStatus} />
@@ -174,11 +174,11 @@ const ProblemRow = memo(function ProblemRow({ p, prog, isMobile, onToggleStatus,
             display: 'grid', gridTemplateColumns: '28px 1fr 90px 1fr',
             gap: 8, padding: '10px 12px', alignItems: 'center',
             borderBottom: '1px solid rgba(39,39,42,0.5)',
-            background: isSolved ? 'rgba(109, 141, 255,0.03)' : 'transparent',
+            background: isSolved ? 'rgba(34,211,238,0.03)' : 'transparent',
             transition: 'background 0.15s',
         }}
             onMouseEnter={e => { if (!isSolved) e.currentTarget.style.background = 'var(--panel)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = isSolved ? 'rgba(109, 141, 255,0.03)' : 'transparent' }}
+            onMouseLeave={e => { e.currentTarget.style.background = isSolved ? 'rgba(34,211,238,0.03)' : 'transparent' }}
         >
             <FluidCheckbox checked={isSolved} onChange={handleToggleStatus} />
             {titleBlock}
@@ -483,7 +483,7 @@ export default function DSAListPage({ filterCompany }) {
                                     {['', 'solved', 'attempted', 'unsolved', 'bookmarked'].map(s => (
                                         <button key={s} onClick={() => updateParam('status', s)} style={{
                                             padding: '4px 10px', borderRadius: 5, border: `1px solid ${statusFilter === s ? '#22d3ee' : 'var(--subtle)'}`,
-                                            background: statusFilter === s ? 'rgba(109, 141, 255,0.12)' : 'transparent',
+                                            background: statusFilter === s ? 'rgba(34,211,238,0.12)' : 'transparent',
                                             color: statusFilter === s ? '#22d3ee' : 'var(--muted)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
                                         }}>
                                             {s || 'All'}

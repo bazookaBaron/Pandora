@@ -176,7 +176,7 @@ export default function HomePage() {
                         border: `2px dashed ${resumeFile ? '#22d3ee' : 'var(--subtle)'}`,
                         borderRadius: 8, padding: '20px 16px', textAlign: 'center',
                         cursor: 'pointer', transition: 'border-color 0.2s',
-                        background: resumeFile ? 'rgba(109, 141, 255,0.04)' : 'transparent',
+                        background: resumeFile ? 'rgba(34,211,238,0.04)' : 'transparent',
                     }}
                     onMouseEnter={e => { if (!resumeFile) e.currentTarget.style.borderColor = 'var(--subtle-strong)' }}
                     onMouseLeave={e => { if (!resumeFile) e.currentTarget.style.borderColor = 'var(--subtle)' }}

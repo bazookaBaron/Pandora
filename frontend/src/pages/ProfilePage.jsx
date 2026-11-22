@@ -746,7 +746,7 @@ export default function ProfilePage() {
     const planBadgeStyle =
         plan === 'max'
             ? {
-                background: 'linear-gradient(135deg, rgba(167,139,250,0.18), rgba(109, 141, 255,0.18))',
+                background: 'linear-gradient(135deg, rgba(167,139,250,0.18), rgba(34,211,238,0.18))',
                 color: '#a78bfa',
                 borderColor: 'rgba(167, 139, 250, 0.35)',
             }

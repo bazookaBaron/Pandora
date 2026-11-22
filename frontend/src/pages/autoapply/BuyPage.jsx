@@ -6,9 +6,6 @@ import { openRazorpayOrder } from '../../lib/razorpay'
 import { useAutoApplyMe, useCompanySuggest, useCreateOrder, useSupply, useVerifyOrder } from '../../lib/useAutoApply'
 import { AALayout, MustCompaniesInput, PACK_KINDS, PACK_SIZES, PageHeader, ProfileMissing, ReadinessCard, fmtDate, num, packPrice, rupees } from './ui'
 
-// 1, 3, 5, 7, 14, 30 up to the server's max; always includes the current value
-const windowChoices = (max, cur) => [...new Set([1, 3, 5, 7, 14, 30, max, cur].filter((d) => d >= 1 && d <= Math.max(max, cur)))].sort((x, y) => x - y)
-
 function useDebounced(value, ms) {
     const [v, setV] = useState(value)
     useEffect(() => {
@@ -194,33 +191,34 @@ export default function BuyPage() {
             )}
 
             <div className="aa-stack">
-                <section className="aa-card" aria-labelledby="buy-config">
-                    <h2 id="buy-config" className="aa-h2">Pack</h2>
-                    <div className="aa-config">
-                        <div>
-                            <label className="field-label" htmlFor="buy-kind">Companies</label>
-                            <select id="buy-kind" className="input-field provider-select" value={kind} onChange={(e) => setKind(e.target.value)} disabled={busy}>
-                                {Object.entries(PACK_KINDS).map(([k, meta]) => <option key={k} value={k}>{meta.name}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="field-label" htmlFor="buy-size">Pack size</label>
-                            <select id="buy-size" className="input-field provider-select" value={size} onChange={(e) => setSize(Number(e.target.value))} disabled={busy}>
-                                {PACK_SIZES.map((s) => {
-                                    const p = packPrice(config, kind, s)
-                                    return <option key={s} value={s} disabled={s > remaining || p == null}>{s} applications{p != null ? ` · ${rupees(p)}` : ''}</option>
-                                })}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="field-label" htmlFor="buy-wd">Jobs posted within</label>
-                            <select id="buy-wd" className="input-field provider-select" value={wd} onChange={(e) => setWindowDays(Number(e.target.value))} disabled={busy}>
-                                {windowChoices(maxWindow, wd).map((d) => <option key={d} value={d}>{d} day{d === 1 ? '' : 's'}</option>)}
-                            </select>
-                        </div>
+                <section className="aa-card" aria-labelledby="buy-kind">
+                    <h2 id="buy-kind" className="aa-h2">1 · Companies</h2>
+                    <div className="aa-grid-2" role="radiogroup" aria-label="Pack kind">
+                        {Object.entries(PACK_KINDS).map(([k, meta]) => (
+                            <button key={k} type="button" role="radio" aria-checked={kind === k} className="aa-choice" onClick={() => setKind(k)} disabled={busy}>
+                                <span className="aa-choice-title">{meta.name}</span>
+                                <span className="aa-muted">{meta.blurb}</span>
+                            </button>
+                        ))}
                     </div>
-                    <p className="aa-faint" style={{ margin: '12px 0 0' }}>{PACK_KINDS[kind].blurb} Fresher postings get more replies; a longer window finds more jobs.</p>
-                    <div style={{ marginTop: 12 }}>
+                </section>
+
+                <section className="aa-card" aria-labelledby="buy-size">
+                    <h2 id="buy-size" className="aa-h2">2 · Pack size</h2>
+                    <div className="aa-grid" role="radiogroup" aria-label="Pack size">
+                        {PACK_SIZES.map((s) => {
+                            const p = packPrice(config, kind, s)
+                            const over = s > remaining
+                            return (
+                                <button key={s} type="button" role="radio" aria-checked={size === s} className="aa-choice" onClick={() => setSize(s)} disabled={busy || over || p == null}>
+                                    <span className="aa-choice-title">{s} applications</span>
+                                    <span className="aa-choice-price">{p != null ? rupees(p) : 'Unavailable'}</span>
+                                    <span className="aa-faint">{p != null ? `${rupees(p / s)} per application` : 'Price not set yet'}{over ? ' · over this month’s limit' : ''}</span>
+                                </button>
+                            )
+                        })}
+                    </div>
+                    <div style={{ marginTop: 14 }}>
                         <div className="aa-spread aa-faint" style={{ marginBottom: 5 }}>
                             <span>This month: {num(u.month_purchased)} of {num(cap)} applications purchased</span>
                             <span>{num(remaining)} left</span>
@@ -231,8 +229,15 @@ export default function BuyPage() {
                     </div>
                 </section>
 
+                <section className="aa-card" aria-labelledby="buy-window">
+                    <h2 id="buy-window" className="aa-h2">3 · How fresh</h2>
+                    <label className="field-label" htmlFor="buy-wd">Jobs posted in the last <span style={{ color: 'var(--pop)' }}>{wd} day{wd === 1 ? '' : 's'}</span></label>
+                    <input id="buy-wd" type="range" className="aa-range" min={1} max={maxWindow} value={wd} onChange={(e) => setWindowDays(Number(e.target.value))} disabled={busy} aria-valuetext={`${wd} days`} />
+                    <div className="field-hint">Fresher postings get more replies; a longer window finds more jobs.</div>
+                </section>
+
                 <section className="aa-card" aria-labelledby="buy-must">
-                    <h2 id="buy-must" className="aa-h2">Must-apply companies <span className="aa-faint" style={{ fontWeight: 600 }}>(optional)</span></h2>
+                    <h2 id="buy-must" className="aa-h2">4 · Must-apply companies <span className="aa-faint" style={{ fontWeight: 600 }}>(optional)</span></h2>
                     <MustCompaniesInput
                         idPrefix="buy-must"
                         value={must}

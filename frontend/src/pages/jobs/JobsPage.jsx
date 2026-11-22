@@ -193,6 +193,29 @@ function JobCard({ j }) {
 }
 
 // ── controls ───────────────────────────────────────────────────────
+function Segmented({ value, onChange, options, size = 'md' }) {
+    const pad = size === 'sm' ? '3px 9px' : '4px 11px'
+    return (
+        <div style={{ display: 'inline-flex', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8, padding: 3, gap: 2 }}>
+            {options.map((o) => {
+                const active = value === o.value
+                return (
+                    <button key={o.value || 'all'} type="button" onClick={() => onChange(o.value)} style={{
+                        padding: pad, borderRadius: 6, border: 'none', cursor: 'pointer',
+                        fontSize: '0.72rem', fontWeight: 700,
+                        background: active ? 'var(--subtle)' : 'transparent',
+                        color: active ? 'var(--bright)' : 'var(--muted)',
+                    }}>
+                        {o.label}
+                    </button>
+                )
+            })}
+        </div>
+    )
+}
+
+const selStyle = { flex: '0 1 150px', minWidth: 0 }
+
 // Result-aware autocomplete: suggestions come from /api/jobs/facets, which only
 // returns company / location values that occur in the current open job set, fuzzy
 // -ranked against what's typed. Free text still works — Enter applies it as-is.
@@ -380,7 +403,7 @@ function ListingsView() {
 
     return (
         <>
-            <div className="pg-filterbar" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8, marginBottom: 16 }}>
+            <div className="pg-filterbar" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10, marginBottom: 20 }}>
             <div data-tour="jobs-filters" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
                 <FacetCombobox field="title" value={search} onChange={setSearch}
                     placeholder="Search job title or company…" style={{ flex: '1 1 220px' }} />
@@ -389,31 +412,31 @@ function ListingsView() {
                 <FacetCombobox field="location" multiple value={locations} onChange={setLocations}
                     placeholder="Locations" style={{ flex: '1 1 200px' }} />
             </div>
-            <div className="jobs-filters" style={{ paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-                <select className="input-field provider-select" aria-label="Work mode" value={locationType} onChange={(e) => setLocationType(e.target.value)}>
-                    <option value="">Any work mode</option><option value="remote">Remote</option>
-                    <option value="hybrid">Hybrid</option><option value="onsite">Onsite</option>
-                </select>
-                <select className="input-field provider-select" aria-label="Company type" value={companyType} onChange={(e) => setCompanyType(e.target.value)}>
-                    <option value="">All companies</option><option value="product">Product</option>
-                    <option value="startup">Startup</option><option value="service">Service</option>
-                </select>
-                <select className="input-field provider-select" value={seniority} onChange={(e) => setSeniority(e.target.value)}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                <Segmented value={locationType} onChange={setLocationType} options={[
+                    { value: '', label: 'Any' }, { value: 'remote', label: 'Remote' },
+                    { value: 'hybrid', label: 'Hybrid' }, { value: 'onsite', label: 'Onsite' },
+                ]} />
+                <Segmented value={companyType} onChange={setCompanyType} options={[
+                    { value: '', label: 'All' }, { value: 'product', label: 'Product' },
+                    { value: 'startup', label: 'Startup' }, { value: 'service', label: 'Service' },
+                ]} />
+                <select className="input-field" value={seniority} onChange={(e) => setSeniority(e.target.value)} style={selStyle}>
                     <option value="">Any level</option>
                     {['intern', 'junior', 'mid', 'senior', 'staff', 'principal'].map((s) => (
                         <option key={s} value={s}>{SEN_LABEL[s]}</option>
                     ))}
                 </select>
-                <select className="input-field provider-select" value={postedWithin} onChange={(e) => setPostedWithin(e.target.value)}>
+                <select className="input-field" value={postedWithin} onChange={(e) => setPostedWithin(e.target.value)} style={selStyle}>
                     <option value="">Any time (≤ 24 hours)</option>
                     <option value="1">Past 24 hours</option>
                 </select>
                 {sourceOptions.length > 1 && (
-                    <select className="input-field provider-select" value={source} onChange={(e) => setSource(e.target.value)}>
+                    <select className="input-field" value={source} onChange={(e) => setSource(e.target.value)} style={selStyle}>
                         {sourceOptions.map((o) => <option key={o.value || 'all'} value={o.value}>{o.label}</option>)}
                     </select>
                 )}
-                <select className="input-field provider-select" value={sort} onChange={(e) => setSort(e.target.value)}>
+                <select className="input-field" value={sort} onChange={(e) => setSort(e.target.value)} style={selStyle}>
                     <option value="newest">Latest first</option>
                     <option value="oldest">Oldest first</option>
                     <option value="company">By company</option>

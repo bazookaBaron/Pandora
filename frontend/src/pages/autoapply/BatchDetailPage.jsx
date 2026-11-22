@@ -1,6 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { Menu, MenuItem } from '../../components/shared/Layout'
 import { ExternalLink } from 'lucide-react'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { fetchTaskProof, useAutoApplyRealtime, useBatch, useBatchAction, useCompanySuggest, useRemoveTask, useSetMustCompanies } from '../../lib/useAutoApply'
@@ -83,15 +82,11 @@ function Controls({ batch }) {
                     onCancel={() => { if (!action.isPending) setPending(null) }}
                 />
             ) : (
-                <div className="aa-actions">
+                <div className="aa-row">
                     {can.approve && <button type="button" className="aa-btn is-primary" disabled={action.isPending} onClick={() => setPending('approve')}>Approve now</button>}
+                    {can.pause && <button type="button" className="aa-btn" disabled={action.isPending} onClick={() => setPending('pause')}>Pause</button>}
                     {can.resume && <button type="button" className="aa-btn is-primary" disabled={action.isPending} onClick={() => setPending('resume')}>Resume</button>}
-                    {(can.pause || can.cancel) && (
-                        <Menu label="Batch actions" disabled={action.isPending}>
-                            {can.pause && <MenuItem onClick={() => setPending('pause')}>Pause batch</MenuItem>}
-                            {can.cancel && <MenuItem danger onClick={() => setPending('cancel')}>Cancel batch</MenuItem>}
-                        </Menu>
-                    )}
+                    {can.cancel && <button type="button" className="aa-btn is-danger" disabled={action.isPending} onClick={() => setPending('cancel')}>Cancel batch</button>}
                 </div>
             )}
             {err && <ErrorState compact message={errorText(err)} />}

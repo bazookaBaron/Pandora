@@ -4,9 +4,6 @@
 //   <Section>        – optional small heading above a bordered Card; 24px gap between sections
 //   <Card>           – bordered surface with consistent padding
 //   <FilterBar>      – one bordered bar that groups search / filters / sort
-//   <Menu>           – small dropdown for secondary actions (children are <MenuItem>)
-
-import { useEffect, useRef, useState } from 'react'
 
 export function PageContainer({ children, width = 'md', as: Tag = 'main', className = '', ...rest }) {
     return (
@@ -62,38 +59,4 @@ export function StatChip({ label, value, total }) {
             {total != null && <><span className="pg-stat-sep">/</span><span className="pg-stat-total">{total}</span></>}
         </div>
     )
-}
-
-// Dropdown for secondary actions. `label` is the trigger text; items close the menu on click.
-export function Menu({ label = 'More', children, align = 'right', disabled = false, className = 'aa-btn' }) {
-    const [open, setOpen] = useState(false)
-    const ref = useRef(null)
-    useEffect(() => {
-        if (!open) return undefined
-        const onPointer = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
-        const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-        document.addEventListener('mousedown', onPointer)
-        document.addEventListener('keydown', onKey)
-        return () => {
-            document.removeEventListener('mousedown', onPointer)
-            document.removeEventListener('keydown', onKey)
-        }
-    }, [open])
-    return (
-        <div className="menu" ref={ref}>
-            <button type="button" className={className} aria-haspopup="menu" aria-expanded={open} disabled={disabled} onClick={() => setOpen((v) => !v)}>
-                {label}
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
-            </button>
-            {open && (
-                <div className="menu-list" role="menu" style={align === 'left' ? { left: 0, right: 'auto' } : undefined} onClick={() => setOpen(false)}>
-                    {children}
-                </div>
-            )}
-        </div>
-    )
-}
-
-export function MenuItem({ children, danger = false, ...rest }) {
-    return <button type="button" role="menuitem" className={`menu-item${danger ? ' is-danger' : ''}`} {...rest}>{children}</button>
 }

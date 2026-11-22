@@ -7,7 +7,6 @@ import { ErrorState, LoadingState } from '../../components/shared/states'
 import { useAutoApplyMe, useInboxUnread, useNeedsYou } from '../../lib/useAutoApply'
 import { AUTO_APPLY } from '../../../config/tiers.js'
 import './autoapply.css'
-import './autoapply-minimal.css'
 import { toast } from '../../lib/toast'
 
 // ── shared bits for every AutoApply screen ──────────────────────────

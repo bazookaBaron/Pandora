@@ -16,7 +16,7 @@ function ThemeToggle({ full = false }) {
             onClick={toggleTheme}
             aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
             title={isDark ? 'Light theme' : 'Dark theme'}
-            style={full ? { width: '100%', justifyContent: 'flex-start' } : { padding: '0 8px' }}
+            style={full ? { width: '100%', justifyContent: 'flex-start' } : { padding: '6px 9px' }}
         >
             {isDark ? (
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -129,14 +129,14 @@ function PrepMenu({ isActive, pathname }) {
 
 function NavTabs({ isActive }) {
     return (
-        <div className="nav-links" role="navigation" aria-label="Sections">
+        <div className="nav-tabs" role="navigation" aria-label="Sections" style={{ '--tab-count': MAIN_LINKS.length }}>
             {MAIN_LINKS.map(link => (
                 <Link
                     key={link.to}
                     to={link.to}
                     data-tour={tourId(link.to)}
                     aria-current={isActive(link.to) ? 'page' : undefined}
-                    className={'nav-link' + (isActive(link.to) ? ' active' : '')}
+                    className={'nav-tab' + (isActive(link.to) ? ' active' : '')}
                 >
                     {link.label}
                 </Link>
@@ -223,7 +223,7 @@ export default function Navbar() {
       <>
         <nav className="top-nav" ref={navRef}>
             <Link to="/" className="nav-brand">
-                <img src="/vloombox-logo.svg" alt="" width="28" height="28" style={{ display: 'block' }} />
+                <img src="/vloombox-logo.svg" alt="" width="42" height="42" style={{ display: 'block' }} />
                 VLOOMBOX
             </Link>
 
@@ -238,7 +238,7 @@ export default function Navbar() {
                         data-tour="prep"
                         aria-expanded={menuOpen}
                         onClick={() => setMenuOpen(v => !v)}
-                        style={{ padding: '0 8px' }}
+                        style={{ padding: '6px 10px' }}
                     >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                             {menuOpen ? (
@@ -258,20 +258,17 @@ export default function Navbar() {
                   </div>
 
                     {menuOpen && (
-                        <div className="mobile-menu">
-                            <div className="mobile-prep-group" role="group" aria-label="Sections">
-                                {MAIN_LINKS.map(link => (
-                                    <Link
-                                        key={link.to}
-                                        to={link.to}
-                                        data-tour={tourId(link.to)}
-                                        onClick={() => setMenuOpen(false)}
-                                        className={`nav-pill${isActive(link.to) ? ' active' : ''}`}
-                                    >
-                                        {link.label}
-                                    </Link>
-                                ))}
-                            </div>
+                        <div
+                            style={{
+                                position: 'absolute', top: '100%', left: 0, right: 0,
+                                background: 'var(--panel)',
+                                borderTop: '1px solid var(--subtle)',
+                                borderBottom: '1px solid var(--subtle)',
+                                display: 'flex', flexDirection: 'column', gap: 4,
+                                padding: 8,
+                                animation: 'slideDown 0.2s ease both',
+                            }}
+                        >
                             <div className="mobile-prep-group" role="group" aria-label="Prep">
                                 <div className="mobile-prep-title">Prep</div>
                                 {PREP_LINKS.map(link => (
@@ -280,7 +277,7 @@ export default function Navbar() {
                                         to={link.to}
                                         onClick={() => setMenuOpen(false)}
                                         className={`nav-pill${isActive(link.to) ? ' active' : ''}`}
-                                        
+                                        style={{ width: '100%', justifyContent: 'flex-start' }}
                                     >
                                         {link.label}
                                     </Link>
@@ -294,7 +291,7 @@ export default function Navbar() {
                                         data-tour="profile"
                                         onClick={() => setMenuOpen(false)}
                                         className={`nav-pill${isActive('/profile') ? ' active' : ''}`}
-                                        
+                                        style={{ width: '100%', justifyContent: 'flex-start' }}
                                     >
                                         {avatar}
                                         {profileLabel}
@@ -306,7 +303,7 @@ export default function Navbar() {
                                         disabled={signingOut}
                                         aria-busy={signingOut}
                                         className="nav-pill danger"
-                                        style={{ opacity: signingOut ? 0.6 : 1, cursor: signingOut ? 'wait' : 'pointer' }}
+                                        style={{ width: '100%', justifyContent: 'flex-start', opacity: signingOut ? 0.6 : 1, cursor: signingOut ? 'wait' : 'pointer' }}
                                     >
                                         {signingOut ? 'Signing out…' : 'Sign out'}
                                     </button>
@@ -316,7 +313,7 @@ export default function Navbar() {
                                     to="/auth"
                                     onClick={() => setMenuOpen(false)}
                                     className="nav-pill"
-                                    
+                                    style={{ width: '100%', justifyContent: 'flex-start' }}
                                 >
                                     Sign in
                                 </Link>
@@ -325,8 +322,6 @@ export default function Navbar() {
                     )}
                 </>
             ) : (
-                <>
-                <NavTabs isActive={isActive} />
                 <div className="nav-actions">
                     <PrepMenu isActive={isActive} pathname={location.pathname} />
 
@@ -341,9 +336,9 @@ export default function Navbar() {
                         <Link to="/auth" className="nav-pill">Sign in</Link>
                     )}
                 </div>
-                </>
             )}
         </nav>
+        {!compact && <NavTabs isActive={isActive} />}
       </>
     )
 }
