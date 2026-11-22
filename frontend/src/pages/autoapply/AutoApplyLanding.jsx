@@ -17,7 +17,7 @@ function PipelineCard({ kind, config, eligible, onboardingDone }) {
             <div className="aa-pipe-price">{PACK_SIZES.join(' / ')} apps</div>
             {eligible ? (
                 <Link to={`/autoapply/buy?kind=${kind}`} className="aa-btn is-primary aa-pipe-buy" aria-label={`${onboardingDone ? 'Start' : 'Buy'} ${meta.short} pack${from}`}>
-                    {meta.short}{from}
+                    Buy{prices.length ? ` · from ${rupees(Math.min(...prices))}` : ''}
                 </Link>
             ) : (
                 <Link to="/pricing" className="aa-btn is-primary aa-pipe-buy">Upgrade</Link>

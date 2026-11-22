@@ -629,7 +629,7 @@ h3 {
 
 html[data-nav-compact] { --nav-h: 56px; }
 
-/* ── Primary section tabs: Jobs / Auto Apply / Referrals — compact centred pills ── */
+/* ── Primary section tabs: Jobs / Auto Apply / Referrals — full width, compact ── */
 .nav-tabs {
     position: fixed;
     top: 56px;
@@ -637,45 +637,47 @@ html[data-nav-compact] { --nav-h: 56px; }
     right: 0;
     z-index: 99;
     height: 44px;
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(var(--tab-count, 3), minmax(0, 1fr));
     align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 0 16px;
+    gap: 8px;
+    padding: 0 24px;
     background: var(--nav-bg);
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--subtle);
 }
 .nav-tab {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
-    height: 28px;
+    height: 30px;
     min-width: 0;
-    padding: 0 14px;
+    padding: 0 8px;
     border: 1px solid var(--border-strong);
-    border-radius: 999px;
-    background: transparent;
+    border-radius: 4px;
+    background: var(--panel);
     color: var(--accent);
-    font-size: 0.74rem;
+    font-size: 0.78rem;
     font-weight: 700;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.02em;
     text-decoration: none;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     transition: color var(--transition), border-color var(--transition), background var(--transition);
 }
 .nav-tab:hover { color: var(--pop); border-color: var(--pop); background: var(--pop-dim); }
 .nav-tab.active {
-    background: var(--pop-dim);
+    background: var(--pop);
     border-color: var(--pop);
-    color: var(--pop);
-    font-weight: 800;
+    color: var(--surface);
+    font-weight: 900;
 }
-.nav-tab.active:hover { color: var(--pop); background: var(--pop-dim); }
+.nav-tab.active:hover { color: var(--surface); background: var(--pop); }
 @media (max-width: 767px) {
     .nav-tabs { padding: 0 10px; gap: 6px; }
-    .nav-tab { font-size: 0.72rem; padding: 0 12px; flex: 0 1 auto; }
+    .nav-tab { font-size: 0.74rem; padding: 0 4px; }
 }
 
 /* ── Top Navigation Bar ─────────────────────────────────────────────── */

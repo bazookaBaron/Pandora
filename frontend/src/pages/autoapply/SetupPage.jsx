@@ -567,16 +567,16 @@ export default function SetupSection({ initialStep = null }) {
                     Fill in these details once and we'll start applying for you. Each step unlocks when the one before it is done.
                 </p>
             )}
-            <ol className="aa-pipe" aria-label="Setup steps">
+            <ol className="aa-setup-pipe" aria-label="Setup steps">
                 {STEPS.map((s, i) => {
                     const open = unlocked(i)
                     const state = s.id === stepId ? 'current' : done[s.id] ? 'done' : open ? 'open' : 'locked'
                     return (
-                        <li key={s.id} className={`aa-pipe-step is-${state}`}>
+                        <li key={s.id} className={`aa-setup-step is-${state}`}>
                             <button type="button" disabled={!open} aria-current={s.id === stepId ? 'step' : undefined}
                                 title={open ? s.label : 'Finish the previous step first'} onClick={() => go(s.id)}>
-                                <span className="aa-pipe-dot" aria-hidden="true">{state === 'done' ? '✓' : state === 'locked' ? '🔒' : i + 1}</span>
-                                <span className="aa-pipe-label">{s.label}</span>
+                                <span className="aa-setup-dot" aria-hidden="true">{state === 'done' ? '✓' : state === 'locked' ? '🔒' : i + 1}</span>
+                                <span className="aa-setup-label">{s.label}</span>
                             </button>
                         </li>
                     )
