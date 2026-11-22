@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Bell } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
 import { GuideNextCta } from '../../components/onboarding/AAProgressGuide'
@@ -30,11 +31,30 @@ function label(m) {
     return KIND_LABEL[m.kind] || CATEGORY_LABEL[m.category] || 'Other'
 }
 
+// Interview / Assessment / Offer (and anything flagged urgent) are the mails that need you: shown red with a bell.
+const URGENT_KINDS = new Set(['interview', 'assessment', 'offer'])
+const isUrgent = (m) => URGENT_KINDS.has(m.kind) || !!(m.urgent || m.action_needed || m.action_required)
+
 function tone(m) {
-    if (m.kind === 'offer' || m.kind === 'interview') return ' t-green'
-    if (m.kind === 'assessment' || m.category === 'important') return ' t-warm'
-    if (m.category === 'rejected') return ' t-red'
+    if (isUrgent(m)) return ' t-urgent'
+    if (m.category === 'important') return ' t-warm'
+    if (m.category === 'rejected') return ' t-warm-soft'
+    if (m.category === 'received') return ' t-pop'
     return ' t-muted'
+}
+
+function rowKind(m) {
+    if (isUrgent(m)) return ' is-urgent'
+    return ` k-${m.category || 'other'}`
+}
+
+function TypePill({ m }) {
+    return (
+        <span className={`aa-pill${tone(m)}`}>
+            {isUrgent(m) && <Bell size={12} aria-hidden />}
+            {label(m)}
+        </span>
+    )
 }
 
 function linkLabel(url) {
@@ -63,7 +83,7 @@ function MailDetail({ id, onBack }) {
             ) : (
                 <>
                     <div className="aa-row" style={{ gap: 6 }}>
-                        <span className={`aa-pill${tone(m)}`}>{label(m)}</span>
+                        <TypePill m={m} />
                         {m.company && <span className="aa-pill t-muted">{m.company}</span>}
                     </div>
                     <h2 className="aa-h2" style={{ overflowWrap: 'anywhere' }}>{m.subject || '(no subject)'}</h2>
@@ -163,15 +183,11 @@ export default function InboxPage() {
                 <MailDetail id={openId} onBack={() => setParam('mail', null)} />
             ) : (
                 <>
-                    <div className="aa-tabs aa-tabs-wrap" role="tablist" aria-label="Filter by category" style={{ marginBottom: 10 }}>
-                        {VIEWS.map((v) => (
-                            <button key={v.id} type="button" role="tab" aria-selected={view === v.id} className={`aa-tab${view === v.id ? ' is-on' : ''}`} onClick={() => setParam('f', v.id === 'all' ? null : v.id)}>
-                                {v.label}
-                            </button>
-                        ))}
-                    </div>
                     {view === 'interview' && <InterviewsPanel />}
                     <div className="aa-inbox-bar">
+                        <select className="input-field aa-inbox-type" aria-label="Filter by email type" value={VIEW_IDS.has(view) ? view : 'all'} onChange={(e) => setParam('f', e.target.value === 'all' ? null : e.target.value)}>
+                            {VIEWS.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                        </select>
                         <input
                             type="search"
                             className="input-field aa-inbox-search"
@@ -213,7 +229,7 @@ export default function InboxPage() {
                                     <li key={m.id}>
                                         <button
                                             type="button"
-                                            className={`aa-card aa-mail-row${m.category === 'important' ? ' is-warm' : ''}${isUnread(m) ? ' is-unread' : ''}`}
+                                            className={`aa-card aa-mail-row${rowKind(m)}${isUnread(m) ? ' is-unread' : ''}`}
                                             onClick={() => setParam('mail', String(m.id))}
                                             aria-label={`${isUnread(m) ? 'Unread: ' : ''}${m.subject || '(no subject)'}`}
                                         >
@@ -229,7 +245,7 @@ export default function InboxPage() {
                                                 </span>
                                                 <span className="aa-row" style={{ gap: 6, flexShrink: 0 }}>
                                                     {m.has_attachments && <span className="aa-pill" title="Had an attachment">📎</span>}
-                                                    <span className={`aa-pill${tone(m)}`}>{label(m)}</span>
+                                                    <TypePill m={m} />
                                                 </span>
                                             </span>
                                             {m.codes?.length > 0 && (

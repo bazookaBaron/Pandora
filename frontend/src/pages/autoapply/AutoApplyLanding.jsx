@@ -6,19 +6,22 @@ import { AALayout, PageHeader, ACTIVE_BATCH, BatchStatusPill, PACK_KINDS, PACK_S
 
 const KIND_COLOR = { service: 'var(--pop)', product: 'var(--warm)' }
 
-function PipelineCard({ kind, config, action }) {
+function PipelineCard({ kind, config, eligible, onboardingDone }) {
     const meta = PACK_KINDS[kind]
     const prices = PACK_SIZES.map((s) => packPrice(config, kind, s)).filter((p) => p != null)
+    const from = prices.length ? ` · from ${rupees(Math.min(...prices))}` : ''
     return (
         <div className="aa-card aa-pipe">
             <div className="aa-pipe-kind" style={{ color: KIND_COLOR[kind] }}>{meta.short}-based</div>
             <p className="aa-muted aa-pipe-blurb">{meta.blurb}</p>
-            <div className="aa-spread">
-                <span className="aa-pipe-price">
-                    {PACK_SIZES.join(' / ')} apps{prices.length ? ` · from ${rupees(Math.min(...prices))}` : ''}
-                </span>
-                {action}
-            </div>
+            <div className="aa-pipe-price">{PACK_SIZES.join(' / ')} apps</div>
+            {eligible ? (
+                <Link to={`/autoapply/buy?kind=${kind}`} className="aa-btn is-primary aa-pipe-buy" aria-label={`${onboardingDone ? 'Start' : 'Buy'} ${meta.short} pack${from}`}>
+                    {meta.short}{from}
+                </Link>
+            ) : (
+                <Link to="/pricing" className="aa-btn is-primary aa-pipe-buy">Upgrade</Link>
+            )}
         </div>
     )
 }
@@ -105,16 +108,7 @@ export default function AutoApplyLanding() {
                     <h2 id="aa-pipe" className="aa-h2">Pipeline</h2>
                     <div className="aa-grid-2 aa-pipe-grid">
                         {['service', 'product'].map((kind) => (
-                            <PipelineCard
-                                key={kind}
-                                kind={kind}
-                                config={data.config}
-                                action={data.eligible ? (
-                                    <Link to={`/autoapply/buy?kind=${kind}`} className="aa-btn is-primary">{data.onboarding_done ? 'Start' : 'Buy'}</Link>
-                                ) : (
-                                    <Link to="/pricing" className="aa-btn is-primary">Upgrade</Link>
-                                )}
-                            />
+                            <PipelineCard key={kind} kind={kind} config={data.config} eligible={data.eligible} onboardingDone={data.onboarding_done} />
                         ))}
                     </div>
                     <p className="aa-faint" style={{ margin: '8px 0 0' }}>Credits are used only when an application is submitted. Prices include GST.</p>

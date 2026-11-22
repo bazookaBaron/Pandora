@@ -50,10 +50,14 @@ export default function AAProgressGuide({ style }) {
                         <span className="ob-dot" aria-hidden>{s.state === 'done' ? '✓' : i + 1}</span>
                         <span className="ob-step-label">{s.label}</span>
                         <span className="ob-sr">{s.state === 'done' ? ' (done)' : s.state === 'current' ? ' (current step)' : ' (to do)'}</span>
-                        {s.state === 'current' && <Link to={s.cta.to} className="aa-btn is-primary ob-step-cta">{s.cta.label}</Link>}
                     </li>
                 ))}
             </ol>
+            {steps.filter((s) => s.state === 'current').map((s) => (
+                <div key={s.id} className="ob-step-cta-row">
+                    <Link to={s.cta.to} className="aa-btn is-primary ob-step-cta">{s.cta.label}</Link>
+                </div>
+            ))}
         </section>
     )
 }
