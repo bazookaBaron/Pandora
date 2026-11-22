@@ -70,7 +70,7 @@ export function UpgradeButton({ children = 'Unlock Pro', size = 'md' }) {
             style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8, padding: pad,
                 borderRadius: 8, textDecoration: 'none',
-                background: 'linear-gradient(135deg, var(--pop), #a78bfa)',
+                background: 'linear-gradient(135deg, #22d3ee, #a78bfa)',
                 color: 'var(--surface)', fontWeight: 900, fontSize: fs,
                 textTransform: 'uppercase', letterSpacing: '0.06em',
                 boxShadow: '0 4px 20px rgba(109, 141, 255,0.25)',
@@ -211,7 +211,7 @@ export function LockedPanel({
                 <div style={{
                     width: 56, height: 56, borderRadius: 14, display: 'flex', alignItems: 'center',
                     justifyContent: 'center', color: 'var(--surface)',
-                    background: 'linear-gradient(135deg, var(--pop), #a78bfa)',
+                    background: 'linear-gradient(135deg, #22d3ee, #a78bfa)',
                 }}>
                     <LockIcon size={26} />
                 </div>
@@ -266,7 +266,7 @@ export function UsageMeter({ feature }) {
             <div style={{ height: 6, background: 'var(--subtle)', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{
                     width: `${pct}%`, height: '100%', borderRadius: 3,
-                    background: spent ? '#f87171' : 'var(--pop)', transition: 'width 0.4s ease',
+                    background: spent ? '#f87171' : '#22d3ee', transition: 'width 0.4s ease',
                 }} />
             </div>
         </div>

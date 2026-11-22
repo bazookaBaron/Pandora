@@ -52,7 +52,7 @@ export function LoadingState({ label = 'Loading…', compact = false, style, cla
             height: compact ? 13 : 22,
             borderRadius: '50%',
             border: '2px solid var(--subtle)',
-            borderTopColor: 'var(--pop)',
+            borderTopColor: '#22d3ee',
             animation: 'spin 0.7s linear infinite',
             flexShrink: 0,
         }} />
@@ -99,7 +99,7 @@ export function ErrorState({
             onClick={onRetry}
             style={{
                 padding: compact ? '5px 14px' : '7px 18px', background: 'none',
-                border: '1px solid var(--subtle)', borderRadius: 6, color: 'var(--pop)',
+                border: '1px solid var(--subtle)', borderRadius: 6, color: '#22d3ee',
                 cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700,
             }}
         >
