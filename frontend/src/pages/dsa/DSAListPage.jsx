@@ -364,20 +364,20 @@ export default function DSAListPage({ filterCompany }) {
                 <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 16px' }}>
 
                     {/* Header + progress */}
-                    <div style={{ marginBottom: 20 }}>
+                    <div style={{ marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
                         <div style={{
-                            display: 'flex', gap: 8,
+                            display: 'flex', gap: 16,
                             alignItems: isMobile ? 'stretch' : 'baseline',
                             justifyContent: 'space-between',
                             flexWrap: 'wrap',
                             flexDirection: isMobile ? 'column' : 'row',
                         }}>
                             <div>
-                                <h1 style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>DSA Problems</h1>
-                                <p style={{ color: 'var(--muted)', fontSize: '0.78rem', marginTop: 2 }}>LeetCode company-wise — {total} problems</p>
+                                <h1 className="pg-title">DSA Problems</h1>
+                                <p className="pg-subtitle">LeetCode company-wise — {total} problems</p>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8, padding: '6px 12px' }}>
+                                <div className="pg-stat">
                                     <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Solved</span>
                                     <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#22d3ee' }}>{solved}</span>
                                     <span style={{ color: 'var(--subtle-strong)', fontSize: '0.8rem' }}>/</span>

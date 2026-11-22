@@ -66,8 +66,6 @@ const PREP_LINKS = [
     { to: '/interview', label: 'Interview Questions' },
     { to: '/optimizer', label: 'Resume Optimizer' },
 ]
-// Mobile: the horizontal tile bar carries the same three main links.
-const TILE_LINKS = MAIN_LINKS
 
 // data-tour anchors for the first-run guided tour (see onboarding/GuidedTour.jsx)
 const tourId = (to) => ({ '/': 'jobs', '/autoapply': 'autoapply', '/referrals': 'referrals', '/dsa': 'dsa', '/lld': 'lld', '/hld': 'hld' })[to]
@@ -129,15 +127,16 @@ function PrepMenu({ isActive, pathname }) {
     )
 }
 
-function MobileTileBar({ isActive }) {
+function NavTabs({ isActive }) {
     return (
-        <div className="mobile-tilebar" role="navigation" aria-label="Sections">
-            {TILE_LINKS.map(link => (
+        <div className="nav-tabs" role="navigation" aria-label="Sections" style={{ '--tab-count': MAIN_LINKS.length }}>
+            {MAIN_LINKS.map(link => (
                 <Link
                     key={link.to}
                     to={link.to}
                     data-tour={tourId(link.to)}
-                    className={'tile-chip' + (isActive(link.to) ? ' active' : '')}
+                    aria-current={isActive(link.to) ? 'page' : undefined}
+                    className={'nav-tab' + (isActive(link.to) ? ' active' : '')}
                 >
                     {link.label}
                 </Link>
@@ -152,6 +151,14 @@ export default function Navbar() {
     const isMobile = useMediaQuery('(max-width: 767px)')
     const [menuOpen, setMenuOpen] = useState(false)
     const navRef = useRef(null)
+    // Full-height workspace screens on phones drop the tab row to keep room for the editor.
+    const compact = isMobile && /^\/(lld|hld)\/[^/]+/.test(location.pathname)
+    useEffect(() => {
+        const el = document.documentElement
+        if (compact) el.setAttribute('data-nav-compact', '')
+        else el.removeAttribute('data-nav-compact')
+        return () => el.removeAttribute('data-nav-compact')
+    }, [compact])
 
     const [signingOut, setSigningOut] = useState(false)
     const handleLogout = async () => {
@@ -316,11 +323,6 @@ export default function Navbar() {
                 </>
             ) : (
                 <div className="nav-actions">
-                    {MAIN_LINKS.map(link => (
-                        <Link key={link.to} to={link.to} data-tour={tourId(link.to)} className={`nav-pill${isActive(link.to) ? ' active' : ''}`}>
-                            {link.label}
-                        </Link>
-                    ))}
                     <PrepMenu isActive={isActive} pathname={location.pathname} />
 
                     <ThemeToggle />
@@ -336,9 +338,7 @@ export default function Navbar() {
                 </div>
             )}
         </nav>
-        {isMobile && !/^\/(lld|hld)\/[^/]+/.test(location.pathname) && (
-            <MobileTileBar isActive={isActive} />
-        )}
+        {!compact && <NavTabs isActive={isActive} />}
       </>
     )
 }

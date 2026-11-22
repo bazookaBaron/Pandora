@@ -345,7 +345,7 @@ export default function LLDProblemPage() {
         return (
             <>
                 <Navbar />
-                <div style={{ paddingTop: 80 }}>
+                <div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}>
                     <LoadingState label="Loading problem…" />
                 </div>
             </>
@@ -356,7 +356,7 @@ export default function LLDProblemPage() {
         return (
             <>
                 <Navbar />
-                <div style={{ paddingTop: 80 }}>
+                <div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}>
                     <ErrorState err={error} />
                     <p style={{ textAlign: 'center', marginTop: 12 }}>
                         <Link to="/lld" style={{ color: '#f472b6', fontSize: '0.82rem' }}>← Back to LLD</Link>
@@ -370,7 +370,7 @@ export default function LLDProblemPage() {
         return (
             <>
                 <Navbar />
-                <div style={{ paddingTop: 80 }}>
+                <div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}>
                     <ErrorState title="Could not load this LLD problem." err={error} />
                     <p style={{ textAlign: 'center', marginTop: 12 }}>
                         <Link to="/lld" style={{ color: '#f472b6', fontSize: '0.82rem' }}>← Back to LLD</Link>
@@ -386,7 +386,7 @@ export default function LLDProblemPage() {
         return (
             <>
                 <Navbar />
-                <div style={{ height: '100vh', paddingTop: 48, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ height: '100vh', paddingTop: "var(--nav-h)", display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
                         <Link to="/lld" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← LLD</Link>
                         <span style={{ color: 'var(--subtle)', flexShrink: 0 }}>|</span>
@@ -407,7 +407,7 @@ export default function LLDProblemPage() {
         return (
             <>
                 <Navbar />
-                <div style={{ paddingTop: 80 }}>
+                <div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}>
                     <EmptyState
                         icon="🔍"
                         title="Problem not found."
@@ -766,7 +766,7 @@ export default function LLDProblemPage() {
     return (
         <>
             <Navbar />
-            <div style={{ height: '100vh', paddingTop: 48, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ height: '100vh', paddingTop: "var(--nav-h)", display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {/* Problem header bar */}
                 <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexWrap: 'wrap', flexShrink: 0 }}>
                     <Link to="/lld" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← LLD</Link>

@@ -119,10 +119,10 @@ export default function JobsCompanyPage() {
                                     {(company?.name || slug || '?').charAt(0).toUpperCase()}
                                 </div>
                                 <div>
-                                    <h1 style={{ fontSize: '1.3rem', fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--bright)' }}>
+                                    <h1 className="pg-title">
                                         {company?.name || slug} Jobs
                                     </h1>
-                                    <p style={{ color: 'var(--muted)', fontSize: '0.78rem', marginTop: 2 }}>
+                                    <p className="pg-subtitle">
                                         {postings.length > 0
                                             ? `${postings.length} open position${postings.length === 1 ? '' : 's'}, crawled directly from their careers page and refreshed through the day.`
                                             : 'Crawled directly from their careers page and refreshed through the day.'}

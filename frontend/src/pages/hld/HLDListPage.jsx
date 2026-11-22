@@ -198,13 +198,13 @@ export default function HLDListPage() {
             <Navbar />
             <div className="has-tilebar" style={{ paddingTop: 56, minHeight: '100vh', maxWidth: 1100, margin: '0 auto', padding: '80px 16px 40px' }}>
                 {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16, marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
                     <div>
-                        <h1 style={{ fontSize: '1.2rem', fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--bright)' }}>HLD Questions</h1>
-                        <p style={{ color: 'var(--muted)', fontSize: '0.78rem', marginTop: 2 }}>High-level system design — architecture, scalability, trade-offs</p>
+                        <h1 className="pg-title">HLD Questions</h1>
+                        <p className="pg-subtitle">High-level system design — architecture, scalability, trade-offs</p>
                     </div>
                     {!listOnly && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8, padding: '6px 12px' }}>
+                        <div className="pg-stat">
                             <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attempted</span>
                             <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#a78bfa' }}>{attempted}</span>
                             <span style={{ color: 'var(--subtle-strong)' }}>/</span>

@@ -47,6 +47,18 @@
     --nav-bg: rgba(9, 9, 11, 0.92);
     --overlay: rgba(0, 0, 0, 0.7);
     --radius: 6px;
+    --radius-lg: 10px;
+    /* spacing scale */
+    --sp-1: 4px;
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-5: 24px;
+    --sp-6: 32px;
+    --sp-7: 48px;
+    --border-strong: var(--subtle-strong);
+    --text-muted: var(--muted);
+    --nav-h: 120px; /* top bar (56) + tab row (64) */
     --transition: 0.18s ease;
     color-scheme: dark;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
@@ -613,6 +625,57 @@ h3 {
     border-radius: var(--radius);
     font-size: 0.82em;
     color: var(--pop);
+}
+
+html[data-nav-compact] { --nav-h: 56px; }
+
+/* ── Primary section tabs: Jobs / Auto Apply / Referrals, equal width ── */
+.nav-tabs {
+    position: fixed;
+    top: 56px;
+    left: 0;
+    right: 0;
+    z-index: 99;
+    display: grid;
+    grid-template-columns: repeat(var(--tab-count, 3), minmax(0, 1fr));
+    gap: var(--sp-2);
+    padding: var(--sp-2) 24px;
+    background: var(--nav-bg);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--subtle);
+}
+.nav-tab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 48px;
+    min-width: 0;
+    padding: 0 var(--sp-3);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--accent);
+    font-size: 0.86rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color var(--transition), border-color var(--transition), background var(--transition);
+}
+.nav-tab:hover { color: var(--pop); border-color: var(--pop); background: var(--pop-dim); }
+.nav-tab.active {
+    background: var(--pop);
+    border-color: var(--pop);
+    color: var(--surface);
+    font-weight: 900;
+}
+.nav-tab.active:hover { color: var(--surface); background: var(--pop); }
+@media (max-width: 767px) {
+    .nav-tabs { padding: var(--sp-2) 12px; gap: 6px; }
+    .nav-tab { font-size: 0.78rem; padding: 0 6px; }
 }
 
 /* ── Top Navigation Bar ─────────────────────────────────────────────── */
@@ -1320,57 +1383,10 @@ h3 {
     background: var(--pop) !important;
 }
 
-/* ── Mobile section tile bar (below the fixed navbar) ────────────────── */
-.mobile-tilebar {
-    position: fixed;
-    top: 56px;
-    left: 0;
-    right: 0;
-    z-index: 99;
-    display: flex;
-    gap: 8px;
-    padding: 6px 12px;
-    background: var(--nav-bg);
-    -webkit-backdrop-filter: blur(12px);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--subtle);
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;               /* Firefox */
-    -ms-overflow-style: none;            /* old Edge */
-    animation: slideDown 0.3s ease both;
-}
-.mobile-tilebar::-webkit-scrollbar {    /* Chrome / Safari */
-    display: none;
-}
-.tile-chip {
-    flex-shrink: 0;
-    padding: 5px 13px;
-    border-radius: 999px;
-    border: 1px solid var(--subtle);
-    background: var(--panel);
-    color: var(--muted);
-    font-size: 0.72rem;
-    font-weight: 800;
-    white-space: nowrap;
-    text-decoration: none;
-    transition: color var(--transition), border-color var(--transition), background var(--transition);
-}
-.tile-chip.active {
-    color: var(--surface);
-    background: var(--pop);
-    border-color: var(--pop);
-}
-
-/* Content pages need extra top room for the tile bar on mobile
-   (56px fixed nav + ~40px fixed tile bar). Pages set an inline `padding`
+/* Content pages clear the fixed top bar + tab row (--nav-h). Pages set an inline `padding`
    shorthand, so the override has to be !important to win. */
-@media (max-width: 767px) {
-    .wrap,
-    .has-tilebar {
-        padding-top: 104px !important;
-    }
-}
+.wrap { padding-top: calc(var(--nav-h) + 24px) !important; }
+.has-tilebar { padding-top: var(--nav-h) !important; }
 
 /* ── FluidCheckbox (CSS replacement for framer-motion) ── */
 .fluid-checkbox {
@@ -1485,3 +1501,30 @@ h3 {
     text-transform: uppercase; color: var(--faint);
 }
 @media (prefers-reduced-motion: reduce) { .prep-menu-list { animation: none; } }
+
+/* ── Shared layout (PageHeader / Section / Card / FilterBar) ──────────── */
+.pg-container { margin: 0 auto; padding-left: var(--sp-4); padding-right: var(--sp-4); padding-bottom: var(--sp-7); display: flex; flex-direction: column; gap: var(--sp-5); }
+.pg-container.wrap { max-width: 1040px; }
+.pg-container.pg-sm.wrap { max-width: 760px; }
+.pg-container.pg-lg.wrap { max-width: 1200px; }
+.pg-header { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; padding-bottom: var(--sp-4); border-bottom: 1px solid var(--border); }
+.pg-header-text { min-width: 0; }
+.pg-title { font-size: 1.5rem; font-weight: 900; letter-spacing: -0.03em; line-height: 1.2; color: var(--bright); }
+.pg-subtitle { margin-top: 6px; max-width: 64ch; color: var(--muted); font-size: 0.84rem; line-height: 1.55; }
+.pg-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.pg-section { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+.pg-section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
+.pg-section-title { font-size: 0.72rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.pg-section-hint { margin-top: 2px; font-size: 0.78rem; color: var(--faint); }
+.pg-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--sp-5); min-width: 0; }
+.pg-card.is-flush { padding: 0; overflow: hidden; }
+.pg-filterbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-3); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.pg-stat { display: inline-flex; align-items: center; gap: var(--sp-2); padding: 6px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+.pg-stat-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.pg-stat-value { font-size: 0.92rem; font-weight: 900; color: var(--pop); }
+.pg-stat-sep { color: var(--border-strong); }
+.pg-stat-total { font-size: 0.82rem; color: var(--accent); }
+@media (max-width: 640px) {
+    .pg-card { padding: var(--sp-4); }
+    .pg-title { font-size: 1.3rem; }
+}

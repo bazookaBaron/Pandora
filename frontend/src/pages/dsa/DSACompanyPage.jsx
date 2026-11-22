@@ -30,8 +30,8 @@ export default function DSACompanyPage() {
                                 {decoded.charAt(0).toUpperCase()}
                             </div>
                             <div>
-                                <h1 style={{ fontSize: '1.3rem', fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--bright)' }}>{decoded}</h1>
-                                <p style={{ color: 'var(--muted)', fontSize: '0.78rem', marginTop: 2 }}>Problems tagged with {decoded}</p>
+                                <h1 className="pg-title">{decoded}</h1>
+                                <p className="pg-subtitle">Problems tagged with {decoded}</p>
                             </div>
                         </div>
                     </div>

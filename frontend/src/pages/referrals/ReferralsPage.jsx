@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../../components/Navbar'
+import { PageContainer, PageHeader } from '../../components/shared/Layout'
 import { useAuth } from '../../contexts/AuthContext'
 import { useEntitlements } from '../../lib/useEntitlements'
 import { ApiError, isUsageLimit } from '../../lib/apiClient'
@@ -746,17 +747,15 @@ export default function ReferralsPage() {
     return (
         <>
             <Navbar />
-            <main className="wrap" style={{ maxWidth: 980, margin: '0 auto', padding: '72px 16px 48px' }}>
-                <header style={{ marginBottom: 18 }}>
-                    <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>Referrals</h1>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: 6 }}>
-                        Ask verified employees to refer you — or refer candidates targeting your company.
-                    </p>
-                </header>
+            <PageContainer>
+                <PageHeader
+                    title="Referrals"
+                    subtitle="Ask verified employees to refer you, or refer candidates targeting your company."
+                />
 
                 {notice && (
                     <p style={{
-                        marginBottom: 16, fontSize: '0.8rem', color: '#4ade80',
+                        fontSize: '0.8rem', color: '#4ade80',
                         background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.25)',
                         borderRadius: 8, padding: '10px 14px',
                     }}>
@@ -773,7 +772,7 @@ export default function ReferralsPage() {
                             className="profile-segment"
                             role="tablist"
                             aria-label="Referral views"
-                            style={{ maxWidth: 460, flexWrap: 'wrap', marginBottom: 18 }}
+                            style={{ maxWidth: 460, flexWrap: 'wrap', alignSelf: 'flex-start' }}
                         >
                             {TABS.map(([id, label]) => (
                                 <button
@@ -789,12 +788,14 @@ export default function ReferralsPage() {
                             ))}
                         </div>
 
-                        {tab === 'post' && (entLoading ? <LoadingState /> : <PostTab limits={limits} onPosted={onPosted} />)}
-                        {tab === 'open' && <OpenTab />}
-                        {tab === 'mine' && <MineTab />}
+                        <div style={{ minWidth: 0 }}>
+                            {tab === 'post' && (entLoading ? <LoadingState /> : <PostTab limits={limits} onPosted={onPosted} />)}
+                            {tab === 'open' && <OpenTab />}
+                            {tab === 'mine' && <MineTab />}
+                        </div>
                     </>
                 )}
-            </main>
+            </PageContainer>
         </>
     )
 }

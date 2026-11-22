@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Check, Copy } from 'lucide-react'
 import Navbar from '../../components/Navbar'
+import { PageHeader as SharedPageHeader } from '../../components/shared/Layout'
 import { ErrorState, LoadingState } from '../../components/shared/states'
 import { useAutoApplyMe, useInboxUnread, useNeedsYou } from '../../lib/useAutoApply'
 import { AUTO_APPLY } from '../../../config/tiers.js'
@@ -370,15 +371,6 @@ export function UpgradeCard({ plan }) {
     )
 }
 
-export function PageHeader({ eyebrow, title, lead, actions }) {
-    return (
-        <header className="aa-spread" style={{ alignItems: 'flex-end', marginBottom: 20 }}>
-            <div>
-                {eyebrow && <span className="aa-eyebrow">{eyebrow}</span>}
-                <h1 className="aa-h1">{title}</h1>
-                {lead && <p className="aa-lead">{lead}</p>}
-            </div>
-            {actions && <div className="aa-row">{actions}</div>}
-        </header>
-    )
+export function PageHeader({ title, lead, actions }) {
+    return <SharedPageHeader title={title} subtitle={lead} actions={actions} />
 }

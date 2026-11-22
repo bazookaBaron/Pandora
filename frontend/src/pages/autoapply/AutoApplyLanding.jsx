@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { ErrorState, LoadingState } from '../../components/shared/states'
 import { useAutoApplyMe, useAutoApplyRealtime, useBatches, useNeedsYou } from '../../lib/useAutoApply'
 import AAProgressGuide from '../../components/onboarding/AAProgressGuide'
-import { AALayout, ACTIVE_BATCH, BatchStatusPill, PACK_KINDS, PACK_SIZES, Progress, UpgradeCard, fmtDate, packPrice, rupees } from './ui'
+import { AALayout, PageHeader, ACTIVE_BATCH, BatchStatusPill, PACK_KINDS, PACK_SIZES, Progress, UpgradeCard, fmtDate, packPrice, rupees } from './ui'
 
 const KIND_COLOR = { service: 'var(--pop)', product: 'var(--warm)' }
 
@@ -84,14 +84,15 @@ export default function AutoApplyLanding() {
 
     return (
         <AALayout>
-            <div className="aa-spread" style={{ marginBottom: 14 }}>
-                <h1 className="aa-h1" style={{ margin: 0 }}>AutoApply</h1>
-                {needCount > 0 && (
+            <PageHeader
+                title="AutoApply"
+                lead="Buy a pack, set your preferences once, and we submit applications for you."
+                actions={needCount > 0 && (
                     <Link to="/autoapply/needs-you" className="aa-chip-link" aria-label={`${needCount} applications need you`}>
                         Needs you ({needCount})
                     </Link>
                 )}
-            </div>
+            />
 
             {me.isLoading && <LoadingState label="Loading…" />}
             {me.isError && <ErrorState compact err={me.error} onRetry={() => me.refetch()} style={{ marginBottom: 20 }} />}

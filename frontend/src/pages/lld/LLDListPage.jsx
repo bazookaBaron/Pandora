@@ -164,12 +164,12 @@ export default function LLDListPage() {
             <Navbar />
             <div className="has-tilebar" style={{ paddingTop: 56, minHeight: '100vh', maxWidth: 1100, margin: '0 auto', padding: '80px 16px 40px' }}>
                 {/* Header */}
-                <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'flex-end', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+                <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'flex-end', flexWrap: 'wrap', gap: 16, marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
                     <div>
-                        <h1 style={{ fontSize: '1.2rem', fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--bright)' }}>LLD Problems</h1>
-                        <p style={{ color: 'var(--muted)', fontSize: '0.78rem', marginTop: 2 }}>Low-level design — class diagrams + code walkthroughs</p>
+                        <h1 className="pg-title">LLD Problems</h1>
+                        <p className="pg-subtitle">Low-level design — class diagrams + code walkthroughs</p>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8, padding: '6px 12px' }}>
+                    <div className="pg-stat">
                         <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Practiced</span>
                         <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#f472b6' }}>{solved}</span>
                         <span style={{ color: 'var(--subtle-strong)' }}>/</span>

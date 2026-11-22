@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import Navbar from '../../components/Navbar'
+import { PageContainer, PageHeader } from '../../components/shared/Layout'
 import { useJobs, useJobFacet } from '../../lib/useJobs'
 import MarketAnalytics from './MarketAnalytics'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
@@ -386,7 +387,8 @@ function ListingsView() {
 
     return (
         <>
-            <div data-tour="jobs-filters" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+            <div className="pg-filterbar" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10, marginBottom: 20 }}>
+            <div data-tour="jobs-filters" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
                 <FacetCombobox field="title" value={search} onChange={setSearch}
                     placeholder="Search job title or company…" style={{ flex: '1 1 220px' }} />
                 <FacetCombobox field="company" value={company} onChange={setCompany}
@@ -394,7 +396,7 @@ function ListingsView() {
                 <FacetCombobox field="location" multiple value={locations} onChange={setLocations}
                     placeholder="Locations" style={{ flex: '1 1 200px' }} />
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', paddingTop: 10, borderTop: '1px solid var(--border)' }}>
                 <Segmented value={locationType} onChange={setLocationType} options={[
                     { value: '', label: 'Any' }, { value: 'remote', label: 'Remote' },
                     { value: 'hybrid', label: 'Hybrid' }, { value: 'onsite', label: 'Onsite' },
@@ -423,6 +425,7 @@ function ListingsView() {
                     <option value="oldest">Oldest first</option>
                     <option value="company">By company</option>
                 </select>
+            </div>
             </div>
 
             {isLoading ? (
@@ -478,26 +481,27 @@ export default function JobsPage() {
     return (
         <>
             <Navbar />
-            <main className="wrap" style={{ maxWidth: 980, margin: '0 auto', padding: '72px 16px 48px' }}>
-                <header style={{ marginBottom: 16 }}>
-                    <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>Jobs</h1>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: 6 }}>
-                        Tech openings crawled from ~500 companies, refreshed through the day. Only jobs from the last 24 hours — anything older is dropped.
-                    </p>
-                </header>
+            <PageContainer>
+                <PageHeader
+                    title="Jobs"
+                    subtitle="Tech openings crawled from ~500 companies, refreshed through the day. Only jobs from the last 24 hours."
+                    actions={(
+                        <div className="profile-segment" role="tablist" aria-label="Jobs views" style={{ minWidth: 220 }}>
+                            {TABS.map(([id, label]) => (
+                                <button key={id} type="button" role="tab" aria-selected={tab === id}
+                                    className={'profile-segment-btn' + (tab === id ? ' is-active' : '')}
+                                    onClick={() => setTab(id)}>
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                />
 
-                <div className="profile-segment" role="tablist" aria-label="Jobs views" style={{ maxWidth: 320, marginBottom: 18 }}>
-                    {TABS.map(([id, label]) => (
-                        <button key={id} type="button" role="tab" aria-selected={tab === id}
-                            className={'profile-segment-btn' + (tab === id ? ' is-active' : '')}
-                            onClick={() => setTab(id)}>
-                            {label}
-                        </button>
-                    ))}
+                <div style={{ minWidth: 0 }}>
+                    {tab === 'listings' ? <ListingsView /> : <MarketAnalytics />}
                 </div>
-
-                {tab === 'listings' ? <ListingsView /> : <MarketAnalytics />}
-            </main>
+            </PageContainer>
         </>
     )
 }

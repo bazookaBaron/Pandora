@@ -570,12 +570,12 @@ function HLDWorkspaceInner() {
             .finally(() => setFrNfrLoading(false))
     }
 
-    if (isLoading) return <><Navbar /><div style={{ paddingTop: 80 }}><LoadingState label="Loading…" /></div></>
-    if (isError && error?.status === 401) return <><Navbar /><div style={{ paddingTop: 80 }}><ErrorState err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Link to="/hld" style={{ color: '#a78bfa', fontSize: '0.82rem' }}>← Back to HLD</Link></p></div></>
+    if (isLoading) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><LoadingState label="Loading…" /></div></>
+    if (isError && error?.status === 401) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><ErrorState err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Link to="/hld" style={{ color: '#a78bfa', fontSize: '0.82rem' }}>← Back to HLD</Link></p></div></>
     // tierLocked (403 upgrade_required) keeps the header bar + a LockedPanel body,
     // handled in the main return below — so don't fall into "not found"/error here.
-    if (isError && !tierLocked) return <><Navbar /><div style={{ paddingTop: 80 }}><ErrorState title="Could not load this HLD question." err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Link to="/hld" style={{ color: '#a78bfa', fontSize: '0.82rem' }}>← Back to HLD</Link></p></div></>
-    if (!problem && !tierLocked) return <><Navbar /><div style={{ paddingTop: 80 }}><EmptyState icon="🔍" title="Question not found." action={<Link to="/hld" style={{ color: '#a78bfa', fontSize: '0.82rem' }}>← Back to HLD</Link>} /></div></>
+    if (isError && !tierLocked) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><ErrorState title="Could not load this HLD question." err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Link to="/hld" style={{ color: '#a78bfa', fontSize: '0.82rem' }}>← Back to HLD</Link></p></div></>
+    if (!problem && !tierLocked) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><EmptyState icon="🔍" title="Question not found." action={<Link to="/hld" style={{ color: '#a78bfa', fontSize: '0.82rem' }}>← Back to HLD</Link>} /></div></>
 
     // Inline "monthly HLD-practice limit reached" note — shown near the FR/NFR
     // block and the Judge button when /api/hld/generate or /api/hld/judge 402s.
@@ -872,7 +872,7 @@ function HLDWorkspaceInner() {
     return (
         <>
             <Navbar />
-            <div style={{ height: '100vh', paddingTop: 48, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ height: '100vh', paddingTop: "var(--nav-h)", display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {/* Header bar */}
                 <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
                     <Link to="/hld" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← HLD</Link>

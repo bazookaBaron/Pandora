@@ -1,14 +1,20 @@
 /* ── AutoApply (dark-mono, tokens from index.css) ─────────────────── */
-.aa-wrap { max-width: 980px; }
+.aa-wrap { max-width: 1040px; }
+.aa-wrap .pg-header { margin-bottom: var(--sp-5); }
 
 .aa-subnav {
-    display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 22px;
-    padding-bottom: 12px; border-bottom: 1px solid var(--subtle);
+    display: flex; gap: 0; flex-wrap: wrap; margin-bottom: var(--sp-5);
+    border-bottom: 1px solid var(--border);
 }
-.aa-subnav .nav-pill { font-size: 0.66rem; }
+.aa-subnav .nav-pill {
+    font-size: 0.74rem; padding: 10px 18px; background: none; border: 0; border-bottom: 2px solid transparent;
+    border-radius: 0; margin-bottom: -1px; color: var(--muted);
+}
+.aa-subnav .nav-pill:hover { color: var(--pop); border-color: transparent; border-bottom-color: var(--border-strong); }
+.aa-subnav .nav-pill.active { background: none; color: var(--pop); border-bottom-color: var(--pop); }
 .aa-subnav .aa-count {
     min-width: 16px; height: 16px; padding: 0 4px; border-radius: 4px;
-    background: var(--warm); color: var(--surface); font-size: 0.6rem;
+    background: var(--pop); color: var(--surface); font-size: 0.6rem;
     display: inline-grid; place-items: center;
 }
 
@@ -33,11 +39,11 @@
 .aa-stack { display: flex; flex-direction: column; gap: 12px; }
 
 .aa-card {
-    background: var(--panel); border: 1px solid var(--subtle); border-radius: var(--radius);
-    padding: 18px 18px; animation: fadeUp 0.3s ease both;
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    padding: var(--sp-5); animation: fadeUp 0.3s ease both;
 }
 .aa-card.is-pop { border-color: rgba(34, 211, 238, 0.45); }
-.aa-card.is-warm { border-color: rgba(244, 114, 182, 0.45); }
+.aa-card.is-warm { border-color: var(--warm); }
 
 .aa-stat-value { font-size: 1.6rem; font-weight: 900; color: var(--bright); letter-spacing: -0.02em; }
 .aa-stat-label {
