@@ -144,7 +144,7 @@ export default function CommandPalette() {
                                 fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em',
                                 padding: '2px 6px', borderRadius: 4,
                                 background: item.type === 'dsa' ? 'rgba(109, 141, 255,0.1)' : 'rgba(244,114,182,0.1)',
-                                color: item.type === 'dsa' ? '#22d3ee' : '#f472b6',
+                                color: item.type === 'dsa' ? 'var(--pop)' : '#f472b6',
                                 border: `1px solid ${item.type === 'dsa' ? 'rgba(109, 141, 255,0.2)' : 'rgba(244,114,182,0.2)'}`,
                                 flexShrink: 0,
                             }}>

@@ -41,9 +41,9 @@ function Pagination({ page, totalPages, onChange }) {
             {pages.map((p, idx) => p === '…'
                 ? <span key={`e${idx}`} style={{ color: 'var(--faint)', fontSize: '0.78rem', padding: '0 4px' }}>…</span>
                 : <button key={p} onClick={() => onChange(p)} style={{
-                    width: 32, height: 32, borderRadius: 6, border: `1px solid ${p === page ? '#22d3ee' : 'var(--subtle)'}`,
+                    width: 32, height: 32, borderRadius: 6, border: `1px solid ${p === page ? 'var(--pop)' : 'var(--subtle)'}`,
                     background: p === page ? 'rgba(109, 141, 255,0.12)' : 'none',
-                    color: p === page ? '#22d3ee' : 'var(--muted)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: p === page ? 900 : 400,
+                    color: p === page ? 'var(--pop)' : 'var(--muted)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: p === page ? 900 : 400,
                 }}>{p}</button>
             )}
             <button onClick={() => onChange(page + 1)} disabled={page === totalPages} style={{
@@ -82,7 +82,7 @@ function CompanyBadges({ companies = [], isMobile = false }) {
                     style={{
                         flexShrink: 0, padding: '2px 8px', borderRadius: 4,
                         border: '1px solid var(--subtle-strong)', background: 'var(--panel)',
-                        color: '#22d3ee', cursor: 'pointer', fontSize: '0.62rem',
+                        color: 'var(--pop)', cursor: 'pointer', fontSize: '0.62rem',
                         fontWeight: 900, lineHeight: 1.4, whiteSpace: 'nowrap',
                     }}
                 >
@@ -379,7 +379,7 @@ export default function DSAListPage({ filterCompany }) {
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                 <div className="pg-stat">
                                     <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Solved</span>
-                                    <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#22d3ee' }}>{solved}</span>
+                                    <span style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--pop)' }}>{solved}</span>
                                     <span style={{ color: 'var(--subtle-strong)', fontSize: '0.8rem' }}>/</span>
                                     <span style={{ fontSize: '0.82rem', color: 'var(--accent)' }}>{total}</span>
                                 </div>
@@ -425,7 +425,7 @@ export default function DSAListPage({ filterCompany }) {
                                     width: '100%', padding: '8px 10px 8px 32px', background: 'var(--panel)', border: '1px solid var(--subtle)',
                                     borderRadius: 6, color: 'var(--bright)', font: 'inherit', fontSize: '0.82rem', outline: 'none',
                                 }}
-                                onFocus={e => e.target.style.borderColor = '#22d3ee'}
+                                onFocus={e => e.target.style.borderColor = 'var(--pop)'}
                                 onBlur={e => e.target.style.borderColor = 'var(--subtle)'}
                             />
                         </div>
@@ -466,7 +466,7 @@ export default function DSAListPage({ filterCompany }) {
                         </select>
 
                         <button onClick={() => setShowMoreFilters(v => !v)} style={{
-                            padding: '6px 12px', background: showMoreFilters ? '#22d3ee' : 'none', border: '1px solid var(--subtle)',
+                            padding: '6px 12px', background: showMoreFilters ? 'var(--pop)' : 'none', border: '1px solid var(--subtle)',
                             borderRadius: 6, color: showMoreFilters ? 'var(--surface)' : 'var(--muted)', cursor: 'pointer', fontSize: '0.72rem',
                             fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em',
                         }}>
@@ -482,9 +482,9 @@ export default function DSAListPage({ filterCompany }) {
                                 <div style={{ display: 'flex', gap: 4 }}>
                                     {['', 'solved', 'attempted', 'unsolved', 'bookmarked'].map(s => (
                                         <button key={s} onClick={() => updateParam('status', s)} style={{
-                                            padding: '4px 10px', borderRadius: 5, border: `1px solid ${statusFilter === s ? '#22d3ee' : 'var(--subtle)'}`,
+                                            padding: '4px 10px', borderRadius: 5, border: `1px solid ${statusFilter === s ? 'var(--pop)' : 'var(--subtle)'}`,
                                             background: statusFilter === s ? 'rgba(109, 141, 255,0.12)' : 'transparent',
-                                            color: statusFilter === s ? '#22d3ee' : 'var(--muted)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
+                                            color: statusFilter === s ? 'var(--pop)' : 'var(--muted)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
                                         }}>
                                             {s || 'All'}
                                         </button>
@@ -532,7 +532,7 @@ export default function DSAListPage({ filterCompany }) {
                             icon="🔍"
                             title="No problems match your filters."
                             action={(
-                                <button onClick={() => setSearchParams({})} style={{ padding: '6px 16px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 6, color: '#22d3ee', cursor: 'pointer', fontSize: '0.78rem' }}>
+                                <button onClick={() => setSearchParams({})} style={{ padding: '6px 16px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 6, color: 'var(--pop)', cursor: 'pointer', fontSize: '0.78rem' }}>
                                     Clear filters
                                 </button>
                             )}
@@ -594,7 +594,7 @@ export default function DSAListPage({ filterCompany }) {
                                 <>
                                     Preview: {items.length} of {total}
                                     {' — '}
-                                    <Link to="/pricing" style={{ color: '#22d3ee', textDecoration: 'none', fontWeight: 700 }}>upgrade for all</Link>
+                                    <Link to="/pricing" style={{ color: 'var(--pop)', textDecoration: 'none', fontWeight: 700 }}>upgrade for all</Link>
                                 </>
                             )}
                         </div>

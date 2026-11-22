@@ -315,7 +315,7 @@ function ListingsView() {
     const company = params.get('company') || ''
     const locationParam = params.get('loc') || ''
     const locations = useMemo(() => (locationParam ? locationParam.split(',').filter(Boolean) : []), [locationParam])
-    const locationType = params.get('type') || ''
+    const locationType = ''
     const companyType = params.get('ctype') || ''
     const source = params.get('source') || ''
     const seniority = params.get('level') || ''
@@ -337,7 +337,6 @@ function ListingsView() {
     const setSearch = setFilter('search')
     const setCompany = setFilter('company')
     const setLocations = setFilter('locations')
-    const setLocationType = setFilter('locationType')
     const setCompanyType = setFilter('companyType')
     const setSource = setFilter('source')
     const setSeniority = setFilter('seniority')
@@ -390,10 +389,6 @@ function ListingsView() {
                     placeholder="Locations" style={{ flex: '1 1 200px' }} />
             </div>
             <div className="jobs-filters" style={{ paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-                <select className="input-field provider-select" aria-label="Work mode" value={locationType} onChange={(e) => setLocationType(e.target.value)}>
-                    <option value="">Any work mode</option><option value="remote">Remote</option>
-                    <option value="hybrid">Hybrid</option><option value="onsite">Onsite</option>
-                </select>
                 <select className="input-field provider-select" aria-label="Company type" value={companyType} onChange={(e) => setCompanyType(e.target.value)}>
                     <option value="">All companies</option><option value="product">Product</option>
                     <option value="startup">Startup</option><option value="service">Service</option>
@@ -490,7 +485,7 @@ export default function JobsPage() {
             <PageContainer>
                 <PageHeader
                     title="Jobs"
-                    subtitle="Tech openings crawled from ~500 companies, refreshed through the day. Only jobs from the last 24 hours."
+                    subtitle="Tech and product roles from 14,000+ company career boards plus LinkedIn, India first. Posted within the last 15 days, refreshed daily."
                     actions={(
                         <div className="profile-segment" role="tablist" aria-label="Jobs views" style={{ minWidth: 220 }}>
                             {TABS.map(([id, label]) => (
