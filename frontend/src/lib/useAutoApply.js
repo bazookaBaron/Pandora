@@ -374,6 +374,10 @@ export function useCreateOrder() {
     return useMutation({ mutationFn: (body) => aa('/orders', { json: body }), meta: { inlineError: true } })
 }
 
+export function useCouponQuote() {
+    return useMutation({ mutationFn: (body) => aa('/orders/coupon', { json: body }), meta: { inlineError: true } })
+}
+
 export function useVerifyOrder() {
     const qc = useQueryClient()
     return useMutation({

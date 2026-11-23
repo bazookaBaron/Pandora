@@ -8,6 +8,7 @@ import { useMediaQuery } from '../lib/useMediaQuery'
 import { ErrorState } from '../components/shared/states'
 import { track, EVENTS } from '../lib/analytics'
 import { startCheckout as startRazorpayCheckoutFlow } from '../lib/razorpay'
+import { apiFetch } from '../lib/apiClient'
 import { useAutoApplyMe } from '../lib/useAutoApply'
 import { PACK_KINDS, PACK_SIZES, packPrice } from './autoapply/ui'
 
@@ -328,6 +329,27 @@ export default function PricingPage() {
         }
     }
 
+    const [couponCode, setCouponCode] = useState('')
+    const [couponBusy, setCouponBusy] = useState(false)
+    const [couponMsg, setCouponMsg] = useState(null) // { ok, text }
+
+    async function redeemPlanCoupon() {
+        if (!user) { setCouponMsg({ ok: false, text: 'Please sign in first.' }); return }
+        const code = couponCode.trim().toUpperCase()
+        if (!code) return
+        setCouponBusy(true)
+        setCouponMsg(null)
+        try {
+            const r = await apiFetch('/api/payments/coupon', { json: { code, billingPeriod: billing } })
+            refetch()
+            setCouponMsg({ ok: true, text: `${r.plan === 'max' ? 'Max' : 'Pro'} plan is active until ${new Date(r.current_period_end).toLocaleDateString()}.` })
+        } catch (err) {
+            setCouponMsg({ ok: false, text: err?.body?.message || err?.message || 'Could not apply the coupon.' })
+        } finally {
+            setCouponBusy(false)
+        }
+    }
+
     const visiblePlans = isMobile ? [mobilePlan] : PLAN_ORDER
 
     return (
@@ -451,6 +473,22 @@ export default function PricingPage() {
                 {note && (
                     <ErrorState compact title="Checkout" message={note} style={{ marginTop: 18 }} />
                 )}
+
+                <form onSubmit={(e) => { e.preventDefault(); redeemPlanCoupon() }}
+                    style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 18 }}>
+                    <label htmlFor="plan-coupon" style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Have a coupon?</label>
+                    <input id="plan-coupon" className="input-field" placeholder="Coupon code" maxLength={40} value={couponCode}
+                        onChange={(e) => { setCouponCode(e.target.value); setCouponMsg(null) }}
+                        style={{ maxWidth: 180, textTransform: 'uppercase' }} disabled={couponBusy} />
+                    <button type="submit" className="aa-btn" disabled={couponBusy || !couponCode.trim()}>
+                        {couponBusy ? 'Applying…' : 'Apply'}
+                    </button>
+                    {couponMsg && (
+                        <span role="status" style={{ width: '100%', textAlign: 'center', fontSize: '0.75rem', color: couponMsg.ok ? 'var(--green)' : 'var(--danger, #f87171)' }}>
+                            {couponMsg.text}
+                        </span>
+                    )}
+                </form>
 
                 {import.meta.env.VITE_AUTOAPPLY === '1' && <AutoApplySection currentPlan={currentPlan} />}
 

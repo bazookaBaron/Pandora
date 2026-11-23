@@ -25,7 +25,7 @@ import * as realResend from "../services/resend.js";
 import { publicQuestions, validateAnswer, isValidKey, learnedKey, LEARNED_KEY_RE } from "../lib/autoapply/questions.js";
 import { decryptSecret } from "../lib/autoapply/vault.js";
 import { isEligiblePlan, usageFor } from "../lib/autoapply/limits.js";
-import { AAError, createAutoApplyOrder, verifyAutoApplyPayment, handleAutoApplyWebhook, expirePendingOrders } from "../lib/autoapply/orders.js";
+import { AAError, createAutoApplyOrder, quoteAutoApplyCoupon, verifyAutoApplyPayment, handleAutoApplyWebhook, expirePendingOrders } from "../lib/autoapply/orders.js";
 import { verifyInbound, storeInbound } from "../lib/autoapply/inbound.js";
 import { mailDb as realMailDb } from "../lib/autoapply/mailDb.js";
 import { sendPushForMail, vapidConfig } from "../lib/autoapply/push.js";
@@ -576,6 +576,14 @@ export function createAutoApplyRouter(deps = {}) {
         if (error) throw error;
       }
       res.json({ ...order, must_companies: must.value });
+    }),
+  );
+
+  router.post(
+    "/orders/coupon",
+    checkoutLimiter,
+    wrap("orders/coupon", async (req, res) => {
+      res.json(await quoteAutoApplyCoupon({ db, userId: req.user.id, body: req.body }));
     }),
   );
 

@@ -10,6 +10,7 @@
  */
 import { AUTO_APPLY } from "../../config/tiers.js";
 import { isEligiblePlan, monthPurchased, packPrice } from "./limits.js";
+import { couponPackPrice, normCouponCode, redeemCoupon, releaseCoupon } from "../coupons.js";
 
 export class AAError extends Error {
   constructor(status, code, message) {
@@ -38,11 +39,40 @@ export function validateOrderInput(body) {
   return { pack_kind, pack_size: size, window_days: wd, price_paise: price };
 }
 
+async function couponOrThrow(db, args) {
+  try {
+    return await redeemCoupon(db, args);
+  } catch (err) {
+    if (err && err.code && String(err.code).startsWith("coupon_")) throw new AAError(400, err.code, err.message);
+    throw err;
+  }
+}
+
+/** Price a pack with an optional coupon (no redemption). */
+export async function quoteAutoApplyCoupon({ db, userId, body }) {
+  const input = validateOrderInput(body);
+  const code = normCouponCode(body && body.coupon_code);
+  if (!code) throw new AAError(400, "coupon_invalid", "Enter a coupon code.");
+  const c = await couponOrThrow(db, { code, userId, target: "autoapply", dry: true });
+  return { coupon_code: code, kind: c.kind, list_price_paise: input.price_paise, price_paise: couponPackPrice(c.kind, input.pack_size, input.price_paise) };
+}
+
 export async function createAutoApplyOrder({ db, razorpay, getUserPlan, userId, body, now = new Date() }) {
   const input = validateOrderInput(body);
+  let code = "";
+  try {
+    code = normCouponCode(body && body.coupon_code);
+  } catch (err) {
+    throw new AAError(400, err.code, err.message);
+  }
+  const peek = code ? await couponOrThrow(db, { code, userId, target: "autoapply", dry: true }) : null;
+  const price = peek ? couponPackPrice(peek.kind, input.pack_size, input.price_paise) : input.price_paise;
   const plan = await getUserPlan(userId);
-  if (!isEligiblePlan(plan)) throw new AAError(403, "not_eligible", "AutoApply needs an active Pro or Max plan.");
-  if (!razorpay.isEnabled()) throw new AAError(503, "checkout_unconfigured", "Payments are not configured.");
+  // a free_all coupon covers the plan requirement too ("all services free")
+  if (!isEligiblePlan(plan) && !(peek && peek.kind === "free_all")) {
+    throw new AAError(403, "not_eligible", "AutoApply needs an active Pro or Max plan.");
+  }
+  if (price > 0 && !razorpay.isEnabled()) throw new AAError(503, "checkout_unconfigured", "Payments are not configured.");
 
   const { data: prof, error: pErr } = await db.from("aa_profiles").select("consent_at").eq("user_id", userId).maybeSingle();
   if (pErr) throw pErr;
@@ -60,32 +90,44 @@ export async function createAutoApplyOrder({ db, razorpay, getUserPlan, userId, 
     );
   }
 
-  const { data: batch, error } = await db
-    .from("aa_batches")
-    .insert({
-      user_id: userId,
-      pack_kind: input.pack_kind,
-      pack_size: input.pack_size,
-      price_paise: input.price_paise,
-      currency: "INR",
-      window_days: input.window_days,
-      status: "pending_payment",
-      credits_total: input.pack_size,
-    })
-    .select("*")
-    .single();
-  if (error) throw error;
+  const redeemed = code ? await couponOrThrow(db, { code, userId, target: "autoapply" }) : null;
+  const row = {
+    user_id: userId,
+    pack_kind: input.pack_kind,
+    pack_size: input.pack_size,
+    price_paise: price,
+    currency: "INR",
+    window_days: input.window_days,
+    status: "pending_payment",
+    credits_total: input.pack_size,
+  };
+  if (redeemed) Object.assign(row, { coupon_code: code, coupon_redemption_id: redeemed.redemptionId });
+  const { data: batch, error } = await db.from("aa_batches").insert(row).select("*").single();
+  if (error) {
+    if (redeemed) await releaseCoupon(db, redeemed.redemptionId);
+    throw error;
+  }
+  if (redeemed) {
+    await db.from("coupon_redemptions").update({ batch_id: batch.id }).eq("id", redeemed.redemptionId);
+  }
+
+  if (price === 0) {
+    // free pack: no Razorpay order, credited now (the synthetic payment id keeps the paid step idempotent)
+    const paid = await markBatchPaid({ db, batch, paymentId: `coupon_${redeemed.redemptionId}`, now });
+    return { free: true, batch_id: batch.id, batch: paid, amount: 0, currency: "INR" };
+  }
 
   let order;
   try {
     order = await razorpay.createOrder({
-      amountPaise: input.price_paise,
+      amountPaise: price,
       currency: "INR",
       receipt: `aa_${String(batch.id).replace(/-/g, "").slice(0, 20)}`,
       notes: { kind: "autoapply", batch_id: batch.id, user_id: userId },
     });
   } catch (err) {
     await db.from("aa_batches").update({ status: "cancelled" }).eq("id", batch.id);
+    if (redeemed) await releaseCoupon(db, redeemed.redemptionId);
     throw new AAError(502, "order_failed", "Could not create the payment order.");
   }
 
@@ -197,8 +239,10 @@ export async function expirePendingOrders({ db, now = new Date(), olderThanMs = 
     .eq("status", "pending_payment")
     .is("purchased_at", null)
     .lt("created_at", new Date(now.getTime() - olderThanMs).toISOString())
-    .select("id");
+    .select("id, coupon_redemption_id");
   if (error) throw error;
+  // an unpaid coupon order gives the coupon back
+  for (const b of data || []) if (b.coupon_redemption_id) await releaseCoupon(db, b.coupon_redemption_id);
   return { expired: (data || []).length };
 }
 

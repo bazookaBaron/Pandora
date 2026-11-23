@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { openRazorpayOrder } from '../../lib/razorpay'
-import { useAutoApplyMe, useCompanySuggest, useCreateOrder, useSupply, useVerifyOrder } from '../../lib/useAutoApply'
+import { useAutoApplyMe, useCompanySuggest, useCouponQuote, useCreateOrder, useSupply, useVerifyOrder } from '../../lib/useAutoApply'
 import { AALayout, MustCompaniesInput, PACK_KINDS, PACK_SIZES, PageHeader, ProfileMissing, ReadinessCard, fmtDate, num, packPrice, rupees } from './ui'
 
 function useDebounced(value, ms) {
@@ -77,6 +77,10 @@ export default function BuyPage() {
     const [params] = useSearchParams()
     const createOrder = useCreateOrder()
     const verifyOrder = useVerifyOrder()
+    const couponQuote = useCouponQuote()
+    const [couponInput, setCouponInput] = useState('')
+    const [coupon, setCoupon] = useState(null) // { code, kind } once checked
+    const [couponErr, setCouponErr] = useState('')
 
     const config = me.data?.config || {}
     const maxWindow = config.window_days_max ?? 30
@@ -95,7 +99,8 @@ export default function BuyPage() {
     const u = me.data?.usage || {}
     const cap = u.monthly_cap ?? config.monthly_cap ?? 1000
     const remaining = u.remaining_purchasable ?? Math.max(0, cap - (u.month_purchased || 0))
-    const price = packPrice(config, kind, size)
+    const listPrice = packPrice(config, kind, size)
+    const price = listPrice == null || !coupon ? listPrice : coupon.kind === 'free_all' ? 0 : coupon.kind === 'per_job_rupee' ? Math.min(listPrice, size * 100) : listPrice
     const onboarded = !!me.data?.onboarding_done
     const check = me.data?.profile_check
     const profileMissing = check && !check.ok ? check.missing || [] : []
@@ -115,12 +120,25 @@ export default function BuyPage() {
         }
     }, [remaining, me.data]) // eslint-disable-line react-hooks/exhaustive-deps
 
+    async function applyCoupon() {
+        setCouponErr('')
+        const code = couponInput.trim().toUpperCase()
+        if (!code) return
+        try {
+            const q = await couponQuote.mutateAsync({ coupon_code: code, pack_kind: kind, pack_size: size, window_days: wd })
+            setCoupon({ code: q.coupon_code, kind: q.kind })
+        } catch (err) {
+            setCoupon(null)
+            setCouponErr(err?.message && !/^coupon_/.test(err.message) ? err.message : errorText(err))
+        }
+    }
+
     async function buy() {
         setNote(null)
         setStage('order')
         let order
         try {
-            order = await createOrder.mutateAsync({ pack_kind: kind, pack_size: size, window_days: wd, must_companies: must })
+            order = await createOrder.mutateAsync({ pack_kind: kind, pack_size: size, window_days: wd, must_companies: must, ...(coupon ? { coupon_code: coupon.code } : {}) })
         } catch (err) {
             setStage('')
             if (err?.status === 403 || err?.code === 'not_eligible') setNote({ kind: 'eligible', text: err.message })
@@ -128,6 +146,10 @@ export default function BuyPage() {
             else if (err?.status === 409 || err?.code === 'monthly_cap') setNote({ kind: 'cap', text: err.message })
             else setNote({ kind: 'error', text: errorText(err) })
             me.refetch()
+            return
+        }
+        if (order.free) {
+            navigate(order.batch_id ? `/autoapply/batches/${order.batch_id}?new=1` : '/autoapply')
             return
         }
         setStage('paying')
@@ -253,14 +275,29 @@ export default function BuyPage() {
 
                 <section className="aa-card is-pop" aria-labelledby="buy-total">
                     <h2 id="buy-total" className="aa-h2">Total</h2>
+                    <div className="aa-row" style={{ gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                        <label className="aa-sr" htmlFor="buy-coupon">Coupon code</label>
+                        <input id="buy-coupon" className="input-field" placeholder="Coupon code" value={couponInput} maxLength={40}
+                            style={{ maxWidth: 200, textTransform: 'uppercase' }} disabled={busy}
+                            onChange={(e) => { setCouponInput(e.target.value); setCoupon(null); setCouponErr('') }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') applyCoupon() }} />
+                        <button type="button" className="aa-btn" onClick={applyCoupon} disabled={busy || !couponInput.trim() || couponQuote.isPending}>
+                            {couponQuote.isPending ? 'Checking…' : 'Apply'}
+                        </button>
+                        {coupon && <span className="aa-chip">{coupon.code} · {coupon.kind === 'free_all' ? 'free pack' : '₹1 per application'}</span>}
+                        {couponErr && <span className="aa-faint" role="alert" style={{ color: 'var(--danger, #f87171)' }}>{couponErr}</span>}
+                    </div>
                     <div className="aa-spread">
                         <div>
-                            <div className="aa-stat-value">{price != null ? rupees(price) : '—'}</div>
+                            <div className="aa-stat-value">
+                                {price != null ? rupees(price) : '—'}
+                                {coupon && listPrice != null && price !== listPrice && <span className="aa-faint" style={{ textDecoration: 'line-through', fontSize: '0.8rem', marginLeft: 8 }}>{rupees(listPrice)}</span>}
+                            </div>
                             <div className="aa-faint">{PACK_KINDS[kind].name} · {size} applications · last {wd} days · GST included</div>
                         </div>
                         <button type="button" className="aa-btn is-primary" style={{ padding: '11px 18px' }} onClick={buy}
                             disabled={busy || !onboarded || !sizeOk || price == null || (profileMissing.length > 0 && !ackWait)}>
-                            {stage === 'paying' ? 'Payment open…' : busy ? 'Working…' : `Pay ${price != null ? rupees(price) : ''}`}
+                            {stage === 'paying' ? 'Payment open…' : busy ? 'Working…' : price === 0 ? 'Get it free' : `Pay ${price != null ? rupees(price) : ''}`}
                         </button>
                     </div>
                     {onboarded && profileMissing.length > 0 && (

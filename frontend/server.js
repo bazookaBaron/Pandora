@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { COUPON_MESSAGES, CouponError, normCouponCode, redeemCoupon, releaseCoupon } from "./lib/coupons.js";
 import { spaceByCompany, feedWindow } from "./lib/jobsFeed.js";
 import express from "express";
 import compression from "compression";
@@ -3942,6 +3943,61 @@ app.post(
       }
       console.error("[razorpay/order]", redact((err && err.message) || String(err)));
       res.status(502).json({ error: "order_failed" });
+    }
+  },
+);
+
+// POST /api/payments/coupon  body: { code, billingPeriod?, dry? }
+//   A free_all coupon grants its plan (coupons.plan) for one term, no payment. dry=true only checks it.
+//   → { ok, plan, current_period_end } | { ok, dry: true, kind, plan }
+app.post(
+  "/api/payments/coupon",
+  requireAuth,
+  checkoutLimiter,
+  async (req, res) => {
+    let redeemed = null;
+    try {
+      const code = normCouponCode(req.body && req.body.code);
+      if (!code) return res.status(400).json({ error: "coupon_invalid", message: COUPON_MESSAGES.coupon_invalid });
+      const billingPeriod = PERIODS.includes(req.body && req.body.billingPeriod) ? req.body.billingPeriod : "monthly";
+      const peek = await redeemCoupon(supabaseAdmin, { code, userId: req.user.id, target: "plan", dry: true });
+      if (peek.kind !== "free_all") {
+        return res.status(400).json({ error: "coupon_not_applicable", message: "This coupon works on AutoApply packs, not plans." });
+      }
+      const { data: existing } = await supabaseAdmin
+        .from("subscriptions")
+        .select("plan, status, provider, current_period_end")
+        .eq("user_id", req.user.id)
+        .maybeSingle();
+      if (existing && effectivePlanFromRow(existing) !== "free") {
+        return res.status(409).json({ error: "already_subscribed", message: "You already have an active plan." });
+      }
+      if (req.body && req.body.dry) return res.json({ ok: true, dry: true, kind: peek.kind, plan: peek.plan });
+
+      redeemed = await redeemCoupon(supabaseAdmin, { code, userId: req.user.id, target: "plan" });
+      const plan = redeemed.plan;
+      const end = computePeriodEnd({ termDays: TERM_DAYS[billingPeriod], existing, plan });
+      const { error } = await supabaseAdmin.from("subscriptions").upsert(
+        {
+          user_id: req.user.id,
+          plan,
+          status: "active",
+          provider: "coupon",
+          provider_customer_id: null,
+          provider_subscription_id: `coupon_${redeemed.redemptionId}`,
+          billing_period: billingPeriod,
+          current_period_end: end.toISOString(),
+        },
+        { onConflict: "user_id" },
+      );
+      if (error) throw error;
+      invalidateUser(req.user.id);
+      res.json({ ok: true, plan, current_period_end: end.toISOString() });
+    } catch (err) {
+      if (redeemed) await releaseCoupon(supabaseAdmin, redeemed.redemptionId);
+      if (err instanceof CouponError) return res.status(400).json({ error: err.code, message: err.message });
+      console.error("[payments/coupon]", redact((err && (err.stack || err.message)) || String(err)));
+      res.status(500).json({ error: "coupon_failed" });
     }
   },
 );
