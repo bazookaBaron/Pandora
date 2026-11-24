@@ -77,6 +77,7 @@ import {
   createInboundHandler,
   handleAutoApplyWebhook,
   runAutoApplyRefunds,
+  runNeedsYouJobs,
   runExpirePendingOrders,
   runMailCleanup,
   runDailyMailAlerts,
@@ -5115,12 +5116,16 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
   );
 }
 
-// AutoApply refunds: 'refund_due' batches -> Razorpay refund of the unused
-// share -> ledger 'refund' -> 'refunded'. Every 15 min. Runs without Razorpay keys too: zero-amount (coupon)
-// batches, parked cancels and stale waiting_supply batches need no Razorpay call (paid refunds then wait).
+// AutoApply refunds. Owner policy: a bought batch is never refunded automatically (sql/45). The cron only pays
+// back payment-safety refunds (late payment after cancel, monthly-cap overflow / coupon gone at capture) and
+// admin-approved ones (POST /api/autoapply/admin/batches/:id/refund); any other refund_due batch is put back to
+// work. Its pre-pass keeps unfulfilled batches alive: expires_at is pushed forward while credits are left.
+// Every 15 min.
 if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
   if (!razorpay.isEnabled()) console.warn("[autoapply] Razorpay keys not set: paid refunds wait, zero-amount batches still processed");
   cron.schedule("*/15 * * * *", () => runAutoApplyRefunds(), { timezone: "Asia/Kolkata" });
+  // needs-you: expire items of final batches; at most ONE "a few details needed" push per batch once it is ready
+  cron.schedule("7,22,37,52 * * * *", () => runNeedsYouJobs().then((r) => { if (r && r.notified && r.notified.sent) console.log("[autoapply] needs-you", JSON.stringify(r)); }), { timezone: "Asia/Kolkata" });
 } else {
   console.warn("[autoapply] refunds cron disabled (no SUPABASE_SERVICE_ROLE_KEY)");
 }

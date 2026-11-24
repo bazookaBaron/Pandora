@@ -39,13 +39,20 @@ export function validateOrderInput(body) {
   return { pack_kind, pack_size: size, window_days: wd, price_paise: price };
 }
 
-async function couponOrThrow(db, args) {
+async function couponOrThrow(db, args, packSize) {
+  let c;
   try {
-    return await redeemCoupon(db, args);
+    c = await redeemCoupon(db, args);
   } catch (err) {
     if (err && err.code && String(err.code).startsWith("coupon_")) throw new AAError(400, err.code, err.message);
     throw err;
   }
+  if (packSize && c && c.maxPackSize && Number(packSize) > Number(c.maxPackSize)) {
+    // a redemption already taken (non-dry) is given back
+    if (c.redemptionId) await releaseCoupon(db, c.redemptionId);
+    throw new AAError(400, "coupon_not_applicable", `This coupon covers packs of up to ${c.maxPackSize} applications.`);
+  }
+  return c;
 }
 
 /** Price a pack with an optional coupon (no redemption). */
@@ -53,7 +60,7 @@ export async function quoteAutoApplyCoupon({ db, userId, body }) {
   const input = validateOrderInput(body);
   const code = normCouponCode(body && body.coupon_code);
   if (!code) throw new AAError(400, "coupon_invalid", "Enter a coupon code.");
-  const c = await couponOrThrow(db, { code, userId, target: "autoapply", dry: true });
+  const c = await couponOrThrow(db, { code, userId, target: "autoapply", dry: true }, input.pack_size);
   return { coupon_code: code, kind: c.kind, list_price_paise: input.price_paise, price_paise: couponPackPrice(c.kind, input.pack_size, input.price_paise) };
 }
 
@@ -65,7 +72,7 @@ export async function createAutoApplyOrder({ db, razorpay, getUserPlan, userId, 
   } catch (err) {
     throw new AAError(400, err.code, err.message);
   }
-  const peek = code ? await couponOrThrow(db, { code, userId, target: "autoapply", dry: true }) : null;
+  const peek = code ? await couponOrThrow(db, { code, userId, target: "autoapply", dry: true }, input.pack_size) : null;
   const price = peek ? couponPackPrice(peek.kind, input.pack_size, input.price_paise) : input.price_paise;
   const plan = await getUserPlan(userId);
   // a free_all coupon covers the plan requirement too ("all services free")
@@ -93,7 +100,7 @@ export async function createAutoApplyOrder({ db, razorpay, getUserPlan, userId, 
   // A free pack (price 0) redeems the coupon now. A paid coupon pack (per_job_rupee) only stores the code: the
   // coupon is redeemed when the payment is captured (markBatchPaid), so an abandoned checkout never uses it up
   // and the global / per-user limits are enforced under the redeem_coupon row lock at capture time.
-  const redeemed = code && price === 0 ? await couponOrThrow(db, { code, userId, target: "autoapply" }) : null;
+  const redeemed = code && price === 0 ? await couponOrThrow(db, { code, userId, target: "autoapply" }, input.pack_size) : null;
   const row = {
     user_id: userId,
     pack_kind: input.pack_kind,
@@ -216,6 +223,9 @@ export async function markBatchPaid({ db, batch, paymentId, now = new Date() }) 
     if (next) {
       const patch = { status: next, purchased_at: purchasedAt, expires_at: expiresAt, razorpay_payment_id: paymentId };
       if (redemption) patch.coupon_redemption_id = redemption.redemptionId;
+      // payment-safety refund (money that never bought a running batch): marked explicitly so the refunds cron
+      // (refundAllowed) and the sql/45 guard let it through; any other refund needs an admin.
+      if (next === "refund_due" && note) patch.refund_reason = note;
       const { data: won, error } = await db
         .from("aa_batches")
         .update(patch)
@@ -298,8 +308,11 @@ export async function verifyAutoApplyPayment({ db, razorpay, userId, body, now =
     return markBatchPaid({ db, batch, paymentId: razorpay_payment_id, now });
   }
 
+  // Fail closed: without the order from Razorpay the amount / notes cannot be checked. The client retries
+  // (503), and the signed payment.captured webhook still records the payment meanwhile.
   const order = await razorpay.fetchOrder(razorpay_order_id);
-  if (order) {
+  if (!order) throw new AAError(503, "order_unverified", "Could not confirm the order with Razorpay yet. Please retry in a minute; your payment is safe.");
+  {
     const n = order.notes || {};
     if (
       Number(order.amount) !== Number(batch.price_paise) ||
@@ -311,6 +324,21 @@ export async function verifyAutoApplyPayment({ db, razorpay, userId, body, now =
     }
   }
   return markBatchPaid({ db, batch, paymentId: razorpay_payment_id, now });
+}
+
+/**
+ * A payment that needs a human (sql/45 aa_payment_reviews): idempotent per (payment, kind). Never throws: a
+ * failure to record is logged loudly, the webhook still answers 200 so Razorpay does not retry forever.
+ */
+export async function recordPaymentReview(db, row) {
+  try {
+    const { error } = await db.from("aa_payment_reviews").upsert(row, { onConflict: "razorpay_payment_id,kind", ignoreDuplicates: true });
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    console.error(`[autoapply] PAYMENT REVIEW NOT RECORDED (${row.kind}) batch ${row.batch_id} payment ${row.razorpay_payment_id}:`, (e && e.message) || String(e));
+    return false;
+  }
 }
 
 /**
@@ -348,7 +376,17 @@ export async function handleAutoApplyWebhook({ db, body, now = new Date() }) {
   const paid = Number(payment.amount);
   if (paid !== Number(batch.price_paise)) {
     console.warn(`[autoapply] webhook amount mismatch for batch ${batch.id}: ${paid} != ${batch.price_paise}`);
-    return { ok: true, note: "autoapply: amount mismatch" };
+    await recordPaymentReview(db, {
+      kind: "amount_mismatch",
+      batch_id: batch.id,
+      user_id: batch.user_id || null,
+      razorpay_order_id: orderId,
+      razorpay_payment_id: paymentId,
+      expected_paise: Number(batch.price_paise) || 0,
+      paid_paise: Number.isFinite(paid) ? paid : null,
+      detail: { event, currency: payment.currency || null, status: payment.status || null },
+    });
+    return { ok: true, note: "autoapply: amount mismatch (recorded for review)" };
   }
   const b = await markBatchPaid({ db, batch, paymentId, now });
   return { ok: true, autoapply: true, batch_id: batch.id, status: b && b.status };

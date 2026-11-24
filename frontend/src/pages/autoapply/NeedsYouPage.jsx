@@ -1,179 +1,253 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
 import { GuideNextCta } from '../../components/onboarding/AAProgressGuide'
-import { useNeedsYou, useResolveNeedsYou } from '../../lib/useAutoApply'
-import { Link } from 'react-router-dom'
-import { AALayout, InlineConfirm, PageHeader, ProfileMissing, fmtAgo } from './ui'
+import { useNeedsYouForm, useSaveNeedsYouForm } from '../../lib/useAutoApply'
+import { AALayout, PageHeader, ProfileMissing } from './ui'
 import { safeHref } from './InterviewCard'
+import './needsyou.css'
 
-const KIND = {
-    profile: { title: 'Complete your profile', help: 'A paid batch is waiting until your profile is complete. We start applying on our next check after you finish it.' },
-    captcha: { title: 'Captcha', help: 'The site asked for a captcha we can’t solve. Open the job, apply yourself, then tell us.' },
-    sso: { title: 'Social sign-in', help: 'This site only allows Google / LinkedIn sign-in. Open the job, apply yourself, then tell us.' },
-    account: { title: 'Account problem', help: 'We could not create or open your account on this site. Open the job and apply yourself.' },
-    question: { title: 'Question', help: 'The form asked something we don’t have an answer for. Your answer is saved and reused next time.' },
-    other: { title: 'Needs a human', help: 'Something on this site needs you. Open the job and apply yourself.' },
-}
-const ORDER = ['profile', 'question', 'captcha', 'sso', 'account', 'other']
+// Needs you = ONE form at the end of a batch: every detail that was missing across all the application forms
+// we could not submit (deduped), one block per site that needs an account step, and "did it go through?"
+// checks. One Save: answers go to your saved answers and those applications are retried.
 
-// useResolveNeedsYou removes the item from the cache at once (the card
-// disappears on click), toasts the result, and puts the card back with an
-// error toast if the server rejects it.
-function ProfileItem({ item }) {
-    const resolve = useResolveNeedsYou()
-    const p = item.payload || {}
-    const [confirmDismiss, setConfirmDismiss] = useState(false)
-    const id = `ny-${item.id}`
-    const batchId = item.batch_id || p.batch_id
+function JobLine({ job }) {
+    const link = safeHref(job.apply_url)
+    const name = [job.company || 'Unknown company', job.title].filter(Boolean).join(' · ')
     return (
-        <li className="aa-card aa-stack" aria-labelledby={`${id}-h`}>
-            <div className="aa-spread">
-                <div>
-                    <div id={`${id}-h`} style={{ color: 'var(--bright)', fontWeight: 900, fontSize: '0.86rem' }}>Complete your profile</div>
-                    <div className="aa-faint">AutoApply profile · {fmtAgo(item.created_at)}</div>
-                </div>
-                <span className="aa-pill t-warm">Profile</span>
-            </div>
-            <ProfileMissing missing={p.missing} lead={`${KIND.profile.help} Still missing:`} />
-            <div className="aa-row">
-                {batchId && <Link className="aa-btn" to={`/autoapply/batches/${batchId}`}>View batch</Link>}
-                {!confirmDismiss && <button type="button" className="aa-btn" onClick={() => setConfirmDismiss(true)} disabled={resolve.isPending}>Hide</button>}
-            </div>
-            {confirmDismiss && (
-                <InlineConfirm
-                    message="Hide this reminder? The batch still waits until your profile is complete."
-                    confirmLabel="Hide"
-                    tone="neutral"
-                    busy={resolve.isPending}
-                    onConfirm={() => resolve.mutate({ id: item.id, action: 'dismiss' }, { onError: () => setConfirmDismiss(false) })}
-                    onCancel={() => setConfirmDismiss(false)}
-                />
-            )}
-        </li>
+        <span className="ny-job">
+            <span>{name}</span>
+            {link && <a href={link} target="_blank" rel="noopener noreferrer" className="ny-link"><ExternalLink size={11} aria-hidden /> Open</a>}
+        </span>
     )
 }
 
-function Item({ item }) {
-    return item.kind === 'profile' ? <ProfileItem item={item} /> : <TaskItem item={item} />
-}
-
-function TaskItem({ item }) {
-    const resolve = useResolveNeedsYou()
-    const p = item.payload || {}
-    const meta = KIND[item.kind] || KIND.other
-    const link = safeHref(p.apply_url) || safeHref(item.task?.apply_url)
-    const [answer, setAnswer] = useState(p.suggestion ?? '')
-    const [confirmDismiss, setConfirmDismiss] = useState(false)
-    const id = `ny-${item.id}`
-    const options = Array.isArray(p.options) ? p.options : null
-
-    function act(action, extra) {
-        if (resolve.isPending) return
-        resolve.mutate({ id: item.id, action, ...extra }, { onError: () => setConfirmDismiss(false) })
-    }
-
-    return (
-        <li className="aa-card aa-stack" aria-labelledby={`${id}-h`}>
-            <div className="aa-spread">
-                <div>
-                    <div id={`${id}-h`} style={{ color: 'var(--bright)', fontWeight: 900, fontSize: '0.86rem' }}>
-                        {item.task?.company || 'Unknown company'}{item.task?.title ? ` · ${item.task.title}` : ''}
-                    </div>
-                    <div className="aa-faint">{meta.title} · {fmtAgo(item.created_at)}</div>
-                </div>
-                <span className={`aa-pill ${item.kind === 'question' ? 't-pop' : 't-warm'}`}>{meta.title}</span>
-            </div>
-            <p className="aa-muted" style={{ margin: 0 }}>
-                {p.reason === 'verify_submission' ? 'Please check whether this application went through.' : (p.note || meta.help)}
-            </p>
-
-            {p.reason === 'verify_submission' ? (
-                // We could not tell whether the final submit landed.
-                // 'confirm_submitted' records it as applied (one credit);
-                // 'not_submitted' retries it while the pack has credits, else skips it (no credit).
-                <div className="aa-row">
-                    {link && <a className="aa-btn" href={link} target="_blank" rel="noopener noreferrer"><ExternalLink size={12} aria-hidden /> Open job</a>}
-                    <button type="button" className="aa-btn is-primary" onClick={() => act('confirm_submitted')} disabled={resolve.isPending}>It was submitted</button>
-                    <button type="button" className="aa-btn" onClick={() => act('not_submitted')} disabled={resolve.isPending}>It wasn&rsquo;t</button>
-                </div>
-            ) : item.kind === 'question' ? (
-                <form className="aa-stack" onSubmit={(e) => { e.preventDefault(); if (String(answer).trim()) act('answer', { answer: String(answer).trim() }) }}>
-                    <div className="aa-field">
-                        <label className="field-label" htmlFor={`${id}-a`} style={{ textTransform: 'none', letterSpacing: 0, fontSize: '0.8rem', color: 'var(--bright)' }}>
-                            {p.question || p.label || 'Question'}
+function Control({ field, value, onChange }) {
+    const id = `ny-f-${field.id}`
+    const common = { id, name: field.id, 'aria-describedby': `${id}-h` }
+    const opts = field.options || []
+    switch (field.type) {
+        case 'yesno':
+            return (
+                <div className="ny-seg" role="radiogroup" aria-labelledby={`${id}-l`}>
+                    {opts.map((o) => (
+                        <label key={o.value} className={`ny-seg-opt${String(value) === String(o.value) ? ' is-on' : ''}`}>
+                            <input type="radio" name={field.id} value={o.value} checked={String(value) === String(o.value)} onChange={() => onChange(o.value)} />
+                            {o.label}
                         </label>
-                        {options ? (
-                            <select id={`${id}-a`} className="input-field provider-select" value={answer} onChange={(e) => setAnswer(e.target.value)}>
-                                <option value="">Choose…</option>
-                                {options.map((o) => {
-                                    const v = typeof o === 'object' ? o.value : o
-                                    const l = typeof o === 'object' ? (o.label ?? o.value) : o
-                                    return <option key={v} value={v}>{l}</option>
-                                })}
-                            </select>
-                        ) : (
-                            <input id={`${id}-a`} className="input-field" value={answer} onChange={(e) => setAnswer(e.target.value)} />
-                        )}
-                        {p.suggestion && <div className="field-hint">Suggested from your profile: {p.suggestion}</div>}
-                    </div>
-                    <div className="aa-row">
-                        <button type="submit" className="aa-btn is-primary" disabled={resolve.isPending || !String(answer).trim()}>
-                            {resolve.isPending ? 'Saving…' : 'Save answer and retry'}
-                        </button>
-                        {link && <a className="aa-btn" href={link} target="_blank" rel="noopener noreferrer"><ExternalLink size={12} aria-hidden /> Open job</a>}
-                        {!confirmDismiss && <button type="button" className="aa-btn" onClick={() => setConfirmDismiss(true)} disabled={resolve.isPending}>Dismiss</button>}
-                    </div>
-                </form>
-            ) : (
-                <div className="aa-row">
-                    {link ? (
-                        <a className="aa-btn is-primary" href={link} target="_blank" rel="noopener noreferrer"><ExternalLink size={12} aria-hidden /> Open job</a>
-                    ) : (
-                        <span className="aa-faint">No link for this job.</span>
-                    )}
-                    <button type="button" className="aa-btn" onClick={() => act('done')} disabled={resolve.isPending}>
-                        {resolve.isPending ? 'Saving…' : 'I applied myself'}
-                    </button>
-                    {!confirmDismiss && <button type="button" className="aa-btn" onClick={() => setConfirmDismiss(true)} disabled={resolve.isPending}>Dismiss</button>}
+                    ))}
                 </div>
-            )}
+            )
+        case 'select':
+            return (
+                <select {...common} className="input-field provider-select" value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
+                    <option value="">Choose…</option>
+                    {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+            )
+        case 'multiselect': {
+            const picked = String(value || '').split(',').map((s) => s.trim()).filter(Boolean)
+            const toggle = (v) => onChange((picked.includes(v) ? picked.filter((x) => x !== v) : [...picked, v]).join(','))
+            return (
+                <div className="ny-multi" role="group" aria-labelledby={`${id}-l`}>
+                    {opts.map((o) => (
+                        <label key={o.value} className="ny-check">
+                            <input type="checkbox" checked={picked.includes(o.value)} onChange={() => toggle(o.value)} /> {o.label}
+                        </label>
+                    ))}
+                </div>
+            )
+        }
+        case 'date':
+            return <input {...common} type="date" className="input-field" value={value ?? ''} onChange={(e) => onChange(e.target.value)} />
+        case 'number':
+            return <input {...common} type="number" min="0" inputMode="decimal" className="input-field" value={value ?? ''} onChange={(e) => onChange(e.target.value)} />
+        case 'textarea':
+            return <textarea {...common} className="input-field ny-textarea" rows={4} maxLength={field.max_length} value={value ?? ''} onChange={(e) => onChange(e.target.value)} />
+        default:
+            return <input {...common} className="input-field" maxLength={field.max_length} value={value ?? ''} onChange={(e) => onChange(e.target.value)} />
+    }
+}
 
-            {confirmDismiss && (
-                <InlineConfirm
-                    message="Skip this job? No credit is used."
-                    confirmLabel="Skip job"
-                    busy={resolve.isPending}
-                    onConfirm={() => act('dismiss')}
-                    onCancel={() => setConfirmDismiss(false)}
-                />
-            )}
-        </li>
-    )
+function initialAnswers(fields) {
+    const out = {}
+    for (const f of fields || []) out[f.id] = f.value ?? (f.suggestion != null ? String(f.suggestion) : '')
+    return out
 }
 
 export default function NeedsYouPage() {
-    const q = useNeedsYou()
-    const items = q.data?.items || []
-    const groups = ORDER.map((k) => [k, items.filter((i) => (KIND[i.kind] ? i.kind : 'other') === k)]).filter(([, l]) => l.length)
+    const q = useNeedsYouForm()
+    const save = useSaveNeedsYouForm()
+    const data = q.data
+    const fields = useMemo(() => data?.fields || [], [data])
+    const sites = useMemo(() => data?.sites || [], [data])
+    const unconfirmed = useMemo(() => data?.unconfirmed || [], [data])
+    const profile = data?.profile || null
+    const accumulating = data?.accumulating || 0
+
+    const [answers, setAnswers] = useState({})
+    const [siteDone, setSiteDone] = useState({})
+    const [manual, setManual] = useState({})
+    const [unconf, setUnconf] = useState({})
+    // reset the form whenever the server sends a different one (after a save, or new items became ready)
+    const formKey = JSON.stringify([fields.map((f) => f.id), sites.map((s) => s.id), unconfirmed.map((u) => u.item_id)])
+    useEffect(() => {
+        setAnswers(initialAnswers(fields))
+        setSiteDone({})
+        setManual({})
+        setUnconf({})
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [formKey])
+
+    const retrySites = sites.filter((s) => s.kind !== 'manual')
+    const manualSites = sites.filter((s) => s.kind === 'manual')
+    const filled = fields.filter((f) => String(answers[f.id] ?? '').trim()).length
+    const anything = filled > 0 || Object.values(siteDone).some(Boolean) || Object.values(manual).some(Boolean) || Object.values(unconf).some(Boolean)
+    const empty = fields.length === 0 && sites.length === 0 && unconfirmed.length === 0
+
+    function submit(e) {
+        e.preventDefault()
+        if (save.isPending || !anything) return
+        const body = { answers: {}, sites: {}, manual: {}, unconfirmed: {} }
+        for (const f of fields) {
+            const v = String(answers[f.id] ?? '').trim()
+            if (v) body.answers[f.id] = v
+        }
+        for (const [k, v] of Object.entries(siteDone)) if (v) body.sites[k] = 'done'
+        for (const [k, v] of Object.entries(manual)) if (v) body.manual[k] = v
+        for (const [k, v] of Object.entries(unconf)) if (v) body.unconfirmed[k] = v
+        save.mutate(body)
+    }
 
     return (
         <AALayout gate>
-            <PageHeader eyebrow="Needs you" title="Applications waiting on you" lead="A few sites need a human. Nothing here uses a credit unless we submit the application." />
+            <PageHeader
+                title="A few details to finish your applications"
+                lead="Some application forms asked for things we did not have. Fill them in once here and we retry every one of those applications. We keep going until all your applications are submitted."
+            />
             {q.isLoading ? (
                 <LoadingState label="Loading…" />
             ) : q.isError ? (
                 <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load" />
-            ) : items.length === 0 ? (
-                <EmptyState icon="✅" title="Nothing needs you right now. Captchas, sign-ins and questions show up here." action={<GuideNextCta fallback={{ to: '/autoapply', label: 'Open batches' }} />} />
             ) : (
                 <div className="aa-stack">
-                    {groups.map(([k, list]) => (
-                        <section key={k} aria-labelledby={`grp-${k}`}>
-                            <h2 id={`grp-${k}`} className="aa-h2">{KIND[k].title} ({list.length})</h2>
-                            <ul className="aa-list">{list.map((i) => <Item key={i.id} item={i} />)}</ul>
-                        </section>
-                    ))}
+                    {profile && <ProfileMissing missing={profile.missing} lead="A batch is waiting until your profile is complete. Still missing:" />}
+
+                    {empty ? (
+                        <EmptyState
+                            icon="✅"
+                            title={accumulating > 0 ? 'Nothing to fill in yet' : 'Nothing needs you right now'}
+                            message={accumulating > 0
+                                ? `We are still applying. ${accumulating} application${accumulating === 1 ? '' : 's'} need${accumulating === 1 ? 's' : ''} a detail from you; we collect them and ask you once, when the batch's other work is done.`
+                                : 'If a form asks something we cannot answer, it shows up here as one short form at the end of your batch.'}
+                            action={<GuideNextCta fallback={{ to: '/autoapply', label: 'Open batches' }} />}
+                        />
+                    ) : (
+                        <form className="ny-form aa-stack" onSubmit={submit} noValidate>
+                            {accumulating > 0 && (
+                                <p className="aa-note is-info ny-flat" role="status">
+                                    {accumulating} more application{accumulating === 1 ? ' is' : 's are'} still in progress; anything they need is added here later.
+                                </p>
+                            )}
+
+                            {fields.length > 0 && (
+                                <section className="aa-card ny-section" aria-labelledby="ny-q-h">
+                                    <h2 id="ny-q-h" className="ny-h">Missing details <span className="aa-faint">({filled}/{fields.length})</span></h2>
+                                    <p className="aa-muted ny-sub">Saved to your answers and reused on every future application.</p>
+                                    <div className="ny-grid">
+                                        {fields.map((f) => {
+                                            const id = `ny-f-${f.id}`
+                                            return (
+                                                <div key={f.id} className={`aa-field ny-field${f.type === 'textarea' || f.type === 'multiselect' ? ' is-wide' : ''}`}>
+                                                    <label id={`${id}-l`} htmlFor={id} className="field-label ny-label">{f.label}</label>
+                                                    <Control field={f} value={answers[f.id]} onChange={(v) => setAnswers((a) => ({ ...a, [f.id]: v }))} />
+                                                    <div id={`${id}-h`} className="field-hint">
+                                                        {f.count > 1 ? `Asked by ${f.count} applications` : 'Asked by 1 application'}
+                                                        {f.companies?.length ? ` (${f.companies.slice(0, 3).join(', ')}${f.companies.length > 3 ? '…' : ''})` : ''}
+                                                        {f.help ? `. ${f.help}` : ''}
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </section>
+                            )}
+
+                            {retrySites.map((s) => (
+                                <section key={s.id} className="aa-card ny-section" aria-labelledby={`ny-s-${s.id}`}>
+                                    <h2 id={`ny-s-${s.id}`} className="ny-h">{s.title}</h2>
+                                    <p className="aa-muted ny-sub">
+                                        {s.kind === 'verify_email'
+                                            ? 'The site sent a verification email to your AutoApply address. Open Inbox, click the link, then tick below.'
+                                            : 'The site needs you to sign in or finish the account once. Do it on the site, then tick below.'}
+                                    </p>
+                                    <ul className="ny-jobs">{s.jobs.map((j) => <li key={j.item_id}><JobLine job={j} /></li>)}</ul>
+                                    <label className="ny-check">
+                                        <input type="checkbox" checked={!!siteDone[s.id]} onChange={(e) => setSiteDone((d) => ({ ...d, [s.id]: e.target.checked }))} />
+                                        Done: retry {s.jobs.length === 1 ? 'this application' : `these ${s.jobs.length} applications`}
+                                    </label>
+                                </section>
+                            ))}
+
+                            {manualSites.length > 0 && (
+                                <section className="aa-card ny-section" aria-labelledby="ny-m-h">
+                                    <h2 id="ny-m-h" className="ny-h">Sites we cannot apply on for you</h2>
+                                    <p className="aa-muted ny-sub">A captcha or a social sign-in blocks us. Apply yourself if you like; these never use a credit.</p>
+                                    {manualSites.map((s) => (
+                                        <div key={s.id} className="ny-site">
+                                            <div className="ny-site-name">{s.site}</div>
+                                            <ul className="ny-jobs">
+                                                {s.jobs.map((j) => (
+                                                    <li key={j.item_id} className="ny-job-row">
+                                                        <JobLine job={j} />
+                                                        <select
+                                                            className="input-field provider-select ny-mini"
+                                                            aria-label={`${j.company || 'Job'}: what happened`}
+                                                            value={manual[j.item_id] || ''}
+                                                            onChange={(e) => setManual((m) => ({ ...m, [j.item_id]: e.target.value }))}
+                                                        >
+                                                            <option value="">Leave for now</option>
+                                                            <option value="applied">I applied myself</option>
+                                                            <option value="skip">Skip this job</option>
+                                                        </select>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    ))}
+                                </section>
+                            )}
+
+                            {unconfirmed.length > 0 && (
+                                <section className="aa-card ny-section" aria-labelledby="ny-u-h">
+                                    <h2 id="ny-u-h" className="ny-h">Did these go through?</h2>
+                                    <p className="aa-muted ny-sub">We pressed submit but could not see the confirmation. Check the site or your Inbox. Yes uses one credit; No and we try again.</p>
+                                    <ul className="ny-jobs">
+                                        {unconfirmed.map((u) => (
+                                            <li key={u.item_id} className="ny-job-row">
+                                                <JobLine job={u} />
+                                                <span className="ny-yn">
+                                                    <label className="ny-check">
+                                                        <input type="checkbox" checked={unconf[u.item_id] === 'yes'} onChange={(e) => setUnconf((m) => ({ ...m, [u.item_id]: e.target.checked ? 'yes' : '' }))} /> Yes, it went through
+                                                    </label>
+                                                    <label className="ny-check">
+                                                        <input type="checkbox" checked={unconf[u.item_id] === 'no'} onChange={(e) => setUnconf((m) => ({ ...m, [u.item_id]: e.target.checked ? 'no' : '' }))} /> No
+                                                    </label>
+                                                </span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </section>
+                            )}
+
+                            <div className="ny-actions">
+                                <button type="submit" className="aa-btn is-primary" disabled={save.isPending || !anything}>
+                                    {save.isPending ? 'Saving…' : 'Save and retry'}
+                                </button>
+                                <span className="aa-faint">Blank fields stay open for later. Nothing here uses a credit unless an application is submitted.</span>
+                            </div>
+                        </form>
+                    )}
                 </div>
             )}
         </AALayout>

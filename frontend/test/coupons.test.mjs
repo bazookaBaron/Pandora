@@ -20,5 +20,5 @@ test("redeemCoupon maps database errors", async () => {
   const db = { rpc: async () => ({ data: null, error: { message: "coupon_already_used" } }) };
   await assert.rejects(redeemCoupon(db, { code: "X1X", userId: "u", target: "plan" }), (e) => e.code === "coupon_already_used");
   const ok = { rpc: async () => ({ data: [{ redemption_id: "r1", kind: "free_all", plan: "max" }], error: null }) };
-  assert.deepEqual(await redeemCoupon(ok, { code: "X1X", userId: "u", target: "plan" }), { redemptionId: "r1", kind: "free_all", plan: "max" });
+  assert.deepEqual(await redeemCoupon(ok, { code: "X1X", userId: "u", target: "plan" }), { redemptionId: "r1", kind: "free_all", plan: "max", maxPackSize: 50 });
 });

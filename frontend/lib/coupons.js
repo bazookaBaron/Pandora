@@ -17,6 +17,9 @@ export class CouponError extends Error {
   }
 }
 
+/** free_all coupons cover packs up to this size unless the coupon row's max_pack_size says otherwise (sql/46). */
+export const FREE_ALL_MAX_PACK = 50;
+
 export function normCouponCode(raw) {
   const c = String(raw ?? "").trim().toUpperCase();
   if (!c) return "";
@@ -24,7 +27,8 @@ export function normCouponCode(raw) {
   return c;
 }
 
-/** Check (dry) or redeem. Resolves { redemptionId|null, kind, plan }; rejects CouponError. */
+/** Check (dry) or redeem. Resolves { redemptionId|null, kind, plan, maxPackSize }; rejects CouponError.
+ *  maxPackSize: the largest AutoApply pack the coupon applies to (sql/46; default 50 for free_all, null = any). */
 export async function redeemCoupon(db, { code, userId, target, dry = false }) {
   const { data, error } = await db.rpc("redeem_coupon", { p_code: code, p_user: userId, p_target: target, p_dry: dry });
   if (error) {
@@ -35,7 +39,9 @@ export async function redeemCoupon(db, { code, userId, target, dry = false }) {
   }
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) throw new CouponError("coupon_invalid");
-  return { redemptionId: row.redemption_id || null, kind: row.kind, plan: row.plan };
+  const fromRow = row.max_pack_size === undefined || row.max_pack_size === null ? null : Number(row.max_pack_size);
+  const maxPackSize = fromRow || (row.kind === "free_all" ? FREE_ALL_MAX_PACK : null);
+  return { redemptionId: row.redemption_id || null, kind: row.kind, plan: row.plan, maxPackSize };
 }
 
 export async function releaseCoupon(db, redemptionId) {

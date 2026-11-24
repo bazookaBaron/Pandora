@@ -91,9 +91,9 @@ test("monthPurchased: refunded batches count only used credits; fresh pending or
 
 // ── 2/3. refund claims ──────────────────────────────────────────────────────
 test("refunds: a batch claimed by another replica is skipped; a stale claim is taken over; no payment -> cancelled", async () => {
-  const mine = { id: crypto.randomUUID(), user_id: U1, price_paise: 10000, credits_total: 10, credits_used: 0, status: "refund_due", purchased_at: ago(MIN), razorpay_payment_id: "pay_a" };
+  const mine = { id: crypto.randomUUID(), user_id: U1, price_paise: 10000, credits_total: 10, credits_used: 0, status: "refund_due", purchased_at: ago(MIN), razorpay_payment_id: "pay_a", refund_reason: "monthly_cap_auto_refund" };
   const busy = { id: crypto.randomUUID(), user_id: U1, price_paise: 10000, credits_total: 10, credits_used: 0, status: "refunding", purchased_at: ago(MIN), razorpay_payment_id: "pay_b", updated_at: ago(MIN) };
-  const stale = { id: crypto.randomUUID(), user_id: U1, price_paise: 10000, credits_total: 10, credits_used: 0, status: "refunding", purchased_at: ago(MIN), razorpay_payment_id: "pay_c", updated_at: ago(STALE_CLAIM_MS + MIN) };
+  const stale = { id: crypto.randomUUID(), user_id: U1, price_paise: 10000, credits_total: 10, credits_used: 0, status: "refunding", purchased_at: ago(MIN), razorpay_payment_id: "pay_c", updated_at: ago(STALE_CLAIM_MS + MIN), refund_approved_at: ago(MIN) };
   const unpaid = { id: crypto.randomUUID(), user_id: U1, price_paise: 10000, credits_total: 10, credits_used: 0, status: "refund_due", purchased_at: null, razorpay_payment_id: null };
   const db = createFakeDb({ aa_batches: [mine, busy, stale, unpaid] });
   const rz = fakeRazorpay();
@@ -108,7 +108,7 @@ test("refunds: a batch claimed by another replica is skipped; a stale claim is t
 });
 
 test("refunds: in-flight tasks release the claim; credits_used is re-read after the in-flight check", async () => {
-  const b = { id: crypto.randomUUID(), user_id: U1, price_paise: 10000, credits_total: 10, credits_used: 0, status: "refund_due", purchased_at: ago(MIN), razorpay_payment_id: "pay_x" };
+  const b = { id: crypto.randomUUID(), user_id: U1, price_paise: 10000, credits_total: 10, credits_used: 0, status: "refund_due", purchased_at: ago(MIN), razorpay_payment_id: "pay_x", refund_approved_at: ago(MIN) };
   const task = { id: crypto.randomUUID(), batch_id: b.id, user_id: U1, status: "running" };
   const db = createFakeDb({ aa_batches: [b], aa_tasks: [task] });
   const rz = fakeRazorpay();
@@ -241,22 +241,22 @@ test("approve: a retry after the batch flipped re-queues the tasks and returns 2
   assert.equal((await call("POST", `/api/autoapply/batches/${b.id}/approve`)).status, 409);
 });
 
-test("cancel: tasks are cancelled before the batch flips; a retry is a 200 that finishes the clean-up", async () => {
+test("cancel of a paid batch pauses it (no task touched, no refund); a retry is a 200", async () => {
   const b = { id: crypto.randomUUID(), user_id: U1, pack_kind: "product", pack_size: 50, credits_total: 50, credits_used: 2, status: "running", purchased_at: ago(MIN) };
   db.rows("aa_batches").push(b);
   const t = { id: crypto.randomUUID(), batch_id: b.id, user_id: U1, status: "queued" };
   db.rows("aa_tasks").push(t);
   const r = await call("POST", `/api/autoapply/batches/${b.id}/cancel`);
   assert.equal(r.status, 200);
-  assert.equal(r.json.batch.status, "refund_due");
-  assert.equal(db.rows("aa_tasks").find((x) => x.id === t.id).status, "cancelled");
-  // simulate a partial earlier run: batch already refund_due, a needs-you item still open
-  const ny = { id: crypto.randomUUID(), task_id: t.id, user_id: U1, kind: "captcha", resolved_at: null };
-  db.rows("aa_needs_you").push(ny);
+  assert.equal(r.json.batch.status, "paused");
+  assert.equal(db.rows("aa_tasks").find((x) => x.id === t.id).status, "queued");
   const again = await call("POST", `/api/autoapply/batches/${b.id}/cancel`);
   assert.equal(again.status, 200);
-  assert.equal(again.json.batch.status, "refund_due");
-  assert.equal(db.rows("aa_needs_you").find((x) => x.id === ny.id).resolution, "expired");
+  assert.equal(again.json.batch.status, "paused");
+  // an unpaid order is really cancelled
+  const u = { id: crypto.randomUUID(), user_id: U1, pack_kind: "product", pack_size: 50, credits_total: 50, credits_used: 0, status: "pending_payment", purchased_at: null };
+  db.rows("aa_batches").push(u);
+  assert.equal((await call("POST", `/api/autoapply/batches/${u.id}/cancel`)).json.batch.status, "cancelled");
 });
 
 test("needs-you: a failed answer write leaves the item open, so the retry succeeds", async () => {

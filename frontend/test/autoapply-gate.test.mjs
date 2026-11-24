@@ -93,7 +93,7 @@ test("gate: labels payload", () => {
   assert.deepEqual(missingPayload(["resume", "phone", "facts.notice_period_days"]), [
     { key: "resume", label: "Upload your resume" },
     { key: "phone", label: "Phone (with country code)" },
-    { key: "facts.notice_period_days", label: "Notice period (days)" },
+    { key: "facts.notice_period_days", label: "Notice period" },
   ]);
   assert.deepEqual(profileCheck(ROW, without(["fields.phone"])), { ok: false, missing: [{ key: "phone", label: "Phone (with country code)" }] });
 });

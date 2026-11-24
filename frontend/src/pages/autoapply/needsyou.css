@@ -1,0 +1,43 @@
+/* Needs you: the one consolidated form (NeedsYouPage.jsx). Brand tokens only. */
+.ny-section { display: flex; flex-direction: column; gap: 10px; }
+.ny-h { margin: 0; font-size: 0.92rem; font-weight: 900; color: var(--bright); letter-spacing: -0.01em; }
+.ny-sub { margin: -4px 0 2px; }
+.ny-flat { margin: 0; }
+
+.ny-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
+.ny-field.is-wide { grid-column: 1 / -1; }
+.ny-label { text-transform: none; letter-spacing: 0; font-size: 0.8rem; color: var(--bright); }
+.ny-textarea { resize: vertical; min-height: 88px; font-family: inherit; }
+
+.ny-seg { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.ny-seg-opt {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    padding: 7px 14px; border-radius: var(--radius); border: 1px solid var(--subtle);
+    background: var(--surface); color: var(--accent); font-size: 0.78rem; font-weight: 700;
+}
+.ny-seg-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.ny-seg-opt:focus-within { outline: 2px solid var(--pop); outline-offset: 2px; }
+.ny-seg-opt.is-on { border-color: var(--pop); background: var(--pop-dim); color: var(--bright); }
+
+.ny-multi { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.ny-check { display: inline-flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--accent); cursor: pointer; }
+.ny-check input { accent-color: var(--pop); width: 15px; height: 15px; }
+
+.ny-jobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ny-job { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.8rem; color: var(--accent); min-width: 0; }
+.ny-link { display: inline-flex; align-items: center; gap: 3px; color: var(--pop); font-size: 0.72rem; font-weight: 700; text-decoration: none; }
+.ny-link:hover { text-decoration: underline; }
+.ny-job-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--subtle); }
+.ny-job-row:last-child { border-bottom: 0; }
+.ny-yn { display: inline-flex; gap: 14px; flex-wrap: wrap; }
+.ny-mini { width: auto; min-width: 160px; padding-top: 6px; padding-bottom: 6px; font-size: 0.76rem; }
+
+.ny-site + .ny-site { margin-top: 8px; }
+.ny-site-name { font-size: 0.7rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 4px; }
+
+.ny-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; bottom: 0; padding: 12px 0; background: var(--surface); }
+
+@media (max-width: 640px) {
+    .ny-grid { grid-template-columns: minmax(0, 1fr); }
+    .ny-mini { width: 100%; }
+}

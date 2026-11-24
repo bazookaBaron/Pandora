@@ -35,7 +35,7 @@ test("other batch states", () => {
   assert.match(st("review"), /approve/);
   assert.match(st("completed"), /7 applications submitted/);
   assert.match(st("refunded"), /refunded/);
-  assert.match(st("paused", { cancel_requested_at: now.toISOString() }), /Cancelling/);
+  assert.match(st("paused", { cancel_requested_at: now.toISOString() }), /Resume any time/, "no cancel-and-refund any more");
   assert.match(st("waiting_supply"), /new matching jobs/);
 });
 

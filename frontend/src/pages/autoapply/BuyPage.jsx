@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { openRazorpayOrder } from '../../lib/razorpay'
-import { useAutoApplyMe, useCompanySuggest, useCouponQuote, useCreateOrder, useSupply, useVerifyOrder } from '../../lib/useAutoApply'
+import { aaKeys, useAutoApplyMe, useCompanySuggest, useCouponQuote, useCreateOrder, useSaveProfile, useSupply, useVerifyOrder } from '../../lib/useAutoApply'
 import { AALayout, MustCompaniesInput, PACK_KINDS, PACK_SIZES, PageHeader, ProfileMissing, ReadinessCard, fmtDate, num, packPrice, rupees } from './ui'
+import './buy.css'
 
 function useDebounced(value, ms) {
     const [v, setV] = useState(value)
@@ -15,26 +17,68 @@ function useDebounced(value, ms) {
     return v
 }
 
-function SupplyPanel({ kind, windowDays, size }) {
-    const supply = useSupply(kind, windowDays)
+const kindWord = (k) => PACK_KINDS[k].short.toLowerCase()
+
+function SupplyPanel({ kind, windowDays, size, supply, other, onSwitchKind, onBroaden, broadening, broadenErr, busy }) {
     const d = supply.data
+    const o = other.data
+    const otherKind = kind === 'service' ? 'product' : 'service'
+    const low = !!d && d.count < Math.max(size, 50)
+    const broaden = (d && Array.isArray(d.broaden) ? d.broaden : []).slice().sort((a, b) => b.count - a.count)
     return (
-        <section className="aa-card" aria-labelledby="buy-supply" aria-busy={supply.isFetching}>
+        <section className="aa-card" aria-labelledby="buy-supply" aria-busy={supply.isFetching || broadening}>
             <h2 id="buy-supply" className="aa-h2">Matching jobs right now</h2>
             {supply.isLoading ? (
-                <LoadingState compact label="Counting matching jobs…" />
+                <LoadingState compact label="Searching jobs that match your profile…" />
             ) : supply.isError ? (
                 <ErrorState compact err={supply.error} onRetry={() => supply.refetch()} />
             ) : d ? (
                 <div className="aa-stack">
-                    <div className="aa-row" style={{ alignItems: 'baseline' }}>
-                        <span className="aa-stat-value">{num(d.count)}</span>
-                        <span className="aa-muted">{PACK_KINDS[kind].short.toLowerCase()}-company jobs posted in the last {windowDays} day{windowDays === 1 ? '' : 's'} match your preferences</span>
+                    <div>
+                        <div className="buy-count" aria-live="polite">
+                            <span className={`buy-count-num${low ? ' is-low' : ''}`}>{num(d.count)}{d.capped ? '+' : ''}</span>
+                            <span className="buy-count-text">job{d.count === 1 ? '' : 's'} match your profile right now</span>
+                        </div>
+                        <div className="buy-count-sub">
+                            {PACK_KINDS[kind].short}-company jobs posted in the last {windowDays} day{windowDays === 1 ? '' : 's'} that fit your roles and locations.
+                        </div>
                     </div>
-                    {d.count < size && (
+                    {o && (
+                        <div className="buy-kinds aa-row">
+                            <span><strong>{num(o.count)}{o.capped ? '+' : ''}</strong> match at {kindWord(otherKind)} companies</span>
+                            {o.count > d.count && (
+                                <button type="button" className="aa-btn" onClick={() => onSwitchKind(otherKind)} disabled={busy}>
+                                    Switch to {kindWord(otherKind)}
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    {low && kind === 'service' && (
                         <div className="aa-note is-warn">
-                            Fewer matching jobs than the pack size today. We keep looking as new jobs are posted until your credits
-                            expire; unused credits are refunded pro rata.
+                            Service-company openings for your profile are thin right now ({num(d.count)} in the last {windowDays} day{windowDays === 1 ? '' : 's'}).
+                            {o && o.count > d.count ? ` Product companies have ${num(o.count)}: pick a product pack, or widen your search below.` : ' Widen your search below to start with more matches.'}
+                        </div>
+                    )}
+                    {low && (
+                        <div className="aa-note is-info">
+                            We keep searching until all {size} applications are submitted (we widen locations, roles and dates if needed).
+                            {broaden.length > 0 ? ' Widen your search now to start with more matches:' : ''}
+                        </div>
+                    )}
+                    {low && broaden.length > 0 && (
+                        <div className="buy-broaden">
+                            <span className="buy-broaden-title">One-click broaden</span>
+                            <div className="buy-broaden-chips">
+                                {broaden.map((b) => (
+                                    <button key={b.id} type="button" className="buy-broaden-chip" onClick={() => onBroaden(b)} disabled={busy || broadening}
+                                        title={b.added && b.added.length ? `Adds ${b.added.map((x) => (x === 'Pan India' ? 'Anywhere in India' : x)).join(', ')} to your preferences` : undefined}>
+                                        <span>{b.label}</span>
+                                        <span className="buy-gain">{num(b.count)}{d.capped ? '+' : ''} jobs</span>
+                                    </button>
+                                ))}
+                            </div>
+                            {broadening && <span className="aa-faint">Updating your preferences…</span>}
+                            {broadenErr && <span className="aa-faint" role="alert" style={{ color: 'var(--red)' }}>{broadenErr}</span>}
                         </div>
                     )}
                     {d.by_ats && Object.keys(d.by_ats).length > 0 && (
@@ -62,7 +106,7 @@ function SupplyPanel({ kind, windowDays, size }) {
                             </table>
                         </div>
                     ) : (
-                        <p className="aa-faint" style={{ margin: 0 }}>No sample available.</p>
+                        <p className="aa-faint" style={{ margin: 0 }}>No matching jobs in this window yet.</p>
                     )}
                 </div>
             ) : null}
@@ -84,7 +128,11 @@ export default function BuyPage() {
 
     const config = me.data?.config || {}
     const maxWindow = config.window_days_max ?? 30
-    const [kind, setKind] = useState(params.get('kind') === 'product' ? 'product' : 'service')
+    const kindParam = params.get('kind')
+    const [kind, setKindState] = useState(kindParam === 'product' ? 'product' : 'service')
+    // the user's own pick (or a ?kind= link) wins; until then the kind with more matching jobs is pre-selected
+    const kindPicked = useRef(kindParam === 'product' || kindParam === 'service')
+    const setKind = (k) => { kindPicked.current = true; setKindState(k) }
     const [size, setSize] = useState(50)
     const [windowDays, setWindowDays] = useState(null)
     const [note, setNote] = useState(null) // {kind: 'error'|'cap'|'eligible'|'info', text}
@@ -109,6 +157,37 @@ export default function BuyPage() {
     const [mustQuery, setMustQuery] = useState('')
     const suggest = useCompanySuggest(useDebounced(mustQuery, 250), kind)
     const sizeOk = size <= remaining
+    const qc = useQueryClient()
+    const saveProfile = useSaveProfile()
+    const [broadenErr, setBroadenErr] = useState('')
+    // both kinds: the panel compares them and the busier one is pre-selected (server-cached 10 min per user)
+    // only once /me set the window and the slider settled (0 disables the query)
+    const supplyWd = me.data && windowDays !== null && debouncedWd === wd ? debouncedWd : 0
+    const supplyService = useSupply('service', supplyWd)
+    const supplyProduct = useSupply('product', supplyWd)
+    const supplyFor = (k) => (k === 'product' ? supplyProduct : supplyService)
+
+    useEffect(() => {
+        if (kindPicked.current) return
+        const sv = supplyService.data
+        const pr = supplyProduct.data
+        if (!sv || !pr) return
+        kindPicked.current = true
+        setKindState(pr.count > sv.count ? 'product' : 'service')
+    }, [supplyService.data, supplyProduct.data])
+
+    async function broadenPrefs(b) {
+        setBroadenErr('')
+        const prefs = { ...(me.data?.prefs || {}) }
+        if (b.locations) prefs.locations = b.locations
+        if (b.titles) prefs.titles = b.titles
+        try {
+            await saveProfile.mutateAsync({ prefs })
+            await qc.invalidateQueries({ queryKey: [...aaKeys.all, 'supply'] })
+        } catch (err) {
+            setBroadenErr(`Could not update your preferences (${errorText(err)}).`)
+        }
+    }
     const busy = !!stage
 
     // keep the selected size purchasable
@@ -207,7 +286,7 @@ export default function BuyPage() {
                 <ProfileMissing
                     style={{ marginBottom: 16 }}
                     missing={profileMissing}
-                    lead="Your profile is not complete. You can still buy, but the batch waits (no credit used, the credit validity still runs) until you finish it. Missing:"
+                    lead="Your profile is not complete. You can still buy, but the batch waits (no credit used) until you finish it. Missing:"
                     cta="Finish your profile first"
                 />
             )}
@@ -271,7 +350,10 @@ export default function BuyPage() {
                     />
                 </section>
 
-                {me.data && <SupplyPanel kind={kind} windowDays={debouncedWd} size={size} />}
+                {me.data && (
+                    <SupplyPanel kind={kind} windowDays={debouncedWd} size={size} supply={supplyFor(kind)} other={supplyFor(kind === 'product' ? 'service' : 'product')}
+                        onSwitchKind={setKind} onBroaden={broadenPrefs} broadening={saveProfile.isPending} broadenErr={broadenErr} busy={busy} />
+                )}
 
                 <section className="aa-card is-pop" aria-labelledby="buy-total">
                     <h2 id="buy-total" className="aa-h2">Total</h2>
@@ -307,7 +389,7 @@ export default function BuyPage() {
                         </label>
                     )}
                     <p className="aa-faint" style={{ margin: '10px 0 0' }}>
-                        Credits are valid for {config.credit_validity_days ?? 90} days. Unused credits are refunded pro rata at expiry or when you cancel.
+                        We keep searching until all {size} applications are submitted (we widen locations, roles and dates if needed).
                     </p>
                     {note?.kind === 'eligible' && (
                         <div className="aa-note is-warn aa-spread" style={{ marginTop: 12 }} role="alert">

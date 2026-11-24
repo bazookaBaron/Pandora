@@ -1,7 +1,6 @@
 /**
- * AutoApply refunds cron: batches in 'refund_due' -> Razorpay refund of
- * price_paise * remaining / credits_total -> ledger 'refund' (-remaining) ->
- * 'refunded'.
+ * AutoApply refunds cron: batches in 'refund_due' that the policy allows (payment-safety or admin-approved) ->
+ * Razorpay refund of price_paise * remaining / credits_total -> ledger 'refund' (-remaining) -> 'refunded'.
  *
  * Safety:
  *  • multi-replica: node-cron runs in every API replica, so each batch is CLAIMED first with a conditional update
@@ -18,8 +17,9 @@
  *  • the final status flip is conditional on status = 'refunding';
  *  • zero-amount batches (coupon packs, nothing left to pay back) are processed without Razorpay; a batch that
  *    needs a Razorpay refund while Razorpay is not configured stays queued.
- * Before the refund pass: cancel requests parked while tasks were in flight are finalized, and waiting_supply
- * batches with nothing queued and nothing applied for 7 days are moved to refund_due.
+ * Policy (owner): a bought batch is never refunded automatically; see refundAllowed below. Before the refund
+ * pass: legacy parked cancel requests are dropped (the batch stays paused), and unfulfilled batches get their
+ * expires_at pushed forward (extendUnfulfilled) so they keep running until every credit is delivered.
  */
 const IN_FLIGHT = ["claimed", "running", "waiting_code", "submitting"];
 const MIN_REFUND_PAISE = 100;
@@ -52,6 +52,8 @@ async function refundOne({ db, razorpay, batch: candidate, now }) {
   const claimed = await claim(db, candidate, now);
   if (!claimed) return { batch_id: candidate.id, skipped: "claimed_elsewhere" };
   try {
+    // policy first: a refund the policy does not allow is put back to work at once (in-flight tasks or not)
+    if (claimed.purchased_at && !(await refundAllowed(db, claimed))) return await putBackToWork(db, claimed, now);
     const { count: inflight, error: cErr } = await db
       .from("aa_tasks")
       .select("id", { count: "exact", head: true })
@@ -133,80 +135,90 @@ async function refundOne({ db, razorpay, batch: candidate, now }) {
 }
 
 const DAY_MS = 86400000;
-export const SUPPLY_GIVE_UP_MS = 7 * DAY_MS;
-const CANCELLABLE = ["shortlisted", "queued", "failed"];
-
-const nextAfterStop = (b) => (Number(b.credits_used) < Number(b.credits_total) ? "refund_due" : "completed");
 
 /**
- * Cancels requested while tasks were in flight (batch 'paused' + cancel_requested_at, set by the cancel route):
- * once nothing is in flight, cancel what is left and move to refund_due / completed.
+ * Owner policy (sql/45): a bought batch is NEVER refunded automatically. We keep going until every credit is
+ * delivered: no refund at expiry, none for "no matching jobs", none when the user stops (Cancel became Pause).
+ * The refunds queue only carries
+ *   • payment-safety refunds of money that never bought a running batch (orders.js markBatchPaid: a payment that
+ *     lands after the order was cancelled / expired, one that would break the monthly cap, a coupon that ran out
+ *     before capture): refund_reason (or, for older rows, the purchase ledger note) is one of SAFETY_NOTES;
+ *   • manual admin refunds (payment errors / legal): refund_approved_at set by POST /admin/batches/:id/refund.
+ * Anything else found in refund_due (an old code path, the scheduler's legacy expiry) is put back to work.
+ */
+export const SAFETY_NOTES = ["late_payment_auto_refund", "monthly_cap_auto_refund", "coupon_unavailable_auto_refund"];
+export const EXTEND_DAYS = 7;
+export const EXTEND_WHEN_WITHIN_MS = 3 * DAY_MS;
+/** Batch states that still owe applications (expires_at is pushed forward while credits are left). */
+export const OPEN_BATCH = ["paid", "shortlisting", "review", "running", "paused", "waiting_supply", "waiting_profile"];
+
+export const extendedExpiry = (now = new Date()) => new Date(now.getTime() + EXTEND_DAYS * DAY_MS).toISOString();
+const hasCreditsLeft = (b) => (Number(b.credits_used) || 0) < (Number(b.credits_total) || 0);
+
+/** May this refund_due batch be refunded? -> 'admin' | 'payment_safety' | null (= policy says no). */
+export async function refundAllowed(db, batch) {
+  if (batch.refund_approved_at) return "admin";
+  if (SAFETY_NOTES.includes(batch.refund_reason)) return "payment_safety";
+  // rows flipped before refund_reason existed: the purchase ledger row carries the same note
+  const { data: led, error } = await db.from("aa_credit_ledger").select("note").eq("batch_id", batch.id).eq("reason", "purchase").limit(5);
+  if (error && !/note/i.test(String(error.message || ""))) throw error;
+  if ((led || []).some((l) => l && SAFETY_NOTES.includes(l.note))) return "payment_safety";
+  return null;
+}
+
+/**
+ * Legacy cancel requests (batch 'paused' + cancel_requested_at, from before Cancel became Pause): the request is
+ * dropped and the batch simply stays paused, resumable any time. No refund.
  */
 export async function finalizeCancelRequests({ db, limit = 50 }) {
-  const { data: rows, error } = await db
+  const { data, error } = await db
     .from("aa_batches")
-    .select("id, status, credits_used, credits_total, cancel_requested_at")
+    .update({ cancel_requested_at: null })
     .eq("status", "paused")
     .not("cancel_requested_at", "is", null)
+    .select("id");
+  if (error) throw error;
+  return (data || []).slice(0, limit).map((b) => ({ batch_id: b.id, status: "paused" }));
+}
+
+/**
+ * Keep unfulfilled batches alive: an open batch with credits left whose expires_at is within 3 days (or already
+ * past) gets expires_at = now + 7 days, so the scheduler never expires it while it still owes applications.
+ */
+export async function extendUnfulfilled({ db, now = new Date(), limit = 200 }) {
+  const soon = new Date(now.getTime() + EXTEND_WHEN_WITHIN_MS).toISOString();
+  const { data: rows, error } = await db
+    .from("aa_batches")
+    .select("id, status, credits_used, credits_total, expires_at")
+    .in("status", OPEN_BATCH)
+    .lt("expires_at", soon)
     .limit(limit);
   if (error) throw error;
   const out = [];
   for (const b of rows || []) {
-    const { count: inflight, error: cErr } = await db.from("aa_tasks").select("id", { count: "exact", head: true }).eq("batch_id", b.id).in("status", IN_FLIGHT);
-    if (cErr) throw cErr;
-    if (inflight > 0) continue;
-    const { error: tErr } = await db.from("aa_tasks").update({ status: "cancelled", reason_code: "batch_cancelled" }).eq("batch_id", b.id).in("status", CANCELLABLE);
-    if (tErr) throw tErr;
-    // credits_used may have moved while tasks finished: decide on the fresh row
-    const { data: fresh, error: fErr } = await db.from("aa_batches").select("id, status, credits_used, credits_total").eq("id", b.id).maybeSingle();
-    if (fErr) throw fErr;
-    if (!fresh || fresh.status !== "paused") continue;
-    const next = nextAfterStop(fresh);
-    const { data: won, error: uErr } = await db.from("aa_batches").update({ status: next }).eq("id", b.id).eq("status", "paused").select("id");
+    if (!hasCreditsLeft(b)) continue;
+    const { data: won, error: uErr } = await db
+      .from("aa_batches")
+      .update({ expires_at: extendedExpiry(now) })
+      .eq("id", b.id)
+      .eq("status", b.status)
+      .eq("expires_at", b.expires_at)
+      .select("id, expires_at");
     if (uErr) throw uErr;
-    if (won && won[0]) out.push({ batch_id: b.id, status: next });
+    if (won && won[0]) out.push({ batch_id: b.id, expires_at: won[0].expires_at });
   }
   return out;
 }
 
-/**
- * waiting_supply batches that got nowhere: 0 queued tasks and nothing applied for 7 days (counting from the
- * purchase when nothing was ever applied) -> refund_due (or completed when no credits are left). The refunds
- * pass that follows still waits for in-flight tasks before refunding.
- */
-export async function giveUpWaitingSupply({ db, now = new Date(), limit = 50 }) {
-  const cutoff = new Date(now.getTime() - SUPPLY_GIVE_UP_MS).toISOString();
-  const { data: rows, error } = await db
-    .from("aa_batches")
-    .select("id, status, credits_used, credits_total, purchased_at")
-    .eq("status", "waiting_supply")
-    .lt("purchased_at", cutoff)
-    .limit(limit);
+/** A refund_due batch the policy does not allow to refund: back to work (or completed when nothing is left). */
+async function putBackToWork(db, batch, now) {
+  const next = hasCreditsLeft(batch) ? "running" : "completed";
+  const patch = { status: next, cancel_requested_at: null };
+  if (next === "running") patch.expires_at = extendedExpiry(now);
+  const { error } = await db.from("aa_batches").update(patch).eq("id", batch.id).eq("status", "refunding");
   if (error) throw error;
-  const out = [];
-  for (const b of rows || []) {
-    const { count: queued, error: qErr } = await db.from("aa_tasks").select("id", { count: "exact", head: true }).eq("batch_id", b.id).eq("status", "queued");
-    if (qErr) throw qErr;
-    if (queued > 0) continue;
-    const { count: recent, error: aErr } = await db
-      .from("aa_tasks")
-      .select("id", { count: "exact", head: true })
-      .eq("batch_id", b.id)
-      .eq("status", "applied")
-      .gte("submitted_at", cutoff);
-    if (aErr) throw aErr;
-    if (recent > 0) continue;
-    const next = nextAfterStop(b);
-    const { data: won, error: uErr } = await db
-      .from("aa_batches")
-      .update({ status: next, waiting_detail: "no matching jobs for 7 days" })
-      .eq("id", b.id)
-      .eq("status", "waiting_supply")
-      .select("id");
-    if (uErr) throw uErr;
-    if (won && won[0]) out.push({ batch_id: b.id, status: next });
-  }
-  return out;
+  console.warn(`[autoapply/refunds] batch ${batch.id}: refund not allowed by policy -> ${next}`);
+  return { batch_id: batch.id, reverted: next };
 }
 
 // Per-process overlap guard only (one pass at a time in this replica); cross-replica safety is the claim above.
@@ -220,14 +232,14 @@ export async function processRefunds({ db, razorpay, limit = 25, now = new Date(
   try {
     // runs with or without Razorpay keys: zero-amount (coupon) batches need no Razorpay call
     let finalized = [];
-    let gaveUp = [];
+    let extended = [];
     try {
       finalized = await finalizeCancelRequests({ db });
-      gaveUp = await giveUpWaitingSupply({ db, now });
+      extended = await extendUnfulfilled({ db, now });
     } catch (e) {
       console.error("[autoapply/refunds] pre-pass:", (e && e.message) || String(e));
     }
-    if (finalized.length || gaveUp.length) console.log("[autoapply/refunds] pre-pass", JSON.stringify({ finalized, gaveUp }));
+    if (finalized.length || extended.length) console.log("[autoapply/refunds] pre-pass", JSON.stringify({ finalized, extended }));
     const { data: due, error } = await db
       .from("aa_batches")
       .select("id, status, updated_at")

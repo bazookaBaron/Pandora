@@ -50,13 +50,15 @@ test("vault: Python-written vector (if present)", { skip: !existsSync(PY_VECTOR)
 test("questions: list shape and validation", () => {
   const qs = publicQuestions();
   assert.ok(qs.find((q) => q.key === "fields.first_name"));
-  assert.ok(qs.every((q) => q.key && q.label && ["text", "number", "select", "date"].includes(q.type)));
+  assert.ok(qs.every((q) => q.key && q.label && ["text", "number", "select", "multiselect", "yesno", "date"].includes(q.type)));
+  assert.ok(qs.every((q) => q.type === "text" || q.type === "date" || q.type === "number" || (Array.isArray(q.options) && q.options.length > 1)));
   assert.ok(qs.every((q) => !("free" in q)));
   assert.deepEqual(validateAnswer("facts.notice_period_days", "30"), { ok: true, value: "30" });
   assert.equal(validateAnswer("facts.notice_period_days", "soon").ok, false);
   assert.deepEqual(validateAnswer("facts.needs_sponsorship", "No"), { ok: true, value: "no" });
   assert.equal(validateAnswer("facts.needs_sponsorship", "maybe").ok, false);
-  assert.deepEqual(validateAnswer("facts.gender", "prefer to self-describe"), { ok: true, value: "prefer to self-describe" });
+  assert.equal(validateAnswer("facts.gender", "prefer to self-describe").ok, false); // dropdown only now
+  assert.deepEqual(validateAnswer("facts.gender", "Prefer not to say"), { ok: true, value: "decline" }); // label -> value
   assert.deepEqual(validateAnswer("facts.work_authorized_in", "in, us"), { ok: true, value: "IN,US" });
   assert.equal(validateAnswer("facts.date_of_birth", "1999-13-40").ok, false);
   assert.deepEqual(validateAnswer("fields.city", ""), { ok: true, value: null });

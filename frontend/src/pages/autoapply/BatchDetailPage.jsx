@@ -1,12 +1,12 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { ExternalLink } from 'lucide-react'
+import { CheckCircle2, Clock, Coins, ExternalLink, Hand, ListChecks, Loader, MinusCircle, Star } from 'lucide-react'
 import { safeHref } from './InterviewCard'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
-import { fetchTaskProof, useAutoApplyRealtime, useBatch, useBatchAction, useCompanySuggest, useRemoveTask, useSetMustCompanies } from '../../lib/useAutoApply'
+import { fetchTaskProof, useAutoApplyRealtime, useBatch, useBatchAction, useCompanySuggest, useSetMustCompanies } from '../../lib/useAutoApply'
 import {
-    AALayout, BatchStatusPill, InlineConfirm, MustCompaniesInput, PACK_KINDS, PageHeader, ProfileMissing, Progress, TASK_STATUS_ORDER, TaskStatusPill,
-    fmtDate, num, reasonText, rupees, taskStatusLabel,
+    AALayout, BatchStatusPill, EmptyArt, InlineConfirm, MustCompaniesInput, PACK_KINDS, PageHeader, ProfileMissing, Progress, SectionHead, TaskStatusPill,
+    batchTone, fmtDate, num, rupees,
 } from './ui'
 
 // Ticks every second on its own, so only this <strong> re-renders, not the
@@ -45,7 +45,6 @@ function useCountdown(iso) {
 const CONFIRM_COPY = {
     pause: ['Pause this batch? Nothing new is submitted until you resume. Credits are kept.', 'Pause', 'neutral'],
     resume: ['Resume applying for this batch?', 'Resume', 'neutral'],
-    cancel: ['Cancel this batch? We stop applying and refund unused credits pro rata. This cannot be undone.', 'Cancel batch', 'danger'],
     approve: ['Start applying now instead of waiting for the review window to end?', 'Approve now', 'neutral'],
 }
 
@@ -59,7 +58,7 @@ function Controls({ batch }) {
         approve: s === 'review',
         pause: ['shortlisting', 'review', 'running', 'waiting_supply', 'waiting_profile', 'paid'].includes(s),
         resume: s === 'paused',
-        cancel: ['paid', 'shortlisting', 'review', 'running', 'paused', 'waiting_supply', 'waiting_profile'].includes(s),
+        cancel: false, // no-refund policy: a paid batch is paused, never cancelled (admin-only refunds)
     }
     if (!Object.values(can).some(Boolean)) return null
 
@@ -101,11 +100,11 @@ function ChargeSummary({ charge }) {
     if (!charge) return null
     const reasons = Object.entries(charge.by_reason || {}).filter(([, n]) => n > 0)
     return (
-        <section className="aa-card" aria-labelledby="charge-h">
-            <h2 id="charge-h" className="aa-h2">Credits</h2>
+        <section className="aa-card aa-seg tone-success" aria-labelledby="charge-h">
+            <SectionHead id="charge-h" icon={Coins} tone="success" title="Credits" />
             <div className="aa-grid">
                 <div>
-                    <div className="aa-stat-value" style={{ color: 'var(--green, inherit)' }}>{num(charge.applied)}</div>
+                    <div className="aa-stat-value" style={{ color: 'var(--aa-success)' }}>{num(charge.applied)}</div>
                     <div className="aa-stat-label">Applied · 1 credit each</div>
                 </div>
                 <div>
@@ -123,7 +122,7 @@ function ChargeSummary({ charge }) {
                 )}
             </div>
             <p className="aa-muted" style={{ margin: '12px 0 0' }}>
-                Credits are only used for jobs we actually applied to. Failed attempts, captchas, blocked sites and skipped jobs cost nothing; unused credits are refunded pro rata.
+                Credits are only used for jobs we actually applied to. Failed attempts, captchas, blocked sites and skipped jobs cost nothing. We keep applying until every credit in the pack is used.
             </p>
         </section>
     )
@@ -167,11 +166,9 @@ function MustCompaniesEditor({ batch }) {
     const editable = ['paid', 'shortlisting', 'review', 'running', 'paused', 'waiting_supply', 'waiting_profile'].includes(batch.status)
     if (!current.length && !editable) return null
     return (
-        <section className="aa-card" aria-labelledby="must-h">
-            <div className="aa-spread">
-                <h2 id="must-h" className="aa-h2" style={{ margin: 0 }}>Must-apply companies</h2>
-                {editable && !editing && <button type="button" className="aa-btn" onClick={() => { setDraft(current); setEditing(true) }}>{current.length ? 'Edit' : 'Add'}</button>}
-            </div>
+        <section className="aa-card aa-seg tone-active" aria-labelledby="must-h">
+            <SectionHead id="must-h" icon={Star} tone="active" title="Must-apply companies" count={current.length || null}
+                action={editable && !editing && <button type="button" className="aa-btn" onClick={() => { setDraft(current); setEditing(true) }}>{current.length ? 'Edit' : 'Add'}</button>} />
             {editing ? (
                 <div className="aa-stack" style={{ marginTop: 10 }}>
                     <MustCompaniesInput idPrefix="batch-must" value={draft} onChange={setDraft} query={query} onQuery={setQuery} suggestions={suggest.data?.companies || []} disabled={save.isPending} />
@@ -192,105 +189,68 @@ function MustCompaniesEditor({ batch }) {
     )
 }
 
-// Memoised: the page re-renders on every realtime/poll update; the table only
-// needs to when its tasks or the batch status change.
-const TaskTable = memo(function TaskTable({ batchId, batchStatus, tasks }) {
-    // optimistic: the row flips to "removed" at once (the Remove button goes
-    // away, so no double click); rolled back with an error toast on failure
-    const remove = useRemoveTask()
-    const [filter, setFilter] = useState('all')
-    const inReview = batchStatus === 'review'
-    const batch = { id: batchId }
-
-    const present = useMemo(() => {
-        const set = new Set(tasks.map((t) => t.status))
-        return TASK_STATUS_ORDER.filter((s) => set.has(s))
-    }, [tasks])
-    const rows = filter === 'all' ? tasks : tasks.filter((t) => t.status === filter)
-
-    function doRemove(taskId) {
-        remove.mutate({ batchId, taskId })
-    }
-
-    if (!tasks.length) {
-        return <EmptyState compact icon="🔎" title="No jobs shortlisted yet" message="We are finding jobs that match your preferences. This page updates on its own." />
-    }
-
+// Only what the user acts on or keeps: applied jobs (with proof / confirmation) and jobs that need them.
+// Skipped, removed, cancelled and unmatched jobs are counted ("Not applied") but never listed.
+// Memoised: the page re-renders on every realtime/poll update; the table only needs to when its tasks change.
+const TaskTable = memo(function TaskTable({ batchId, tasks, attention = false, empty = null }) {
+    if (!tasks.length) return empty
+    const whenLabel = attention ? 'Since' : 'Submitted'
     return (
-        <div className="aa-stack">
-            <div className="aa-row">
-                <label className="field-label" htmlFor="task-filter" style={{ margin: 0 }}>Show</label>
-                <select id="task-filter" className="input-field provider-select" style={{ width: 'auto', padding: '6px 36px 6px 10px' }} value={filter} onChange={(e) => setFilter(e.target.value)}>
-                    <option value="all">All ({tasks.length})</option>
-                    {present.map((s) => <option key={s} value={s}>{taskStatusLabel(s)} ({tasks.filter((t) => t.status === s).length})</option>)}
-                </select>
-            </div>
-            <div className="aa-table-wrap">
-                <table className="aa-table">
-                    <caption className="aa-sr">Jobs in this batch</caption>
-                    <thead>
-                        <tr>
-                            <th scope="col">Company</th><th scope="col">Title</th><th scope="col">Status</th>
-                            <th scope="col">Score</th><th scope="col">Submitted</th><th scope="col"><span className="aa-sr">Actions</span></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.map((t) => (
-                            <tr key={t.id}>
-                                <td className="aa-strong" data-label="Company">{t.company}</td>
-                                <td data-label="Title">
-                                    {t.title}
-                                    {t.ats && <div className="aa-faint">{t.ats}</div>}
-                                </td>
-                                <td data-label="Status">
-                                    <TaskStatusPill status={t.status} />
-                                    {t.reason_code && <div className="aa-faint" style={{ marginTop: 4 }}>{reasonText(t.reason_code)}</div>}
-                                    {t.not_charged && t.status !== 'removed' && t.status !== 'cancelled' && <div className="aa-faint" style={{ marginTop: 4 }}>Not charged</div>}
-                                    {t.status === 'applied' && t.confirmation_text && (
-                                        <div className="aa-faint" style={{ marginTop: 4, maxWidth: 320, overflowWrap: 'anywhere' }} title={t.confirmation_text}>
-                                            “{t.confirmation_text.length > 140 ? `${t.confirmation_text.slice(0, 140)}…` : t.confirmation_text}”
-                                        </div>
-                                    )}
-                                    {t.status === 'applied' && t.confirmation_mail && (
-                                        <div style={{ marginTop: 4 }}>
-                                            <Link to={`/autoapply/inbox?mail=${encodeURIComponent(t.confirmation_mail.id)}`} style={{ color: 'var(--pop)', fontSize: '0.72rem' }}>
-                                                Confirmation mail: {t.confirmation_mail.subject || '(no subject)'}
-                                            </Link>
-                                        </div>
-                                    )}
-                                </td>
-                                <td data-label="Score">{t.score ?? '—'}</td>
-                                <td data-label="Submitted">{t.submitted_at ? fmtDate(t.submitted_at) : '—'}</td>
-                                <td>
-                                    <div className="aa-row" style={{ gap: 6 }}>
-                                        {t.status === 'applied' && t.has_proof && <ProofButton batchId={batch.id} task={t} />}
-                                        {safeHref(t.apply_url) && (
-                                            <a className="aa-btn" href={safeHref(t.apply_url)} target="_blank" rel="noopener noreferrer" aria-label={`Open ${t.company} job posting`}>
-                                                <ExternalLink size={12} aria-hidden /> Job
-                                            </a>
-                                        )}
-                                        {inReview && t.status === 'shortlisted' && (
-                                            <button type="button" className="aa-btn is-danger" onClick={() => doRemove(t.id)} aria-label={`Remove ${t.company} ${t.title}`}>
-                                                Remove
-                                            </button>
-                                        )}
+        <div className="aa-table-wrap">
+            <table className="aa-table">
+                <caption className="aa-sr">{attention ? 'Jobs that need you' : 'Applied jobs'}</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Company</th><th scope="col">Title</th><th scope="col">Status</th>
+                        <th scope="col">{whenLabel}</th><th scope="col"><span className="aa-sr">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {tasks.map((t) => (
+                        <tr key={t.id}>
+                            <td className="aa-strong" data-label="Company">{t.company}</td>
+                            <td data-label="Title">{t.title}</td>
+                            <td data-label="Status">
+                                <TaskStatusPill status={t.status} />
+                                {t.status === 'applied' && t.confirmation_text && (
+                                    <div className="aa-faint" style={{ marginTop: 4, maxWidth: 320, overflowWrap: 'anywhere' }} title={t.confirmation_text}>
+                                        “{t.confirmation_text.length > 140 ? `${t.confirmation_text.slice(0, 140)}…` : t.confirmation_text}”
                                     </div>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+                                )}
+                                {t.status === 'applied' && t.confirmation_mail && (
+                                    <div style={{ marginTop: 4 }}>
+                                        <Link to={`/autoapply/inbox?mail=${encodeURIComponent(t.confirmation_mail.id)}`} style={{ color: 'var(--pop)', fontSize: '0.72rem' }}>
+                                            Confirmation mail: {t.confirmation_mail.subject || '(no subject)'}
+                                        </Link>
+                                    </div>
+                                )}
+                            </td>
+                            <td data-label={whenLabel}>{t.submitted_at ? fmtDate(t.submitted_at) : t.updated_at ? fmtDate(t.updated_at) : '—'}</td>
+                            <td>
+                                <div className="aa-row" style={{ gap: 6 }}>
+                                    {t.status === 'applied' && t.has_proof && <ProofButton batchId={batchId} task={t} />}
+                                    {t.status === 'needs_you' && <Link to="/autoapply/needs-you" className="aa-btn is-warm"><Hand size={12} aria-hidden="true" /> Answer</Link>}
+                                    {safeHref(t.apply_url) && (
+                                        <a className="aa-btn" href={safeHref(t.apply_url)} target="_blank" rel="noopener noreferrer" aria-label={`Open ${t.company} job posting`}>
+                                            <ExternalLink size={12} aria-hidden /> Job
+                                        </a>
+                                    )}
+                                </div>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
         </div>
     )
 })
 
 const FLOW_STEPS = [
-    ['queued', 'Queued'],
-    ['applying', 'Applying'],
-    ['applied', 'Applied'],
-    ['needs_you', 'Needs you'],
-    ['not_applied', 'Not applied'],
+    ['queued', 'Queued', Clock],
+    ['applying', 'Applying', Loader],
+    ['applied', 'Applied', CheckCircle2],
+    ['needs_you', 'Needs you', Hand],
+    ['not_applied', 'Not applied', MinusCircle],
 ]
 
 // Queued -> Applying -> Applied, plus the two side outcomes, and one plain sentence about what happens now.
@@ -300,8 +260,9 @@ function LiveFlow({ live }) {
     return (
         <div style={{ marginTop: 12 }}>
             <ol className="aa-flow" aria-label="Applications by stage">
-                {FLOW_STEPS.map(([k, label]) => (
+                {FLOW_STEPS.map(([k, label, Icon]) => (
                     <li key={k} className={`aa-flow-step is-${k}${b[k] ? ' has' : ''}`}>
+                        <Icon size={14} aria-hidden="true" />
                         <span className="aa-flow-n">{num(b[k] || 0)}</span>
                         <span className="aa-flow-label">{label}</span>
                     </li>
@@ -321,8 +282,10 @@ export default function BatchDetailPage() {
     const live = useAutoApplyRealtime()
     const q = useBatch(id, { live })
     const batch = q.data?.batch
-    const counts = q.data?.counts || {}
-    const tasks = useMemo(() => q.data?.tasks || [], [q.data?.tasks])
+    const allTasks = q.data?.tasks
+    const needTasks = useMemo(() => (allTasks || []).filter((t) => t.status === 'needs_you'), [allTasks])
+    const appliedTasks = useMemo(() => (allTasks || []).filter((t) => t.status === 'applied'), [allTasks])
+    const notApplied = q.data?.live?.buckets?.not_applied || 0
 
     return (
         <AALayout gate>
@@ -352,7 +315,8 @@ export default function BatchDetailPage() {
                         </div>
                     )}
                     <div className="aa-stack">
-                        <section className="aa-card" aria-label="Progress">
+                        <section className={`aa-card aa-seg tone-${batchTone(batch.status)}`} aria-labelledby="prog-h">
+                            <SectionHead id="prog-h" icon={ListChecks} tone={batchTone(batch.status)} title="Progress" />
                             <Progress used={batch.credits_used} total={batch.credits_total} />
                             {q.data?.live && <LiveFlow live={q.data.live} />}
                             {batch.status === 'refund_due' || batch.status === 'refunding' || batch.status === 'refunded' ? (
@@ -375,12 +339,12 @@ export default function BatchDetailPage() {
                         </section>
 
                         {batch.status === 'review' && (
-                            <section className="aa-card is-pop" aria-labelledby="rv-h">
-                                <h2 id="rv-h" className="aa-h2">Review the shortlist</h2>
+                            <section className="aa-card aa-seg is-tinted tone-waiting" aria-labelledby="rv-h">
+                                <SectionHead id="rv-h" icon={Clock} tone="waiting" title="Review window" />
                                 <p className="aa-muted" style={{ margin: '0 0 12px' }}>
-                                    Remove any job you don&rsquo;t want. We start applying in{' '}
+                                    Your shortlist is ready. We start applying in{' '}
                                     <strong style={{ color: 'var(--bright)' }} aria-live="off"><Countdown iso={batch.review_until} fallback="a few hours" /></strong>
-                                    {batch.review_until && <> (at {fmtDate(batch.review_until)})</>}, or approve now.
+                                    {batch.review_until && <> (at {fmtDate(batch.review_until)})</>}, or approve now. To skip a company, add it to your blocked list in Setup.
                                 </p>
                             </section>
                         )}
@@ -391,9 +355,20 @@ export default function BatchDetailPage() {
 
                         <Controls batch={batch} />
 
-                        <section aria-labelledby="tasks-h">
-                            <h2 id="tasks-h" className="aa-h2">Jobs</h2>
-                            <TaskTable batchId={batch.id} batchStatus={batch.status} tasks={tasks} />
+                        {needTasks.length > 0 && (
+                            <section className="aa-card aa-seg is-tinted tone-attention" aria-labelledby="need-h">
+                                <SectionHead id="need-h" icon={Hand} tone="attention" title="Needs you" count={needTasks.length}
+                                    sub="These applications wait for your answer. No credit is used meanwhile." />
+                                <TaskTable batchId={batch.id} tasks={needTasks} attention />
+                            </section>
+                        )}
+
+                        <section className="aa-card aa-seg tone-success" aria-labelledby="tasks-h">
+                            <SectionHead id="tasks-h" icon={CheckCircle2} tone="success" title="Applied" count={appliedTasks.length}
+                                sub={notApplied > 0 ? `${num(notApplied)} not applied (skipped, closed or removed). Those cost nothing.` : undefined} />
+                            <TaskTable batchId={batch.id} tasks={appliedTasks}
+                                empty={<EmptyState compact icon={<EmptyArt kind="jobs" tone="success" />} title="No applications submitted yet"
+                                    message="Applied jobs show up here with proof and the company's confirmation. This page updates on its own." />} />
                         </section>
                     </div>
                 </>

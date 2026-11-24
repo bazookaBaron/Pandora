@@ -24,9 +24,16 @@ export const PROFILE_LABELS = {
   education: "Education (school / degree)",
 };
 
-/** questions.js `required: true` -> { label, default } (a default counts as answered once onboarding is done). */
+/** questions.js `gate: true` (setupOptions.js; the setup form may require more) -> { label, default } (a default counts as answered once onboarding is done). */
+// Order and set match REQUIRED_QUESTIONS in profile_gate.py.
+const GATE_KEYS = [
+  "fields.first_name", "fields.last_name", "fields.phone", "fields.city", "fields.country",
+  "facts.total_experience_years", "facts.notice_period_days", "facts.work_authorized_in",
+  "facts.needs_sponsorship", "facts.willing_to_relocate", "facts.currently_employed",
+];
+const Q_BY_KEY = new Map(QUESTIONS.map((q) => [q.key, q]));
 export const REQUIRED_QUESTIONS = Object.fromEntries(
-  QUESTIONS.filter((q) => q.required).map((q) => [q.key, { label: q.label, default: q.default ?? null }]),
+  GATE_KEYS.map((k) => Q_BY_KEY.get(k)).filter((q) => q && q.gate).map((q) => [q.key, { label: q.label, default: q.default ?? null }]),
 );
 
 const COVERED = {

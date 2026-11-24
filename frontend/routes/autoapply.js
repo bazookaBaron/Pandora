@@ -22,24 +22,27 @@ import { getUserPlan as realGetUserPlan } from "../lib/entitlements.js";
 import * as realRazorpay from "../services/razorpay.js";
 import * as realResend from "../services/resend.js";
 
-import { publicQuestions, validateAnswer, isValidKey, learnedKey, LEARNED_KEY_RE } from "../lib/autoapply/questions.js";
+import { publicQuestions, validateAnswer, isValidKey, isRequiredKey, learnedKey, LEARNED_KEY_RE } from "../lib/autoapply/questions.js";
+import { validatePrefsInput, validateProfileDraft, cleanText } from "../lib/autoapply/setupOptions.js";
 import { decryptSecret } from "../lib/autoapply/vault.js";
 import { engineState, liveStatus } from "../lib/autoapply/liveStatus.js";
 import { isEligiblePlan, usageFor } from "../lib/autoapply/limits.js";
 import { AAError, createAutoApplyOrder, quoteAutoApplyCoupon, verifyAutoApplyPayment, handleAutoApplyWebhook, expirePendingOrders } from "../lib/autoapply/orders.js";
 import { verifyInbound, storeInbound } from "../lib/autoapply/inbound.js";
 import { mailDb as realMailDb } from "../lib/autoapply/mailDb.js";
-import { sendPushForMail, vapidConfig, isAllowedPushEndpoint } from "../lib/autoapply/push.js";
+import { sendPushForMail, sendPushToUser, vapidConfig, isAllowedPushEndpoint } from "../lib/autoapply/push.js";
 import { cleanupExpiredMail, sendDailyAlerts } from "../lib/autoapply/mailJobs.js";
 import { NOTIFY_CATEGORIES } from "../lib/autoapply/classify.js";
 import { processRefunds } from "../lib/autoapply/refunds.js";
 import { profileCheck, profileReadiness } from "../lib/autoapply/profileGate.js";
 import { normMustCompanies } from "../lib/autoapply/companies.js";
+import { broadenOptions, evaluate as supplyEvaluate, titleKeywords, userCtx as supplyUserCtx } from "../lib/autoapply/supplyMatch.js";
 import { chargeSummary, matchConfirmationMails, replyStats, STATS_WINDOW_DAYS } from "../lib/autoapply/insights.js";
 import { healthSummary, isAdminUser } from "../lib/autoapply/health.js";
 import { sendInterviewReminders } from "../lib/autoapply/reminders.js";
 import { extractText, draftFromText, maybeEnrichWithAi } from "../lib/autoapply/resumeParse.js";
 import { isVerifyItem, confirmSubmitted, notSubmitted } from "../lib/autoapply/verify.js";
+import { readyItems, buildForm, publicForm, parseSubmission, applySubmission, notifyReadyNeedsYou, expireFinalBatchNeedsYou } from "../lib/autoapply/needsYouForm.js";
 
 export { AAError, handleAutoApplyWebhook };
 
@@ -67,7 +70,7 @@ const mailDomain = () => process.env.AA_MAIL_DOMAIN || "apply.vloombox.in";
 
 function sendError(res, err, where) {
   if (err instanceof AAError || (err && Number.isInteger(err.status) && typeof err.code === "string" && /^[a-z_]+$/.test(err.code))) {
-    return res.status(err.status).json({ error: { code: err.code, message: err.message } });
+    return res.status(err.status).json({ error: { code: err.code, message: err.message, ...(err.fields ? { fields: err.fields } : {}) } });
   }
   console.error(`[autoapply] ${where}:`, (err && (err.message || err.details)) || String(err));
   return res.status(500).json({ error: { code: "internal", message: "Something went wrong." } });
@@ -82,6 +85,12 @@ const wrap = (where, fn) => async (req, res) => {
 };
 
 const bad = (message, code = "invalid_input") => new AAError(400, code, message);
+/** 400 with per-field messages: { error: { code: 'invalid_input', message, fields: {key: message} } }. */
+const badFields = (fields) => {
+  const e = bad(Object.values(fields)[0] || "Check the highlighted fields.");
+  e.fields = fields;
+  return e;
+};
 const notFound = (what = "Not found.") => new AAError(404, "not_found", what);
 
 function isPlainObject(v) {
@@ -149,7 +158,8 @@ function ttlCache(ttlMs, max = 500) {
     },
   };
 }
-const SUPPLY_TTL_MS = 60 * 1000;
+const SUPPLY_TTL_MS = 10 * 60 * 1000;
+const SUPPLY_MAX_ROWS = 5000;
 const STATS_TTL_MS = 5 * 60 * 1000;
 const STATS_MAX_ROWS = 5000;
 
@@ -199,19 +209,36 @@ const searchTerm = (q) => String(q || "").replace(/[%_,()*\\]/g, " ").replace(/\
 export const companyTerm = (q) => String(q || "").replace(/[%_*\\]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120);
 
 // ── prefs normalisation ─────────────────────────────────────────────────────
+// titles / locations / min_score come from the setup dropdowns (lib/autoapply/setupOptions.js, same rules as the
+// client); blocked companies and the current employer are short free text.
+const COMPANY_MAX = 80;
+function cleanCompany(v, field, errors) {
+  const t = cleanText(v);
+  if (/[<>]/.test(t)) errors[field] = "Remove < and > characters.";
+  else if (t.length > COMPANY_MAX) errors[field] = `At most ${COMPANY_MAX} characters per company.`;
+  return t;
+}
 function normPrefs(prefs) {
   if (!isPlainObject(prefs)) throw bad("prefs must be an object.");
-  const out = { ...prefs };
-  for (const k of ["titles", "locations", "blocked_companies"]) {
-    if (out[k] === undefined) continue;
-    if (!Array.isArray(out[k])) throw bad(`prefs.${k} must be an array of strings.`);
-    out[k] = [...new Set(out[k].filter((s) => typeof s === "string").map((s) => s.trim()).filter(Boolean))].slice(0, 50);
+  const { prefs: out, errors } = validatePrefsInput(prefs);
+  if (out.blocked_companies !== undefined) {
+    if (!Array.isArray(out.blocked_companies) || out.blocked_companies.some((x) => typeof x !== "string")) errors.blocked_companies = "Must be a list of company names.";
+    else {
+      const list = [...new Set(out.blocked_companies.map((c) => cleanCompany(c, "blocked_companies", errors)).filter(Boolean))];
+      if (list.length > 50) errors.blocked_companies = "At most 50 blocked companies.";
+      out.blocked_companies = list;
+    }
   }
-  if (out.min_score !== undefined && !Number.isFinite(Number(out.min_score))) throw bad("prefs.min_score must be a number.");
+  if (out.current_employer !== undefined) {
+    if (typeof out.current_employer !== "string") errors.current_employer = "Must be text.";
+    else out.current_employer = cleanCompany(out.current_employer, "current_employer", errors);
+  }
+  if (Object.keys(errors).length) throw badFields(Object.fromEntries(Object.entries(errors).map(([k, v]) => [`prefs.${k}`, v])));
   return out;
 }
 
 // ── supply matching ─────────────────────────────────────────────────────────
+const ANYWHERE_LOC = new Set(["any", "anywhere", "all", "india", "pan india", "any location", "anywhere in india"]);
 export function matchesPrefs(job, prefs) {
   const t = String(job.title || "").toLowerCase();
   const loc = String(job.location || "").toLowerCase();
@@ -230,7 +257,8 @@ export function matchesPrefs(job, prefs) {
     });
     if (!ok) return false;
   }
-  if (locations.length) {
+  // 'Pan India' (Anywhere in India) and friends match every job, as in cloud_hunter/saas/matching.py ANYWHERE
+  if (locations.length && !locations.some((w) => ANYWHERE_LOC.has(String(w).toLowerCase().trim()))) {
     const ok = locations.some((want) => {
       const w = String(want).toLowerCase().trim();
       return w && (loc.includes(w) || (w === "remote" && /remote|anywhere/.test(loc)));
@@ -366,6 +394,8 @@ export function createAutoApplyRouter(deps = {}) {
       const patch = {};
       if (b.profile !== undefined) {
         if (!isPlainObject(b.profile) || !jsonSizeOk(b.profile)) throw bad("profile must be an object (max 100 KB).");
+        const pErr = validateProfileDraft(b.profile);
+        if (Object.keys(pErr).length) throw badFields(Object.fromEntries(Object.entries(pErr).map(([k, v]) => [`profile.${k}`, v])));
         patch.profile = b.profile;
       }
       if (b.prefs !== undefined) {
@@ -507,12 +537,17 @@ export function createAutoApplyRouter(deps = {}) {
       if (keys.length > 200) throw bad("Too many answers in one request.");
       const upserts = [];
       const deletes = [];
+      const errors = {};
+      const merged = { ...(await getAnswers(uid)) };
       for (const k of keys) {
         const v = validateAnswer(k, answers[k]);
-        if (!v.ok) throw bad(v.message);
-        if (v.value === null) deletes.push(k);
-        else upserts.push({ user_id: uid, question_key: k, answer: v.value, source: "user", updated_at: now().toISOString() });
+        if (!v.ok) { errors[k] = v.message; continue; }
+        if (v.value === null) { delete merged[k]; deletes.push(k); }
+        else { merged[k] = v.value; upserts.push({ user_id: uid, question_key: k, answer: v.value, source: "user", updated_at: now().toISOString() }); }
       }
+      // every setup question is mandatory: a standard answer cannot be cleared while it is still required
+      for (const k of deletes) if (!errors[k] && isRequiredKey(k, merged)) errors[k] = "This answer is required.";
+      if (Object.keys(errors).length) throw badFields(errors);
       if (upserts.length) {
         const { error } = await db.from("aa_answers").upsert(upserts, { onConflict: "user_id,question_key" });
         if (error) throw error;
@@ -525,7 +560,8 @@ export function createAutoApplyRouter(deps = {}) {
     }),
   );
 
-  // GET /supply
+  // GET /supply: the jobs the scheduler would shortlist for this user right now (same hard gates as
+  // saas/matching.py, ported in lib/autoapply/supplyMatch.js) + one-click pref changes that would raise the count
   router.get(
     "/supply",
     wrap("supply", async (req, res) => {
@@ -533,31 +569,48 @@ export function createAutoApplyRouter(deps = {}) {
       if (!["service", "product"].includes(kind)) throw bad("kind must be 'service' or 'product'.");
       const wd = req.query.window_days === undefined ? AUTO_APPLY.window_days_default : Number(req.query.window_days);
       if (!Number.isInteger(wd) || wd < 1 || wd > AUTO_APPLY.window_days_max) throw bad(`window_days must be 1..${AUTO_APPLY.window_days_max}.`);
-      const prof = await getProfile(req.user.id);
+      const [prof, answers] = await Promise.all([getProfile(req.user.id), getAnswers(req.user.id)]);
       const prefs = (prof && prof.prefs) || {};
-      // the scan below reads up to 5000 rows: cached 60 s per (user, kind, window, prefs)
+      // the scan below reads up to SUPPLY_MAX_ROWS rows: cached per (user, kind, window, prefs)
       const cacheKey = `${req.user.id}|${kind}|${wd}|${JSON.stringify(prefs)}`;
       const hit = supplyCache.get(cacheKey, now().getTime());
       if (hit) return res.json(hit);
+      const options = broadenOptions(prefs);
+      const ctxFor = (p) => supplyUserCtx(prof || {}, answers, p);
+      const user = ctxFor(prefs);
+      const variants = options.map((o) => ({ ...o, user: ctxFor({ ...prefs, ...(o.locations ? { locations: o.locations } : {}), ...(o.titles ? { titles: o.titles } : {}) }) }));
+      // prefilter titles in SQL (keywords every matching title contains) so the scan stays small; none when the
+      // user has no titles (the default engineering pattern) or a title has no safe keyword
+      const kws = user.titles.length ? titleKeywords([...new Set([...user.expanded, ...variants.flatMap((v) => v.user.expanded)])]) : null;
       const since = new Date(now().getTime() - wd * 86400000).toISOString();
-      const { data, error } = await db
+      let qb = db
         .from("aa_jobs")
-        .select("company, title, location, posted_at, ats")
+        .select("company, company_key, title, location, country, posted_at, ats")
         .is("closed_at", null)
         .eq("company_kind", kind)
-        .gte("posted_at", since)
-        .order("posted_at", { ascending: false })
-        .limit(5000);
+        .gte("posted_at", since);
+      if (kws && kws.length && kws.length <= 60) qb = qb.or(kws.map((k) => `title.ilike.%${k}%`).join(","));
+      const { data, error } = await qb.order("posted_at", { ascending: false }).limit(SUPPLY_MAX_ROWS);
       if (error) throw error;
-      const jobs = (data || []).filter((j) => matchesPrefs(j, prefs));
+      const rows = data || [];
+      const jobs = rows.filter((j) => supplyEvaluate(j, user).ok);
       const by_ats = {};
       for (const j of jobs) by_ats[j.ats] = (by_ats[j.ats] || 0) + 1;
+      const broaden = [];
+      for (const v of variants) {
+        const n = rows.reduce((acc, j) => acc + (supplyEvaluate(j, v.user).ok ? 1 : 0), 0);
+        if (n > jobs.length) {
+          broaden.push({ id: v.id, label: v.label, added: v.added, count: n, ...(v.locations ? { locations: v.locations } : {}), ...(v.titles ? { titles: v.titles } : {}) });
+        }
+      }
       const out = {
         kind,
         window_days: wd,
         count: jobs.length,
+        capped: rows.length >= SUPPLY_MAX_ROWS,
         by_ats,
-        sample: jobs.slice(0, 10).map(({ company, title, location, posted_at }) => ({ company, title, location, posted_at })),
+        sample: jobs.slice(0, 8).map(({ company, title, location, posted_at }) => ({ company, title, location, posted_at })),
+        broaden,
       };
       supplyCache.set(cacheKey, out, now().getTime());
       res.json(out);
@@ -609,7 +662,29 @@ export function createAutoApplyRouter(deps = {}) {
         .order("created_at", { ascending: false })
         .limit(100);
       if (error) throw error;
-      res.json({ batches: data || [] });
+      const batches = data || [];
+      // a lightweight live line per ongoing batch (same helper as the batch page; no next-run lookup)
+      const LIVE = ["paid", "shortlisting", "review", "running", "paused", "waiting_supply", "waiting_profile"];
+      const ongoing = batches.filter((b) => LIVE.includes(b.status)).map((b) => b.id);
+      if (ongoing.length) {
+        const { data: rows, error: tErr } = await db
+          .from("aa_tasks")
+          .select("batch_id, status")
+          .eq("user_id", req.user.id)
+          .in("batch_id", ongoing)
+          .limit(10000);
+        if (tErr) console.warn("[autoapply/batches] live counts failed:", tErr.message || tErr);
+        else {
+          const counts = new Map(ongoing.map((id) => [id, {}]));
+          for (const t of rows || []) {
+            const c = counts.get(t.batch_id);
+            if (c) c[t.status] = (c[t.status] || 0) + 1;
+          }
+          const engine = await engineState(db).catch(() => "off");
+          for (const b of batches) if (counts.has(b.id)) b.live = liveStatus({ batch: b, counts: counts.get(b.id), engine, now: now() });
+        }
+      }
+      res.json({ batches });
     }),
   );
 
@@ -696,82 +771,77 @@ export function createAutoApplyRouter(deps = {}) {
     writeLimiter,
     wrap("batch/resume", async (req, res) => {
       const batch = await ownBatch(req.user.id, req.params.id);
-      if (batch.cancel_requested_at) throw new AAError(409, "cancel_pending", "This pack is being cancelled; it can't be resumed.");
       const inReview = batch.review_until && new Date(batch.review_until).getTime() > now().getTime();
-      res.json({ batch: await updateBatchIf(batch, ["paused"], { status: inReview ? "review" : "running" }) });
+      // a legacy parked cancel (before Cancel became Pause) is simply dropped: resume any time
+      res.json({ batch: await updateBatchIf(batch, ["paused"], { status: inReview ? "review" : "running", cancel_requested_at: null }) });
     }),
   );
 
+  // Cancel. Owner policy: a bought batch is never refunded; we keep going until every application is submitted.
+  // So for a paid batch "Cancel" is a Pause (no task touched, resume any time, no refund). Only an unpaid order
+  // (pending_payment) is really cancelled. Refunds for payment errors / legal reasons: admins only
+  // (POST /admin/batches/:id/refund).
   router.post(
     "/batches/:id/cancel",
     writeLimiter,
     wrap("batch/cancel", async (req, res) => {
       const batch = await ownBatch(req.user.id, req.params.id);
-      const allowed = ["pending_payment", "paid", "shortlisting", "review", "running", "paused", "waiting_supply", "waiting_profile"];
-      // already cancelled (a retry after a partial failure, or a double click): finish the task clean-up, 200
-      const done = ["cancelled", "refund_due", "refunding", "refunded"].includes(batch.status);
-      if (!done && !allowed.includes(batch.status)) {
-        throw new AAError(409, "invalid_state", `Batch is '${batch.status}'; this action needs one of: ${allowed.join(", ")}.`);
+      if (batch.status === "pending_payment") {
+        return res.json({ batch: await updateBatchIf(batch, ["pending_payment"], { status: "cancelled" }), paused: false });
       }
-      // Tasks first, then the batch: if the batch flip fails, a retry sees the same batch status and runs again;
-      // the task / needs-you updates are idempotent. (Batch first left a 'refund_due' batch with live tasks that
-      // a retry could no longer reach: 409.)
-      if (batch.status !== "pending_payment") {
-        const { error } = await db
-          .from("aa_tasks")
-          .update({ status: "cancelled", reason_code: "batch_cancelled" })
-          .eq("batch_id", batch.id)
-          .in("status", ["shortlisted", "queued", "failed"]);
-        if (error) throw error;
-        // needs_you tasks too, EXCEPT 'verify_submission': the application may already be submitted (the user
-        // still has to confirm it), so it stays open and the refunds cron's credit count stays honest.
-        const { data: ny, error: nyErr } = await db.from("aa_tasks").select("id, reason_code").eq("batch_id", batch.id).eq("status", "needs_you");
-        if (nyErr) throw nyErr;
-        const nyIds = (ny || []).filter((t) => t.reason_code !== "verify_submission").map((t) => t.id);
-        if (nyIds.length) {
-          const { error: nyUpErr } = await db
-            .from("aa_tasks")
-            .update({ status: "cancelled", reason_code: "batch_cancelled" })
-            .in("id", nyIds)
-            .eq("status", "needs_you");
-          if (nyUpErr) throw nyUpErr;
-        }
-        const { data: cancelledTasks, error: tErr } = await db.from("aa_tasks").select("id").eq("batch_id", batch.id).eq("status", "cancelled");
-        if (tErr) throw tErr;
-        const ids = (cancelledTasks || []).map((t) => t.id);
-        if (ids.length) {
-          const { error: nErr } = await db
-            .from("aa_needs_you")
-            .update({ resolved_at: now().toISOString(), resolution: "expired" })
-            .in("task_id", ids)
-            .is("resolved_at", null);
-          if (nErr) throw nErr;
-        }
+      // already stopped (double click / retry, or a closed batch): 200 with the row as it is
+      if (["paused", "cancelled", "completed", "expired", "refund_due", "refunding", "refunded"].includes(batch.status)) {
+        return res.json({ batch, paused: batch.status === "paused" });
       }
-      let updated = batch;
-      if (!done) {
-        let next;
-        let patch = null;
-        if (batch.status === "pending_payment") next = "cancelled";
-        else {
-          // A worker may be applying right now (claimed/running/waiting_code/submitting) and may still spend a
-          // credit, so refund_due vs completed can't be decided yet: park the batch as 'paused' with
-          // cancel_requested_at; the refunds cron finalizes it once nothing is in flight (finalizeCancelRequests).
-          const { count: busy, error: bErr } = await db
-            .from("aa_tasks")
-            .select("id", { count: "exact", head: true })
-            .eq("batch_id", batch.id)
-            .in("status", ["claimed", "running", "waiting_code", "submitting"]);
-          if (bErr) throw bErr;
-          if (busy > 0) {
-            next = "paused";
-            patch = { cancel_requested_at: now().toISOString() };
-          } else next = Number(batch.credits_used) < Number(batch.credits_total) ? "refund_due" : "completed";
-        }
-        updated = await updateBatchIf(batch, allowed, { status: next, ...(patch || {}) });
-      }
+      const pausable = ["paid", "shortlisting", "review", "running", "waiting_supply", "waiting_profile"];
+      const updated = await updateBatchIf(batch, pausable, { status: "paused" });
       if (batch.status === "waiting_profile") await closeProfileItemIfIdle(req.user.id);
-      res.json({ batch: updated });
+      res.json({ batch: updated, paused: true });
+    }),
+  );
+
+  // Admin-only manual refund (payment error / legal). Never user-facing. Cancels what is left of the batch and
+  // queues it for the refunds cron with refund_approved_at set (the only non-payment-safety refund it processes).
+  router.post(
+    "/admin/batches/:id/refund",
+    writeLimiter,
+    wrap("admin/refund", async (req, res) => {
+      if (!isAdminUser(req.user, getEnv)) throw new AAError(403, "forbidden", "Admins only.");
+      if (!UUID_RE.test(String(req.params.id))) throw notFound("Batch not found.");
+      const reason = typeof (req.body && req.body.reason) === "string" ? req.body.reason.replace(/\s+/g, " ").trim() : "";
+      if (reason.length < 5 || reason.length > 300) throw bad("reason (5-300 characters) is required: why is this refunded?");
+      if (!(req.body && req.body.confirm === true)) throw bad("Send confirm: true to queue the refund.");
+      const { data: batch, error } = await db.from("aa_batches").select("*").eq("id", req.params.id).maybeSingle();
+      if (error) throw error;
+      if (!batch) throw notFound("Batch not found.");
+      if (["refund_due", "refunding", "refunded"].includes(batch.status)) return res.json({ batch, already: true });
+      if (!batch.purchased_at) throw new AAError(409, "invalid_state", "This batch was never paid; there is nothing to refund.");
+      const { error: tErr } = await db
+        .from("aa_tasks")
+        .update({ status: "cancelled", reason_code: "batch_refunded" })
+        .eq("batch_id", batch.id)
+        .in("status", ["shortlisted", "queued", "failed"]);
+      if (tErr) throw tErr;
+      // needs_you tasks too, except 'verify_submission' (it may already be submitted: the credit count must stay honest)
+      const { data: ny, error: nyErr } = await db.from("aa_tasks").select("id, reason_code").eq("batch_id", batch.id).eq("status", "needs_you");
+      if (nyErr) throw nyErr;
+      const nyIds = (ny || []).filter((t) => t.reason_code !== "verify_submission").map((t) => t.id);
+      if (nyIds.length) {
+        const { error: e2 } = await db.from("aa_tasks").update({ status: "cancelled", reason_code: "batch_refunded" }).in("id", nyIds).eq("status", "needs_you");
+        if (e2) throw e2;
+        const { error: e3 } = await db.from("aa_needs_you").update({ resolved_at: now().toISOString(), resolution: "expired" }).in("task_id", nyIds).is("resolved_at", null);
+        if (e3) throw e3;
+      }
+      const { data: won, error: uErr } = await db
+        .from("aa_batches")
+        .update({ status: "refund_due", refund_approved_at: now().toISOString(), refund_approved_by: req.user.id, refund_reason: `admin: ${reason}`, cancel_requested_at: null })
+        .eq("id", batch.id)
+        .eq("status", batch.status)
+        .select("*");
+      if (uErr) throw uErr;
+      if (!won || !won[0]) throw new AAError(409, "invalid_state", "Batch changed meanwhile; reload and retry.");
+      console.warn(`[autoapply] admin ${req.user.id} queued a refund for batch ${batch.id}: ${reason}`);
+      res.json({ batch: won[0] });
     }),
   );
 
@@ -873,28 +943,17 @@ export function createAutoApplyRouter(deps = {}) {
   );
 
   // Needs-you
+  // Items accumulate silently while their batch works; only "ready" ones are listed (the batch's other work is
+  // done or blocked only on needs-you, the batch is not working, or the item is 3+ days old). ?all=1 lists all.
   router.get(
     "/needs-you",
     wrap("needs-you", async (req, res) => {
-      const { data: items, error } = await db
-        .from("aa_needs_you")
-        .select("id, kind, payload, task_id, batch_id, created_at")
-        .eq("user_id", req.user.id)
-        .is("resolved_at", null)
-        .order("created_at", { ascending: false })
-        .limit(200);
-      if (error) throw error;
-      // left join: profile items (kind 'profile') have no task
-      const ids = [...new Set((items || []).map((i) => i.task_id).filter(Boolean))];
-      let tasks = [];
-      if (ids.length) {
-        const r = await db.from("aa_tasks").select("id, company, title, apply_url").in("id", ids);
-        if (r.error) throw r.error;
-        tasks = r.data || [];
-      }
-      const byId = new Map(tasks.map((t) => [t.id, t]));
+      const all = req.query.all === "1";
+      const { items: ready, tasks: byId, accumulating } = await readyItems({ db, userId: req.user.id, now: now(), all });
+      const items = [...ready].reverse().slice(0, 200); // newest first, as before
       res.json({
-        items: (items || []).map((i) => {
+        accumulating,
+        items: items.map((i) => {
           const t = (i.task_id && byId.get(i.task_id)) || null;
           return {
             id: i.id,
@@ -910,6 +969,44 @@ export function createAutoApplyRouter(deps = {}) {
           };
         }),
       });
+    }),
+  );
+
+  // Consolidated needs-you: ONE form with everything missing across the ready items (lib/autoapply/needsYouForm.js).
+  //   GET  /needs-you/form -> { fields[], sites[], unconfirmed[], profile, item_count, accumulating }
+  //   POST /needs-you/form   { answers: {fieldId: value}, sites: {siteId: 'done'}, manual: {itemId: 'applied'|'skip'},
+  //                            unconfirmed: {itemId: 'yes'|'no'} } -> { result, ...the form rebuilt }
+  const loadNeedsYouForm = async (uid) => {
+    const { items, tasks, accumulating } = await readyItems({ db, userId: uid, now: now() });
+    const answers = await getAnswers(uid);
+    return { items, accumulating, form: buildForm(items, tasks, answers || {}) };
+  };
+  const formBody = ({ items, accumulating, form }) => ({ ...publicForm(form), item_count: items.filter((i) => i.kind !== "profile").length, accumulating });
+
+  router.get(
+    "/needs-you/form",
+    wrap("needs-you/form", async (req, res) => {
+      res.set("Cache-Control", "no-store");
+      res.json(formBody(await loadNeedsYouForm(req.user.id)));
+    }),
+  );
+
+  router.post(
+    "/needs-you/form",
+    writeLimiter,
+    wrap("needs-you/form/save", async (req, res) => {
+      const uid = req.user.id;
+      if (!jsonSizeOk(req.body)) throw new AAError(413, "too_large", "That form is too large.");
+      const cur = await loadNeedsYouForm(uid);
+      let parsed;
+      try {
+        parsed = parseSubmission(cur.form, req.body);
+      } catch (e) {
+        if (e && e.status === 400) throw bad(e.message);
+        throw e;
+      }
+      const result = await applySubmission({ db, userId: uid, form: cur.form, parsed, items: cur.items, now: now() });
+      res.json({ result, ...formBody(await loadNeedsYouForm(uid)) });
     }),
   );
 
@@ -1371,6 +1468,25 @@ export function createInboundHandler(deps = {}) {
 
 export function runAutoApplyRefunds(deps = {}) {
   return processRefunds({ db: deps.db || supabaseAdmin, razorpay: deps.razorpay || realRazorpay, limit: deps.limit });
+}
+
+/** Every 15 min: needs-you hygiene for final batches, then at most ONE "a few details needed" push per batch. */
+export async function runNeedsYouJobs(deps = {}) {
+  const db = deps.db || supabaseAdmin;
+  const now = deps.now || new Date();
+  const out = {};
+  try {
+    out.expired = await expireFinalBatchNeedsYou({ db, now });
+  } catch (e) {
+    console.error("[autoapply/needs-you] hygiene:", (e && e.message) || String(e));
+  }
+  try {
+    const send = deps.send || ((a) => sendPushToUser({ ...a, env: deps.env, webpush: deps.webpush }));
+    out.notified = await notifyReadyNeedsYou({ db, send, now });
+  } catch (e) {
+    console.error("[autoapply/needs-you] notify:", (e && e.message) || String(e));
+  }
+  return out;
 }
 
 /** Hourly: pending_payment orders older than 24 h -> 'cancelled' (lib/autoapply/orders.js expirePendingOrders). */

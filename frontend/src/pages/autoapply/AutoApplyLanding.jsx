@@ -1,8 +1,13 @@
 import { Link } from 'react-router-dom'
-import { ErrorState, LoadingState } from '../../components/shared/states'
-import { useAutoApplyMe, useAutoApplyRealtime, useBatches, useNeedsYou } from '../../lib/useAutoApply'
+import { CalendarCheck, CheckCircle2, Coins, Hand, History, Layers, Radio, ShoppingBag } from 'lucide-react'
+import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
+import { useAutoApplyMe, useAutoApplyRealtime, useBatches, useInterviews, useNeedsYou } from '../../lib/useAutoApply'
 import AAProgressGuide from '../../components/onboarding/AAProgressGuide'
-import { AALayout, PageHeader, ACTIVE_BATCH, BatchStatusPill, PACK_KINDS, PACK_SIZES, Progress, UpgradeCard, fmtDate, packPrice, rupees } from './ui'
+import { splitInterviews } from './InterviewsPanel'
+import {
+    AALayout, PageHeader, ACTIVE_BATCH, BatchStatusPill, EmptyArt, PACK_KINDS, PACK_SIZES, Progress, SectionHead, StackBar,
+    StatTile, UpgradeCard, batchTone, fmtDate, num, packPrice, rupees,
+} from './ui'
 
 const KIND_COLOR = { service: 'var(--pop)', product: 'var(--warm)' }
 
@@ -26,64 +31,122 @@ function PipelineCard({ kind, config, eligible, onboardingDone }) {
     )
 }
 
-function BatchRow({ b }) {
+// One card per batch: kind + status, a stacked bar of where its applications are, and the live sentence.
+function BatchCard({ b }) {
     const used = b.credits_used ?? 0
     const total = b.credits_total ?? b.pack_size ?? 0
+    const live = b.live
+    const busy = live && (live.phase === 'applying' || live.phase === 'starting')
+    const kind = PACK_KINDS[b.pack_kind]?.short || b.pack_kind
     return (
         <li>
-            <Link to={`/autoapply/batches/${b.id}`} className="aa-card aa-batch-row">
-                <span className="aa-batch-kind">{PACK_KINDS[b.pack_kind]?.short || b.pack_kind}</span>
-                <BatchStatusPill status={b.status} />
-                <span className="aa-batch-prog">
-                    <Progress used={b.credits_used} total={b.credits_total} />
+            <Link to={`/autoapply/batches/${b.id}`} className={`aa-card aa-bcard tone-${batchTone(b.status)}`}
+                aria-label={`${kind} batch, ${num(used)} of ${num(total)} applied${live?.message ? `. ${live.message}` : ''}`}>
+                <span className="aa-bcard-top">
+                    <span className="aa-bcard-kind">{kind} · {num(total)}</span>
+                    <BatchStatusPill status={b.status} />
+                    <span className="aa-faint aa-bcard-meta">{num(used)}/{num(total)} · {fmtDate(b.purchased_at || b.created_at, false)}</span>
                 </span>
-                <span className="aa-faint aa-batch-count">{used}/{total}</span>
-                <span className="aa-faint aa-batch-date">{fmtDate(b.purchased_at || b.created_at, false)}</span>
+                {live?.buckets ? <StackBar buckets={live.buckets} total={total} legend /> : <Progress used={used} total={total} />}
+                {live?.message && (
+                    <span className="aa-bcard-msg">
+                        {busy
+                            ? <span className="aa-flow-dot" aria-hidden="true" style={{ marginTop: 4 }} />
+                            : <Radio size={13} aria-hidden="true" style={{ flex: 'none', marginTop: 2, color: 'var(--muted)' }} />}
+                        {live.message}
+                    </span>
+                )}
             </Link>
         </li>
     )
 }
 
-function BatchGroup({ title, items }) {
-    if (!items.length) return null
+function Batches({ q }) {
+    const all = q.data?.batches || []
+    const ongoing = all.filter((b) => ACTIVE_BATCH.includes(b.status))
+    const done = all.filter((b) => !ACTIVE_BATCH.includes(b.status))
+    if (q.isLoading) return <LoadingState compact label="Loading batches…" />
+    if (q.isError) return <ErrorState compact err={q.error} onRetry={() => q.refetch()} />
+    if (!all.length) {
+        return (
+            <section className="aa-card aa-seg tone-active" aria-label="Batches">
+                <EmptyState compact icon={<EmptyArt kind="batches" tone="active" />}
+                    title="No batches yet"
+                    message="Buy a pack and we start shortlisting matching jobs within minutes."
+                    action={<Link to="/autoapply/buy" className="aa-btn is-primary"><ShoppingBag size={13} aria-hidden="true" /> Buy a pack</Link>} />
+            </section>
+        )
+    }
     return (
-        <div>
-            <h3 className="aa-h2" style={{ margin: '0 0 8px' }}>{title} · {items.length}</h3>
-            <ul className="aa-list">{items.map((b) => <BatchRow key={b.id} b={b} />)}</ul>
+        <div className="aa-stack" style={{ gap: 22 }}>
+            {ongoing.length > 0 && (
+                <section aria-labelledby="aa-ongoing">
+                    <SectionHead id="aa-ongoing" icon={Layers} tone="active" title="Ongoing batches" count={ongoing.length} />
+                    <ul className="aa-list">{ongoing.map((b) => <BatchCard key={b.id} b={b} />)}</ul>
+                </section>
+            )}
+            {done.length > 0 && (
+                <section aria-labelledby="aa-past">
+                    <SectionHead id="aa-past" icon={History} tone="history" title="Past batches" count={done.length} />
+                    <ul className="aa-list">{done.map((b) => <BatchCard key={b.id} b={b} />)}</ul>
+                </section>
+            )}
         </div>
     )
 }
 
-function Batches() {
-    const live = useAutoApplyRealtime()
-    const q = useBatches({ live })
-    const all = q.data?.batches || []
-    const ongoing = all.filter((b) => ACTIVE_BATCH.includes(b.status))
-    const done = all.filter((b) => !ACTIVE_BATCH.includes(b.status))
+function KeyNumbers({ batches, needCount }) {
+    const ivs = useInterviews()
+    const all = batches || []
+    const active = all.filter((b) => ACTIVE_BATCH.includes(b.status))
+    const creditsLeft = active.reduce((n, b) => n + Math.max(0, (Number(b.credits_total ?? b.pack_size) || 0) - (Number(b.credits_used) || 0)), 0)
+    const applied = all.reduce((n, b) => n + (Number(b.credits_used) || 0), 0)
+    const { upcoming } = splitInterviews(ivs.data?.interviews || [])
     return (
-        <section aria-labelledby="aa-batches" className="aa-stack">
-            <h2 id="aa-batches" className="aa-h2" style={{ margin: 0 }}>Batches</h2>
-            {q.isLoading ? (
-                <LoadingState compact label="Loading batches…" />
-            ) : q.isError ? (
-                <ErrorState compact err={q.error} onRetry={() => q.refetch()} />
-            ) : all.length === 0 ? (
-                <p className="aa-muted" style={{ margin: 0 }}>No batches yet. Start a pack above.</p>
-            ) : (
-                <>
-                    <BatchGroup title="Ongoing" items={ongoing} />
-                    <BatchGroup title="Completed" items={done} />
-                </>
-            )}
-        </section>
+        <div className="aa-tiles" role="list" aria-label="Key numbers">
+            <div role="listitem" style={{ display: 'grid' }}>
+                <StatTile icon={Coins} tone="active" label="Credits left" value={creditsLeft}
+                    hint={active.length ? `${active.length} ongoing batch${active.length === 1 ? '' : 'es'}` : 'Buy a pack to start'}
+                    to={active.length ? undefined : '/autoapply/buy'} />
+            </div>
+            <div role="listitem" style={{ display: 'grid' }}>
+                <StatTile icon={CheckCircle2} tone="success" label="Applied" value={applied} hint="Submitted for you" />
+            </div>
+            <div role="listitem" style={{ display: 'grid' }}>
+                <StatTile icon={Hand} tone="attention" label="Needs you" value={needCount}
+                    hint={needCount ? 'Answer to continue' : 'Nothing waiting'} to={needCount ? '/autoapply/needs-you' : undefined} />
+            </div>
+            <div role="listitem" style={{ display: 'grid' }}>
+                <StatTile icon={CalendarCheck} tone="success" label="Interviews" value={upcoming.length}
+                    hint={upcoming.length ? 'Upcoming' : 'None scheduled'} to="/autoapply/inbox?f=interview" />
+            </div>
+        </div>
     )
+}
+
+// batches are only fetched for an eligible (paid) user
+function WithBatches({ children }) {
+    const live = useAutoApplyRealtime()
+    return children(useBatches({ live }))
 }
 
 export default function AutoApplyLanding() {
     const me = useAutoApplyMe()
     const data = me.data
-    const needs = useNeedsYou({ enabled: !!data?.eligible })
-    const needCount = data?.eligible ? (needs.data?.items?.length || 0) : 0
+    const eligible = !!data?.eligible
+    const needs = useNeedsYou({ enabled: eligible })
+    const needCount = eligible ? (needs.data?.items?.length || 0) : 0
+    const pipeline = data && (
+        <section data-tour="autoapply-pipeline" aria-labelledby="aa-pipe" style={{ marginBottom: 22 }}>
+            <SectionHead id="aa-pipe" icon={ShoppingBag} tone="active" title="Buy a pack"
+                sub="Credits are used only when an application is submitted. Prices include GST." />
+            <div className="aa-grid-2 aa-pipe-grid">
+                {['service', 'product'].map((kind) => (
+                    <PipelineCard key={kind} kind={kind} config={data.config} eligible={eligible} onboardingDone={data.onboarding_done} />
+                ))}
+            </div>
+        </section>
+    )
 
     return (
         <AALayout>
@@ -99,23 +162,25 @@ export default function AutoApplyLanding() {
 
             {me.isLoading && <LoadingState label="Loading…" />}
             {me.isError && <ErrorState compact err={me.error} onRetry={() => me.refetch()} style={{ marginBottom: 20 }} />}
-            {data && !data.eligible && <div style={{ marginBottom: 16 }}><UpgradeCard plan={data.plan} /></div>}
+            {data && !eligible && <div style={{ marginBottom: 16 }}><UpgradeCard plan={data.plan} /></div>}
 
-            <AAProgressGuide />
-
-            {data && (
-                <section data-tour="autoapply-pipeline" aria-labelledby="aa-pipe" style={{ marginBottom: 22 }}>
-                    <h2 id="aa-pipe" className="aa-h2">Pipeline</h2>
-                    <div className="aa-grid-2 aa-pipe-grid">
-                        {['service', 'product'].map((kind) => (
-                            <PipelineCard key={kind} kind={kind} config={data.config} eligible={data.eligible} onboardingDone={data.onboarding_done} />
-                        ))}
-                    </div>
-                    <p className="aa-faint" style={{ margin: '8px 0 0' }}>Credits are used only when an application is submitted. Prices include GST.</p>
-                </section>
+            {eligible ? (
+                <WithBatches>
+                    {(batchesQ) => (
+                        <>
+                            <KeyNumbers batches={batchesQ.data?.batches} needCount={needCount} />
+                            <AAProgressGuide />
+                            {pipeline}
+                            <Batches q={batchesQ} />
+                        </>
+                    )}
+                </WithBatches>
+            ) : (
+                <>
+                    <AAProgressGuide />
+                    {pipeline}
+                </>
             )}
-
-            {data?.eligible && <Batches />}
             {data?.is_admin && <p style={{ marginTop: 20 }}><Link to="/autoapply/admin/health" className="aa-faint">Health</Link></p>}
         </AALayout>
     )

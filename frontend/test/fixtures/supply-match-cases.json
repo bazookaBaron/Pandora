@@ -1,0 +1,5501 @@
+{
+"title": [
+{
+"title": "Software Engineer",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "Senior Software Engineer II",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "SDE-2",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "SWE III, Payments",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "Backend Developer (Java)",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "Full-Stack Engineer",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "Front End Developer",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "Member of Technical Staff",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "Software Engineering Intern",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Engineering Manager",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Director of Engineering",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Sales Engineer",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "QA Engineer",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Data Engineer",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Senior Data Analyst",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Product Manager",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Product Marketing Manager",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Associate Product Manager",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Customer Support Executive (6 PM - 3 AM)",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Consultant",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Sales Executive",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Business Analyst",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "SOC Analyst L1",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Information Security Analyst",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Sr. Java Developer",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "DevOps Engineer",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Engineer II - Backend",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Staff Engineer",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Recruiter",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Talent Acquisition Partner",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Platform Engineer",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "Android Developer",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "Junior Software Developer",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "Principal Architect",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "BI Developer",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "Mobile Engineer",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Associate Software Engineer",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "ML Engineer",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "Technical Program Manager",
+"wanted": [
+"Software Engineer"
+],
+"ok": false
+},
+{
+"title": "Machine Learning Engineer",
+"wanted": [
+"Software Engineer"
+],
+"ok": true
+},
+{
+"title": "Software Engineer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Senior Software Engineer II",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "SDE-2",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "SWE III, Payments",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Backend Developer (Java)",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Full-Stack Engineer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Front End Developer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Member of Technical Staff",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Software Engineering Intern",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Engineering Manager",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Director of Engineering",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Sales Engineer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "QA Engineer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Data Engineer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Senior Data Analyst",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Product Manager",
+"wanted": [
+"Product Manager"
+],
+"ok": true
+},
+{
+"title": "Product Marketing Manager",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Associate Product Manager",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Customer Support Executive (6 PM - 3 AM)",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Consultant",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Sales Executive",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Business Analyst",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "SOC Analyst L1",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Information Security Analyst",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Sr. Java Developer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "DevOps Engineer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Engineer II - Backend",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Staff Engineer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Recruiter",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Talent Acquisition Partner",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Platform Engineer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Android Developer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Junior Software Developer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Principal Architect",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "BI Developer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Mobile Engineer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Associate Software Engineer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "ML Engineer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Technical Program Manager",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Machine Learning Engineer",
+"wanted": [
+"Product Manager"
+],
+"ok": false
+},
+{
+"title": "Software Engineer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Senior Software Engineer II",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "SDE-2",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "SWE III, Payments",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Backend Developer (Java)",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Full-Stack Engineer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Front End Developer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Member of Technical Staff",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Software Engineering Intern",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Engineering Manager",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Director of Engineering",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Sales Engineer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "QA Engineer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Data Engineer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Senior Data Analyst",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Product Manager",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Product Marketing Manager",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Associate Product Manager",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Customer Support Executive (6 PM - 3 AM)",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Consultant",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": true
+},
+{
+"title": "SAP FICO Sales Executive",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Business Analyst",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "SOC Analyst L1",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Information Security Analyst",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Sr. Java Developer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "DevOps Engineer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Engineer II - Backend",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Staff Engineer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Recruiter",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Talent Acquisition Partner",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Platform Engineer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Android Developer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Junior Software Developer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Principal Architect",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "BI Developer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Mobile Engineer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Associate Software Engineer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "ML Engineer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Technical Program Manager",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Machine Learning Engineer",
+"wanted": [
+"SAP FICO Consultant"
+],
+"ok": false
+},
+{
+"title": "Software Engineer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Senior Software Engineer II",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "SDE-2",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "SWE III, Payments",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Backend Developer (Java)",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Full-Stack Engineer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Front End Developer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Member of Technical Staff",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Software Engineering Intern",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Engineering Manager",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Director of Engineering",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Sales Engineer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "QA Engineer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Data Engineer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Senior Data Analyst",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": true
+},
+{
+"title": "Product Manager",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Product Marketing Manager",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Associate Product Manager",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Customer Support Executive (6 PM - 3 AM)",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Consultant",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Sales Executive",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Business Analyst",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": true
+},
+{
+"title": "SOC Analyst L1",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Information Security Analyst",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Sr. Java Developer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "DevOps Engineer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Engineer II - Backend",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Staff Engineer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Recruiter",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Talent Acquisition Partner",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Platform Engineer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Android Developer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Junior Software Developer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Principal Architect",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "BI Developer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Mobile Engineer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Associate Software Engineer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "ML Engineer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Technical Program Manager",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Machine Learning Engineer",
+"wanted": [
+"Data Analyst",
+"Business Analyst"
+],
+"ok": false
+},
+{
+"title": "Software Engineer",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "Senior Software Engineer II",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "SDE-2",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "SWE III, Payments",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "Backend Developer (Java)",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "Full-Stack Engineer",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "Front End Developer",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "Member of Technical Staff",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "Software Engineering Intern",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Engineering Manager",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Director of Engineering",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Sales Engineer",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "QA Engineer",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Data Engineer",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Senior Data Analyst",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Product Manager",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Product Marketing Manager",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Associate Product Manager",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Customer Support Executive (6 PM - 3 AM)",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Consultant",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Sales Executive",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Business Analyst",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "SOC Analyst L1",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Information Security Analyst",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Sr. Java Developer",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "DevOps Engineer",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Engineer II - Backend",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Staff Engineer",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Recruiter",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Talent Acquisition Partner",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Platform Engineer",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "Android Developer",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "Junior Software Developer",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "Principal Architect",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "BI Developer",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "Mobile Engineer",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Associate Software Engineer",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "ML Engineer",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "Technical Program Manager",
+"wanted": [
+"Java Developer"
+],
+"ok": false
+},
+{
+"title": "Machine Learning Engineer",
+"wanted": [
+"Java Developer"
+],
+"ok": true
+},
+{
+"title": "Software Engineer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Senior Software Engineer II",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "SDE-2",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "SWE III, Payments",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Backend Developer (Java)",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Full-Stack Engineer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Front End Developer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Member of Technical Staff",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Software Engineering Intern",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Engineering Manager",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Director of Engineering",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Sales Engineer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "QA Engineer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Data Engineer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Senior Data Analyst",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Product Manager",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Product Marketing Manager",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Associate Product Manager",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Customer Support Executive (6 PM - 3 AM)",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Consultant",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Sales Executive",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Business Analyst",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "SOC Analyst L1",
+"wanted": [
+"SOC Analyst"
+],
+"ok": true
+},
+{
+"title": "Information Security Analyst",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Sr. Java Developer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "DevOps Engineer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Engineer II - Backend",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Staff Engineer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Recruiter",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Talent Acquisition Partner",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Platform Engineer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Android Developer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Junior Software Developer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Principal Architect",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "BI Developer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Mobile Engineer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Associate Software Engineer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "ML Engineer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Technical Program Manager",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Machine Learning Engineer",
+"wanted": [
+"SOC Analyst"
+],
+"ok": false
+},
+{
+"title": "Software Engineer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Senior Software Engineer II",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "SDE-2",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "SWE III, Payments",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Backend Developer (Java)",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Full-Stack Engineer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Front End Developer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Member of Technical Staff",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Software Engineering Intern",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Engineering Manager",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Director of Engineering",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Sales Engineer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "QA Engineer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Data Engineer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Senior Data Analyst",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Product Manager",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Product Marketing Manager",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Associate Product Manager",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Customer Support Executive (6 PM - 3 AM)",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Consultant",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Sales Executive",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Business Analyst",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "SOC Analyst L1",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Information Security Analyst",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Sr. Java Developer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "DevOps Engineer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Engineer II - Backend",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Staff Engineer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Recruiter",
+"wanted": [
+"Recruiter"
+],
+"ok": true
+},
+{
+"title": "Talent Acquisition Partner",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Platform Engineer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Android Developer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Junior Software Developer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Principal Architect",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "BI Developer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Mobile Engineer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Associate Software Engineer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "ML Engineer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Technical Program Manager",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Machine Learning Engineer",
+"wanted": [
+"Recruiter"
+],
+"ok": false
+},
+{
+"title": "Software Engineer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Senior Software Engineer II",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "SDE-2",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "SWE III, Payments",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Backend Developer (Java)",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Full-Stack Engineer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Front End Developer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Member of Technical Staff",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Software Engineering Intern",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Engineering Manager",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Director of Engineering",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Sales Engineer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "QA Engineer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Data Engineer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Senior Data Analyst",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Product Manager",
+"wanted": [
+"PM"
+],
+"ok": true
+},
+{
+"title": "Product Marketing Manager",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Associate Product Manager",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Customer Support Executive (6 PM - 3 AM)",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Consultant",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Sales Executive",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Business Analyst",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "SOC Analyst L1",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Information Security Analyst",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Sr. Java Developer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "DevOps Engineer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Engineer II - Backend",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Staff Engineer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Recruiter",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Talent Acquisition Partner",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Platform Engineer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Android Developer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Junior Software Developer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Principal Architect",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "BI Developer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Mobile Engineer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Associate Software Engineer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "ML Engineer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Technical Program Manager",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Machine Learning Engineer",
+"wanted": [
+"PM"
+],
+"ok": false
+},
+{
+"title": "Software Engineer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Senior Software Engineer II",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "SDE-2",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "SWE III, Payments",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Backend Developer (Java)",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Full-Stack Engineer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Front End Developer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Member of Technical Staff",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Software Engineering Intern",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Engineering Manager",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Director of Engineering",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Sales Engineer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "QA Engineer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Data Engineer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Senior Data Analyst",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Product Manager",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Product Marketing Manager",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Associate Product Manager",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Customer Support Executive (6 PM - 3 AM)",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Consultant",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Sales Executive",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Business Analyst",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "SOC Analyst L1",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Information Security Analyst",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": true
+},
+{
+"title": "Sr. Java Developer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "DevOps Engineer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Engineer II - Backend",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Staff Engineer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Recruiter",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Talent Acquisition Partner",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Platform Engineer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Android Developer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Junior Software Developer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Principal Architect",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "BI Developer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Mobile Engineer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Associate Software Engineer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "ML Engineer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Technical Program Manager",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Machine Learning Engineer",
+"wanted": [
+"Cyber Security Analyst"
+],
+"ok": false
+},
+{
+"title": "Software Engineer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Senior Software Engineer II",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "SDE-2",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "SWE III, Payments",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Backend Developer (Java)",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Full-Stack Engineer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Front End Developer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Member of Technical Staff",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Software Engineering Intern",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Engineering Manager",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Director of Engineering",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Sales Engineer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "QA Engineer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Data Engineer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Senior Data Analyst",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Product Manager",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Product Marketing Manager",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Associate Product Manager",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Customer Support Executive (6 PM - 3 AM)",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Consultant",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "SAP FICO Sales Executive",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Business Analyst",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "SOC Analyst L1",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Information Security Analyst",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Sr. Java Developer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "DevOps Engineer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": true
+},
+{
+"title": "Engineer II - Backend",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Staff Engineer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Recruiter",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Talent Acquisition Partner",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Platform Engineer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Android Developer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Junior Software Developer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Principal Architect",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "BI Developer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Mobile Engineer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Associate Software Engineer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "ML Engineer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Technical Program Manager",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Machine Learning Engineer",
+"wanted": [
+"DevOps Engineer"
+],
+"ok": false
+},
+{
+"title": "Software Engineer",
+"wanted": [],
+"ok": true
+},
+{
+"title": "Senior Software Engineer II",
+"wanted": [],
+"ok": true
+},
+{
+"title": "SDE-2",
+"wanted": [],
+"ok": true
+},
+{
+"title": "SWE III, Payments",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Backend Developer (Java)",
+"wanted": [],
+"ok": true
+},
+{
+"title": "Full-Stack Engineer",
+"wanted": [],
+"ok": true
+},
+{
+"title": "Front End Developer",
+"wanted": [],
+"ok": true
+},
+{
+"title": "Member of Technical Staff",
+"wanted": [],
+"ok": true
+},
+{
+"title": "Software Engineering Intern",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Engineering Manager",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Director of Engineering",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Sales Engineer",
+"wanted": [],
+"ok": false
+},
+{
+"title": "QA Engineer",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Data Engineer",
+"wanted": [],
+"ok": true
+},
+{
+"title": "Senior Data Analyst",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Product Manager",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Product Marketing Manager",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Associate Product Manager",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Customer Support Executive (6 PM - 3 AM)",
+"wanted": [],
+"ok": false
+},
+{
+"title": "SAP FICO Consultant",
+"wanted": [],
+"ok": false
+},
+{
+"title": "SAP FICO Sales Executive",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Business Analyst",
+"wanted": [],
+"ok": false
+},
+{
+"title": "SOC Analyst L1",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Information Security Analyst",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Sr. Java Developer",
+"wanted": [],
+"ok": true
+},
+{
+"title": "DevOps Engineer",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Engineer II - Backend",
+"wanted": [],
+"ok": true
+},
+{
+"title": "Staff Engineer",
+"wanted": [],
+"ok": true
+},
+{
+"title": "Recruiter",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Talent Acquisition Partner",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Platform Engineer",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Android Developer",
+"wanted": [],
+"ok": true
+},
+{
+"title": "Junior Software Developer",
+"wanted": [],
+"ok": true
+},
+{
+"title": "Principal Architect",
+"wanted": [],
+"ok": false
+},
+{
+"title": "BI Developer",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Mobile Engineer",
+"wanted": [],
+"ok": true
+},
+{
+"title": "Associate Software Engineer",
+"wanted": [],
+"ok": true
+},
+{
+"title": "ML Engineer",
+"wanted": [],
+"ok": true
+},
+{
+"title": "Technical Program Manager",
+"wanted": [],
+"ok": false
+},
+{
+"title": "Machine Learning Engineer",
+"wanted": [],
+"ok": true
+}
+],
+"location": [
+{
+"location": "Pune, Maharashtra, India",
+"wanted": [
+"Pune"
+],
+"ok": true
+},
+{
+"location": "Bengaluru, Karnataka",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Bangalore",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Remote - India",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Work from home",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Gurugram",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Gurgaon, Haryana",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "New Delhi",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Delhi NCR",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Noida",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Greater Noida",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Hyderabad / Remote",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Navi Mumbai",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Mumbai",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Chennai",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Madras",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "San Francisco, CA",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Anywhere",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Punegaon",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Kolkata",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Calcutta",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Pune|Bangalore",
+"wanted": [
+"Pune"
+],
+"ok": true
+},
+{
+"location": "Hybrid - Hyderabad, Telangana",
+"wanted": [
+"Pune"
+],
+"ok": false
+},
+{
+"location": "Pune, Maharashtra, India",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Bengaluru, Karnataka",
+"wanted": [
+"Bengaluru"
+],
+"ok": true
+},
+{
+"location": "Bangalore",
+"wanted": [
+"Bengaluru"
+],
+"ok": true
+},
+{
+"location": "Remote - India",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Work from home",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Gurugram",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Gurgaon, Haryana",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "New Delhi",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Delhi NCR",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Noida",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Greater Noida",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Hyderabad / Remote",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Navi Mumbai",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Mumbai",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Chennai",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Madras",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "San Francisco, CA",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Anywhere",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Punegaon",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Kolkata",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Calcutta",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Pune|Bangalore",
+"wanted": [
+"Bengaluru"
+],
+"ok": true
+},
+{
+"location": "Hybrid - Hyderabad, Telangana",
+"wanted": [
+"Bengaluru"
+],
+"ok": false
+},
+{
+"location": "Pune, Maharashtra, India",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Bengaluru, Karnataka",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Bangalore",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Remote - India",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Work from home",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Gurugram",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Gurgaon, Haryana",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "New Delhi",
+"wanted": [
+"Delhi NCR"
+],
+"ok": true
+},
+{
+"location": "Delhi NCR",
+"wanted": [
+"Delhi NCR"
+],
+"ok": true
+},
+{
+"location": "Noida",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Greater Noida",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Hyderabad / Remote",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Navi Mumbai",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Mumbai",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Chennai",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Madras",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "San Francisco, CA",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Anywhere",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Punegaon",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Kolkata",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Calcutta",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Pune|Bangalore",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Hybrid - Hyderabad, Telangana",
+"wanted": [
+"Delhi NCR"
+],
+"ok": false
+},
+{
+"location": "Pune, Maharashtra, India",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Bengaluru, Karnataka",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Bangalore",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Remote - India",
+"wanted": [
+"Remote"
+],
+"ok": true
+},
+{
+"location": "Work from home",
+"wanted": [
+"Remote"
+],
+"ok": true
+},
+{
+"location": "Gurugram",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Gurgaon, Haryana",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "New Delhi",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Delhi NCR",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Noida",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Greater Noida",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Hyderabad / Remote",
+"wanted": [
+"Remote"
+],
+"ok": true
+},
+{
+"location": "Navi Mumbai",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Mumbai",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Chennai",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Madras",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "San Francisco, CA",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Anywhere",
+"wanted": [
+"Remote"
+],
+"ok": true
+},
+{
+"location": "Punegaon",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Kolkata",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Calcutta",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Pune|Bangalore",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Hybrid - Hyderabad, Telangana",
+"wanted": [
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Pune, Maharashtra, India",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": true
+},
+{
+"location": "Bengaluru, Karnataka",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Bangalore",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Remote - India",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": true
+},
+{
+"location": "Work from home",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": true
+},
+{
+"location": "Gurugram",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Gurgaon, Haryana",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "New Delhi",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Delhi NCR",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Noida",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Greater Noida",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Hyderabad / Remote",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": true
+},
+{
+"location": "Navi Mumbai",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Mumbai",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Chennai",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Madras",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "San Francisco, CA",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Anywhere",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": true
+},
+{
+"location": "Punegaon",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Kolkata",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Calcutta",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Pune|Bangalore",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": true
+},
+{
+"location": "Hybrid - Hyderabad, Telangana",
+"wanted": [
+"Pune",
+"Remote"
+],
+"ok": false
+},
+{
+"location": "Pune, Maharashtra, India",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Bengaluru, Karnataka",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Bangalore",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Remote - India",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Work from home",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Gurugram",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Gurgaon, Haryana",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "New Delhi",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Delhi NCR",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Noida",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Greater Noida",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Hyderabad / Remote",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Navi Mumbai",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Mumbai",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Chennai",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Madras",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "San Francisco, CA",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Anywhere",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Punegaon",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Kolkata",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Calcutta",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Pune|Bangalore",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Hybrid - Hyderabad, Telangana",
+"wanted": [
+"India"
+],
+"ok": true
+},
+{
+"location": "Pune, Maharashtra, India",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Bengaluru, Karnataka",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Bangalore",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Remote - India",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Work from home",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Gurugram",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Gurgaon, Haryana",
+"wanted": [],
+"ok": true
+},
+{
+"location": "New Delhi",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Delhi NCR",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Noida",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Greater Noida",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Hyderabad / Remote",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Navi Mumbai",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Mumbai",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Chennai",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Madras",
+"wanted": [],
+"ok": true
+},
+{
+"location": "San Francisco, CA",
+"wanted": [],
+"ok": true
+},
+{
+"location": "",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Anywhere",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Punegaon",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Kolkata",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Calcutta",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Pune|Bangalore",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Hybrid - Hyderabad, Telangana",
+"wanted": [],
+"ok": true
+},
+{
+"location": "Pune, Maharashtra, India",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Bengaluru, Karnataka",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Bangalore",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Remote - India",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Work from home",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Gurugram",
+"wanted": [
+"Gurugram"
+],
+"ok": true
+},
+{
+"location": "Gurgaon, Haryana",
+"wanted": [
+"Gurugram"
+],
+"ok": true
+},
+{
+"location": "New Delhi",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Delhi NCR",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Noida",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Greater Noida",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Hyderabad / Remote",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Navi Mumbai",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Mumbai",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Chennai",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Madras",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "San Francisco, CA",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Anywhere",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Punegaon",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Kolkata",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Calcutta",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Pune|Bangalore",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Hybrid - Hyderabad, Telangana",
+"wanted": [
+"Gurugram"
+],
+"ok": false
+},
+{
+"location": "Pune, Maharashtra, India",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Bengaluru, Karnataka",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Bangalore",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Remote - India",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Work from home",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Gurugram",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Gurgaon, Haryana",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "New Delhi",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Delhi NCR",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Noida",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Greater Noida",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Hyderabad / Remote",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Navi Mumbai",
+"wanted": [
+"Mumbai"
+],
+"ok": true
+},
+{
+"location": "Mumbai",
+"wanted": [
+"Mumbai"
+],
+"ok": true
+},
+{
+"location": "Chennai",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Madras",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "San Francisco, CA",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Anywhere",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Punegaon",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Kolkata",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Calcutta",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Pune|Bangalore",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Hybrid - Hyderabad, Telangana",
+"wanted": [
+"Mumbai"
+],
+"ok": false
+},
+{
+"location": "Pune, Maharashtra, India",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Bengaluru, Karnataka",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Bangalore",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Remote - India",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Work from home",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Gurugram",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Gurgaon, Haryana",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "New Delhi",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Delhi NCR",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Noida",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Greater Noida",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Hyderabad / Remote",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Navi Mumbai",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Mumbai",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Chennai",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": true
+},
+{
+"location": "Madras",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": true
+},
+{
+"location": "San Francisco, CA",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Anywhere",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Punegaon",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Kolkata",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": true
+},
+{
+"location": "Calcutta",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": true
+},
+{
+"location": "Pune|Bangalore",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Hybrid - Hyderabad, Telangana",
+"wanted": [
+"Chennai",
+"Kolkata"
+],
+"ok": false
+},
+{
+"location": "Pune, Maharashtra, India",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Bengaluru, Karnataka",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Bangalore",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Remote - India",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Work from home",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Gurugram",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Gurgaon, Haryana",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "New Delhi",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Delhi NCR",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Noida",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Greater Noida",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Hyderabad / Remote",
+"wanted": [
+"Hyd"
+],
+"ok": true
+},
+{
+"location": "Navi Mumbai",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Mumbai",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Chennai",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Madras",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "San Francisco, CA",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Anywhere",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Punegaon",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Kolkata",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Calcutta",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Pune|Bangalore",
+"wanted": [
+"Hyd"
+],
+"ok": false
+},
+{
+"location": "Hybrid - Hyderabad, Telangana",
+"wanted": [
+"Hyd"
+],
+"ok": true
+},
+{
+"location": "Pune, Maharashtra, India",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Bengaluru, Karnataka",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Bangalore",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Remote - India",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Work from home",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Gurugram",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Gurgaon, Haryana",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "New Delhi",
+"wanted": [
+"New Delhi"
+],
+"ok": true
+},
+{
+"location": "Delhi NCR",
+"wanted": [
+"New Delhi"
+],
+"ok": true
+},
+{
+"location": "Noida",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Greater Noida",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Hyderabad / Remote",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Navi Mumbai",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Mumbai",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Chennai",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Madras",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "San Francisco, CA",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Anywhere",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Punegaon",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Kolkata",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Calcutta",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Pune|Bangalore",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+},
+{
+"location": "Hybrid - Hyderabad, Telangana",
+"wanted": [
+"New Delhi"
+],
+"ok": false
+}
+],
+"evaluate": [
+{
+"user": {
+"titles": [
+"Software Engineer"
+],
+"locations": [
+"Pune"
+],
+"years": 2,
+"blocked": [
+"Infosys"
+],
+"emp": "Acme Corp"
+},
+"job": {
+"title": "Senior Software Engineer",
+"location": "Pune",
+"company": "Acme",
+"company_key": "acme"
+},
+"ok": false,
+"reason": "seniority"
+},
+{
+"user": {
+"titles": [
+"Software Engineer"
+],
+"locations": [
+"Pune"
+],
+"years": 2,
+"blocked": [
+"Infosys"
+],
+"emp": "Acme Corp"
+},
+"job": {
+"title": "Software Engineer I",
+"location": "Pune",
+"company": "Tata Consultancy Services",
+"company_key": "tcs"
+},
+"ok": true,
+"reason": ""
+},
+{
+"user": {
+"titles": [
+"Software Engineer"
+],
+"locations": [
+"Pune"
+],
+"years": 2,
+"blocked": [
+"Infosys"
+],
+"emp": "Acme Corp"
+},
+"job": {
+"title": "SDE 1",
+"location": "Pune",
+"company": "Infosys",
+"company_key": "infosys"
+},
+"ok": false,
+"reason": "company_blocked"
+},
+{
+"user": {
+"titles": [
+"Software Engineer"
+],
+"locations": [
+"Pune"
+],
+"years": 2,
+"blocked": [
+"Infosys"
+],
+"emp": "Acme Corp"
+},
+"job": {
+"title": "Lead Software Engineer",
+"location": "Mumbai",
+"company": "Beta",
+"company_key": "beta"
+},
+"ok": false,
+"reason": "location"
+},
+{
+"user": {
+"titles": [
+"Software Engineer"
+],
+"locations": [
+"Pune"
+],
+"years": 2,
+"blocked": [
+"Infosys"
+],
+"emp": "Acme Corp"
+},
+"job": {
+"title": "Backend Developer",
+"location": "Pune",
+"company": "Persistent Systems",
+"company_key": "persistent"
+},
+"ok": true,
+"reason": ""
+},
+{
+"user": {
+"titles": [
+"Software Engineer"
+],
+"locations": [
+"Pune",
+"Mumbai"
+],
+"years": 10,
+"blocked": [],
+"emp": ""
+},
+"job": {
+"title": "Senior Software Engineer",
+"location": "Pune",
+"company": "Acme",
+"company_key": "acme"
+},
+"ok": true,
+"reason": ""
+},
+{
+"user": {
+"titles": [
+"Software Engineer"
+],
+"locations": [
+"Pune",
+"Mumbai"
+],
+"years": 10,
+"blocked": [],
+"emp": ""
+},
+"job": {
+"title": "Software Engineer I",
+"location": "Pune",
+"company": "Tata Consultancy Services",
+"company_key": "tcs"
+},
+"ok": false,
+"reason": "seniority"
+},
+{
+"user": {
+"titles": [
+"Software Engineer"
+],
+"locations": [
+"Pune",
+"Mumbai"
+],
+"years": 10,
+"blocked": [],
+"emp": ""
+},
+"job": {
+"title": "SDE 1",
+"location": "Pune",
+"company": "Infosys",
+"company_key": "infosys"
+},
+"ok": false,
+"reason": "seniority"
+},
+{
+"user": {
+"titles": [
+"Software Engineer"
+],
+"locations": [
+"Pune",
+"Mumbai"
+],
+"years": 10,
+"blocked": [],
+"emp": ""
+},
+"job": {
+"title": "Lead Software Engineer",
+"location": "Mumbai",
+"company": "Beta",
+"company_key": "beta"
+},
+"ok": true,
+"reason": ""
+},
+{
+"user": {
+"titles": [
+"Software Engineer"
+],
+"locations": [
+"Pune",
+"Mumbai"
+],
+"years": 10,
+"blocked": [],
+"emp": ""
+},
+"job": {
+"title": "Backend Developer",
+"location": "Pune",
+"company": "Persistent Systems",
+"company_key": "persistent"
+},
+"ok": true,
+"reason": ""
+},
+{
+"user": {
+"titles": [
+"Senior Software Engineer"
+],
+"locations": [],
+"years": 1,
+"blocked": [
+"persistent"
+],
+"emp": ""
+},
+"job": {
+"title": "Senior Software Engineer",
+"location": "Pune",
+"company": "Acme",
+"company_key": "acme"
+},
+"ok": true,
+"reason": ""
+},
+{
+"user": {
+"titles": [
+"Senior Software Engineer"
+],
+"locations": [],
+"years": 1,
+"blocked": [
+"persistent"
+],
+"emp": ""
+},
+"job": {
+"title": "Software Engineer I",
+"location": "Pune",
+"company": "Tata Consultancy Services",
+"company_key": "tcs"
+},
+"ok": true,
+"reason": ""
+},
+{
+"user": {
+"titles": [
+"Senior Software Engineer"
+],
+"locations": [],
+"years": 1,
+"blocked": [
+"persistent"
+],
+"emp": ""
+},
+"job": {
+"title": "SDE 1",
+"location": "Pune",
+"company": "Infosys",
+"company_key": "infosys"
+},
+"ok": true,
+"reason": ""
+},
+{
+"user": {
+"titles": [
+"Senior Software Engineer"
+],
+"locations": [],
+"years": 1,
+"blocked": [
+"persistent"
+],
+"emp": ""
+},
+"job": {
+"title": "Lead Software Engineer",
+"location": "Mumbai",
+"company": "Beta",
+"company_key": "beta"
+},
+"ok": true,
+"reason": ""
+},
+{
+"user": {
+"titles": [
+"Senior Software Engineer"
+],
+"locations": [],
+"years": 1,
+"blocked": [
+"persistent"
+],
+"emp": ""
+},
+"job": {
+"title": "Backend Developer",
+"location": "Pune",
+"company": "Persistent Systems",
+"company_key": "persistent"
+},
+"ok": false,
+"reason": "company_blocked"
+}
+],
+"expand": {
+"Software Engineer": [
+"Software Engineer",
+"software engineer",
+"software developer",
+"software development engineer",
+"sde",
+"developer",
+"backend engineer",
+"backend developer",
+"back end engineer",
+"frontend engineer",
+"frontend developer",
+"front end developer",
+"full stack engineer",
+"full stack developer",
+"fullstack developer",
+"platform engineer",
+"application developer",
+"web developer",
+"java developer",
+"python developer",
+"node developer",
+"golang developer",
+"mobile developer",
+"android developer",
+"ios developer",
+"react developer",
+"member of technical staff",
+"mts",
+"ai engineer",
+"ml engineer"
+],
+"Java Developer": [
+"Java Developer",
+"software engineer",
+"software developer",
+"software development engineer",
+"sde",
+"developer",
+"backend engineer",
+"backend developer",
+"back end engineer",
+"frontend engineer",
+"frontend developer",
+"front end developer",
+"full stack engineer",
+"full stack developer",
+"fullstack developer",
+"platform engineer",
+"application developer",
+"web developer",
+"java developer",
+"python developer",
+"node developer",
+"golang developer",
+"mobile developer",
+"android developer",
+"ios developer",
+"react developer",
+"member of technical staff",
+"mts",
+"ai engineer",
+"ml engineer"
+],
+"BI Developer": [
+"BI Developer"
+],
+"Salesforce Developer": [
+"Salesforce Developer"
+],
+"Product Manager": [
+"Product Manager"
+],
+"Backend Engineer": [
+"Backend Engineer",
+"software engineer",
+"software developer",
+"software development engineer",
+"sde",
+"developer",
+"backend engineer",
+"backend developer",
+"back end engineer",
+"frontend engineer",
+"frontend developer",
+"front end developer",
+"full stack engineer",
+"full stack developer",
+"fullstack developer",
+"platform engineer",
+"application developer",
+"web developer",
+"java developer",
+"python developer",
+"node developer",
+"golang developer",
+"mobile developer",
+"android developer",
+"ios developer",
+"react developer",
+"member of technical staff",
+"mts",
+"ai engineer",
+"ml engineer"
+]
+}
+}

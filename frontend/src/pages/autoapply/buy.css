@@ -1,0 +1,27 @@
+/* Buy page: supply panel (match count, broaden chips, kind comparison). Brand tokens from src/index.css only. */
+
+.buy-count { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; }
+.buy-count-num { font-size: 2.4rem; font-weight: 900; line-height: 1; color: var(--pop); letter-spacing: -0.03em; }
+.buy-count-num.is-low { color: var(--warm); }
+.buy-count-text { font-size: 0.9rem; font-weight: 800; color: var(--bright); }
+.buy-count-sub { font-size: 0.74rem; color: var(--muted); margin-top: var(--sp-1); }
+
+.buy-kinds { display: flex; gap: var(--sp-2); flex-wrap: wrap; font-size: 0.72rem; color: var(--accent); }
+.buy-kinds strong { color: var(--bright); }
+
+.buy-broaden { display: flex; flex-direction: column; gap: var(--sp-2); }
+.buy-broaden-title { font-size: 0.72rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.buy-broaden-chips { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.buy-broaden-chip {
+    display: inline-flex; align-items: center; gap: var(--sp-2); padding: 7px 12px; border-radius: 999px;
+    font-family: inherit; font-size: 0.74rem; font-weight: 800; cursor: pointer; text-align: left;
+    color: var(--bright); background: var(--pop-dim); border: 1px solid var(--pop);
+}
+.buy-broaden-chip:hover:not(:disabled) { background: var(--surface); }
+.buy-broaden-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+.buy-broaden-chip .buy-gain { color: var(--pop); font-weight: 900; white-space: nowrap; }
+
+@media (max-width: 560px) {
+    .buy-count-num { font-size: 2rem; }
+    .buy-broaden-chip { width: 100%; justify-content: space-between; }
+}

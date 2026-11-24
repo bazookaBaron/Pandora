@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
-import { Eye, EyeOff } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Eye, EyeOff, KeyRound, Search } from 'lucide-react'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { useAccounts, useRevealPassword } from '../../lib/useAutoApply'
-import { CopyButton, fmtDate } from './ui'
+import { CopyButton, EmptyArt, SectionHead, fmtDate } from './ui'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 
@@ -128,41 +128,74 @@ function Reveal({ host }) {
     )
 }
 
+// 'boards.greenhouse.io/acme' / 'acme.wd3.myworkdayjobs.com' -> 'acme': the company part of a career-site host
+const NOISE = new Set(['www', 'jobs', 'careers', 'career', 'apply', 'boards', 'job-boards', 'eu', 'us', 'com', 'co', 'in', 'io', 'net', 'org',
+    'greenhouse', 'lever', 'myworkdayjobs', 'workday', 'smartrecruiters', 'ashbyhq', 'icims', 'taleo', 'successfactors', 'oraclecloud'])
+function companyOf(host) {
+    const parts = String(host || '').toLowerCase().split(/[./]/).filter((p) => p && !NOISE.has(p) && !/^wd\d+$/.test(p))
+    return parts[0] || String(host || '')
+}
+
 export default function SitesSection() {
     const q = useAccounts()
-    const accounts = q.data?.accounts || []
+    const [term, setTerm] = useState('')
+    const accounts = useMemo(() => q.data?.accounts || [], [q.data?.accounts])
+    const needle = term.trim().toLowerCase().slice(0, 80)
+    const shown = useMemo(() => (needle
+        ? accounts.filter((a) => [a.tenant_host, companyOf(a.tenant_host), a.login_email].some((v) => String(v || '').toLowerCase().includes(needle)))
+        : accounts), [accounts, needle])
 
     return (
-        <div>
-            <p className="aa-muted" style={{ margin: '0 0 12px' }}>Accounts we created for you on company career sites. Passwords are encrypted; each reveal is logged.</p>
+        <section aria-labelledby="sites-h">
+            <SectionHead id="sites-h" icon={KeyRound} tone="active" title="Job-site accounts" count={accounts.length || null}
+                sub="Accounts we created for you on company career sites. Passwords are encrypted; each reveal is logged." />
             {q.isLoading ? (
                 <LoadingState label="Loading accounts…" />
             ) : q.isError ? (
                 <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load accounts" />
             ) : accounts.length === 0 ? (
-                <EmptyState icon="🔐" title="No accounts yet" message="When a site needs an account to apply, we create one with your apply address and list it here." />
+                <EmptyState icon={<EmptyArt kind="accounts" tone="active" />} title="No accounts yet" message="When a site needs an account to apply, we create one with your apply address and list it here." />
             ) : (
-                <div className="aa-table-wrap">
-                    <table className="aa-table">
-                        <caption className="aa-sr">Career-site accounts</caption>
-                        <thead><tr><th scope="col">Site</th><th scope="col">Login</th><th scope="col">Status</th><th scope="col">Last used</th><th scope="col">Password</th></tr></thead>
-                        <tbody>
-                            {accounts.map((a) => {
-                                const [label, tone] = STATUS[a.status] || [a.status, 't-muted']
-                                return (
-                                    <tr key={a.tenant_host}>
-                                        <td className="aa-strong" data-label="Site" style={{ overflowWrap: 'anywhere' }}>{a.tenant_host}</td>
-                                        <td data-label="Login" style={{ overflowWrap: 'anywhere' }}>{a.login_email}</td>
-                                        <td data-label="Status"><span className={`aa-pill ${tone}`}>{label}</span></td>
-                                        <td data-label="Last used">{a.last_used_at ? fmtDate(a.last_used_at) : `Created ${fmtDate(a.created_at, false)}`}</td>
-                                        <td data-label="Password"><Reveal host={a.tenant_host} /></td>
-                                    </tr>
-                                )
-                            })}
-                        </tbody>
-                    </table>
-                </div>
+                <>
+                    <div className="aa-row aa-acct-search" role="search">
+                        <label htmlFor="acct-q" className="aa-sr">Search by company or site</label>
+                        <span style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+                            <Search size={14} aria-hidden="true" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+                            <input id="acct-q" type="search" className="input-field" style={{ paddingLeft: 30 }} value={term} maxLength={80}
+                                onChange={(e) => setTerm(e.target.value)} placeholder="Search a company, e.g. Razorpay" autoComplete="off" />
+                        </span>
+                    </div>
+                    <p className="aa-faint" role="status" aria-live="polite" style={{ margin: '0 0 8px' }}>
+                        {needle ? `${shown.length} of ${accounts.length} account${accounts.length === 1 ? '' : 's'} match “${term.trim()}”` : `${accounts.length} account${accounts.length === 1 ? '' : 's'}`}
+                    </p>
+                    {shown.length === 0 ? (
+                        <EmptyState compact icon={<EmptyArt kind="search" tone="history" />} title="No account for that company"
+                            message="We have not needed a login on that company's career site yet." action={<button type="button" className="aa-btn" onClick={() => setTerm('')}>Clear search</button>} />
+                    ) : (
+                        <div className="aa-table-wrap">
+                            <table className="aa-table">
+                                <caption className="aa-sr">Career-site accounts</caption>
+                                <thead><tr><th scope="col">Company</th><th scope="col">Site</th><th scope="col">Login</th><th scope="col">Status</th><th scope="col">Last used</th><th scope="col">Password</th></tr></thead>
+                                <tbody>
+                                    {shown.map((a) => {
+                                        const [label, tone] = STATUS[a.status] || [a.status, 't-muted']
+                                        return (
+                                            <tr key={a.tenant_host}>
+                                                <td className="aa-strong" data-label="Company" style={{ textTransform: 'capitalize' }}>{companyOf(a.tenant_host)}</td>
+                                                <td data-label="Site" style={{ overflowWrap: 'anywhere' }}>{a.tenant_host}</td>
+                                                <td data-label="Login" style={{ overflowWrap: 'anywhere' }}>{a.login_email}</td>
+                                                <td data-label="Status"><span className={`aa-pill ${tone}`}>{label}</span></td>
+                                                <td data-label="Last used">{a.last_used_at ? fmtDate(a.last_used_at) : `Created ${fmtDate(a.created_at, false)}`}</td>
+                                                <td data-label="Password"><Reveal host={a.tenant_host} /></td>
+                                            </tr>
+                                        )
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </>
             )}
-        </div>
+        </section>
     )
 }

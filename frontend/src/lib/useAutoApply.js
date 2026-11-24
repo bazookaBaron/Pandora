@@ -610,3 +610,33 @@ export function useAutoApplyRealtime() {
 
     return live
 }
+
+// ── Needs you: ONE consolidated form (GET/POST /needs-you/form) ─────
+// GET -> { fields[], sites[], unconfirmed[], profile, item_count, accumulating }
+export function useNeedsYouForm({ enabled = true } = {}) {
+    const uid = useUid()
+    return useQuery({
+        queryKey: [...aaKeys.needsYou, 'form', uid],
+        queryFn: () => aa('/needs-you/form'),
+        enabled: !!uid && enabled,
+        refetchInterval: 60_000,
+    })
+}
+
+// body: { answers: {fieldId: value}, sites: {siteId: 'done'}, manual: {itemId: 'applied'|'skip'}, unconfirmed: {itemId: 'yes'|'no'} }
+export function useSaveNeedsYouForm({ meta } = {}) {
+    const qc = useQueryClient()
+    return useMutation({
+        mutationFn: (body) => aa('/needs-you/form', { method: 'POST', json: body }),
+        meta: { success: 'Saved. We are retrying those applications with your details.', ...meta },
+        onSuccess: (d) => {
+            qc.setQueriesData({ queryKey: [...aaKeys.needsYou, 'form'] }, () => d)
+            return Promise.all([
+                qc.invalidateQueries({ queryKey: aaKeys.needsYou }),
+                qc.invalidateQueries({ queryKey: aaKeys.answers }),
+                qc.invalidateQueries({ queryKey: ['aa', 'batch'] }),
+                qc.invalidateQueries({ queryKey: aaKeys.me }),
+            ])
+        },
+    })
+}

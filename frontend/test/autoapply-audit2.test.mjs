@@ -1,6 +1,6 @@
 /**
  * Audit fixes (round 2): push endpoint allowlist, coupons redeemed at capture, cancel with in-flight /
- * verify_submission tasks, zero-amount refunds without Razorpay, waiting_supply give-up, proof retention.
+ * verify_submission tasks, zero-amount refunds without Razorpay, no-refund policy (expiry extension), proof retention.
  * Run: npm run test:autoapply
  */
 import { test, before, after } from "node:test";
@@ -11,7 +11,7 @@ import express from "express";
 import { createAutoApplyRouter } from "../routes/autoapply.js";
 import { isAllowedPushEndpoint } from "../lib/autoapply/push.js";
 import { createAutoApplyOrder, markBatchPaid, COUPON_UNAVAILABLE_NOTE } from "../lib/autoapply/orders.js";
-import { processRefunds, giveUpWaitingSupply } from "../lib/autoapply/refunds.js";
+import { processRefunds, extendUnfulfilled } from "../lib/autoapply/refunds.js";
 import { cleanupOldProofs } from "../lib/autoapply/proofRetention.js";
 import { createFakeDb } from "./fixtures/fakeSupabase.mjs";
 
@@ -115,8 +115,9 @@ test("free (price 0) coupon pack still redeems immediately", async () => {
 
 // ── refunds without Razorpay ───────────────────────────────────────────────
 test("refunds: zero-amount coupon batch is processed with Razorpay off; a paid one waits", async () => {
-  const free = { id: crypto.randomUUID(), user_id: U1, price_paise: 0, credits_total: 50, credits_used: 10, status: "refund_due", purchased_at: ago(DAY), razorpay_payment_id: "coupon_x" };
-  const paid = { id: crypto.randomUUID(), user_id: U1, price_paise: 59900, credits_total: 50, credits_used: 10, status: "refund_due", purchased_at: ago(DAY), razorpay_payment_id: "pay_x" };
+  // admin-approved refunds (the only refunds of a started batch the policy allows)
+  const free = { id: crypto.randomUUID(), user_id: U1, price_paise: 0, credits_total: 50, credits_used: 10, status: "refund_due", purchased_at: ago(DAY), razorpay_payment_id: "coupon_x", refund_approved_at: ago(1000) };
+  const paid = { id: crypto.randomUUID(), user_id: U1, price_paise: 59900, credits_total: 50, credits_used: 10, status: "refund_due", purchased_at: ago(DAY), razorpay_payment_id: "pay_x", refund_approved_at: ago(1000) };
   const db = createFakeDb({ aa_batches: [free, paid] });
   const out = await processRefunds({ db, razorpay: { isEnabled: () => false }, now: NOW });
   assert.ok(!out.disabled);
@@ -126,27 +127,23 @@ test("refunds: zero-amount coupon batch is processed with Razorpay off; a paid o
   assert.deepEqual(db.rows("aa_credit_ledger").map((l) => [l.batch_id, l.delta]), [[free.id, -40]]);
 });
 
-// ── waiting_supply give-up ─────────────────────────────────────────────────
-test("waiting_supply: nothing queued + nothing applied for 7 days -> refund_due; otherwise left alone", async () => {
-  const stale = { id: crypto.randomUUID(), user_id: U1, credits_total: 50, credits_used: 3, status: "waiting_supply", purchased_at: ago(20 * DAY) };
-  const recent = { id: crypto.randomUUID(), user_id: U1, credits_total: 50, credits_used: 3, status: "waiting_supply", purchased_at: ago(20 * DAY) };
-  const queued = { id: crypto.randomUUID(), user_id: U1, credits_total: 50, credits_used: 0, status: "waiting_supply", purchased_at: ago(20 * DAY) };
-  const young = { id: crypto.randomUUID(), user_id: U1, credits_total: 50, credits_used: 0, status: "waiting_supply", purchased_at: ago(2 * DAY) };
-  const db = createFakeDb({
-    aa_batches: [stale, recent, queued, young],
-    aa_tasks: [
-      { batch_id: stale.id, user_id: U1, status: "applied", submitted_at: ago(9 * DAY) },
-      { batch_id: recent.id, user_id: U1, status: "applied", submitted_at: ago(2 * DAY) },
-      { batch_id: queued.id, user_id: U1, status: "queued" },
-    ],
-  });
-  const out = await giveUpWaitingSupply({ db, now: NOW });
-  assert.deepEqual(out.map((o) => o.batch_id), [stale.id]);
-  const st = Object.fromEntries(db.rows("aa_batches").map((b) => [b.id, b.status]));
-  assert.equal(st[stale.id], "refund_due");
-  assert.equal(st[recent.id], "waiting_supply");
-  assert.equal(st[queued.id], "waiting_supply");
-  assert.equal(st[young.id], "waiting_supply");
+// ── no give-up: unfulfilled batches are kept alive ──────────────────────────
+test("waiting_supply / expiry: never refunded; expires_at pushed forward while credits are left", async () => {
+  const soon = { id: crypto.randomUUID(), user_id: U1, credits_total: 50, credits_used: 3, status: "waiting_supply", purchased_at: ago(88 * DAY), expires_at: new Date(NOW.getTime() + DAY).toISOString() };
+  const past = { id: crypto.randomUUID(), user_id: U1, credits_total: 50, credits_used: 0, status: "running", purchased_at: ago(95 * DAY), expires_at: ago(DAY) };
+  const full = { id: crypto.randomUUID(), user_id: U1, credits_total: 50, credits_used: 50, status: "running", purchased_at: ago(95 * DAY), expires_at: ago(DAY) };
+  const far = { id: crypto.randomUUID(), user_id: U1, credits_total: 50, credits_used: 3, status: "running", purchased_at: ago(DAY), expires_at: new Date(NOW.getTime() + 80 * DAY).toISOString() };
+  const db = createFakeDb({ aa_batches: [soon, past, full, far] });
+  const out = await extendUnfulfilled({ db, now: NOW });
+  assert.deepEqual(out.map((o) => o.batch_id).sort(), [soon.id, past.id].sort());
+  const rows = Object.fromEntries(db.rows("aa_batches").map((b) => [b.id, b]));
+  for (const id of [soon.id, past.id]) assert.ok(Date.parse(rows[id].expires_at) >= NOW.getTime() + 6.9 * DAY, "extended ~7 days");
+  assert.equal(rows[full.id].expires_at, full.expires_at);
+  assert.equal(rows[far.id].expires_at, far.expires_at);
+  // the refunds pass never moves any of them toward a refund
+  await processRefunds({ db, razorpay: { isEnabled: () => true }, now: NOW });
+  assert.deepEqual(db.rows("aa_batches").map((b) => b.status).sort(), ["running", "running", "running", "waiting_supply"]);
+  assert.equal(db.rows("aa_credit_ledger").length, 0);
 });
 
 // ── proof retention ────────────────────────────────────────────────────────
@@ -181,7 +178,7 @@ before(async () => {
 });
 after(() => server && server.close());
 
-test("cancel: verify_submission needs_you task is kept; no in-flight -> refund_due straight away", async () => {
+test("cancel of a paid batch = pause: no task touched, no refund, resumable", async () => {
   const b = { id: crypto.randomUUID(), user_id: U1, credits_total: 50, credits_used: 5, status: "running", purchased_at: ago(DAY), price_paise: 59900 };
   db.rows("aa_batches").push({ ...b, created_at: ago(DAY), updated_at: ago(DAY) });
   const verify = { id: crypto.randomUUID(), batch_id: b.id, user_id: U1, status: "needs_you", reason_code: "verify_submission" };
@@ -190,8 +187,13 @@ test("cancel: verify_submission needs_you task is kept; no in-flight -> refund_d
   const res = await fetch(`${base}/api/autoapply/batches/${b.id}/cancel`, { method: "POST", headers: { Authorization: "Bearer x" } });
   const j = await res.json();
   assert.equal(res.status, 200, JSON.stringify(j));
-  assert.equal(j.batch.status, "refund_due");
+  assert.equal(j.batch.status, "paused");
+  assert.equal(j.paused, true);
   const st = Object.fromEntries(db.rows("aa_tasks").map((t) => [t.id, t.status]));
   assert.equal(st[verify.id], "needs_you");
-  assert.equal(st[captcha.id], "cancelled");
+  assert.equal(st[captcha.id], "needs_you");
+  const again = await fetch(`${base}/api/autoapply/batches/${b.id}/cancel`, { method: "POST", headers: { Authorization: "Bearer x" } });
+  assert.equal(again.status, 200, "double click is fine");
+  const r = await fetch(`${base}/api/autoapply/batches/${b.id}/resume`, { method: "POST", headers: { Authorization: "Bearer x" } });
+  assert.equal((await r.json()).batch.status, "running");
 });

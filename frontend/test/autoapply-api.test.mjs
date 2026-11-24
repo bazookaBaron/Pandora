@@ -160,10 +160,31 @@ test("answers GET/PUT", async () => {
   const p = await call("PUT", "/api/autoapply/answers", { body: { answers: { "fields.city": "Bengaluru", "facts.notice_period_days": 30, "facts.needs_sponsorship": "No" } } });
   assert.equal(p.status, 200);
   assert.deepEqual(p.json.answers, { "fields.city": "Bengaluru", "facts.notice_period_days": "30", "facts.needs_sponsorship": "no" });
+  // required answers cannot be cleared; optional ones can
   const del = await call("PUT", "/api/autoapply/answers", { body: { answers: { "fields.city": "" } } });
-  assert.equal(del.json.answers["fields.city"], undefined);
-  const bad = await call("PUT", "/api/autoapply/answers", { body: { answers: { "facts.notice_period_days": "soon" } } });
+  assert.equal(del.status, 400);
+  assert.equal(del.json.error.fields["fields.city"], "This answer is required.");
+  await call("PUT", "/api/autoapply/answers", { body: { answers: { "fields.website": "https://asha.dev" } } });
+  const delOpt = await call("PUT", "/api/autoapply/answers", { body: { answers: { "fields.website": "" } } });
+  assert.equal(delOpt.status, 200);
+  assert.equal(delOpt.json.answers["fields.website"], undefined);
+  const bad = await call("PUT", "/api/autoapply/answers", { body: { answers: { "facts.notice_period_days": "soon", "fields.phone": "12345", "fields.city": "Bengaluru" } } });
   assert.equal(bad.status, 400);
+  assert.deepEqual(Object.keys(bad.json.error.fields).sort(), ["facts.notice_period_days", "fields.phone"]);
+});
+
+test("PUT /profile prefs: dropdown values only, field errors", async () => {
+  const bad = await call("PUT", "/api/autoapply/profile", { body: { prefs: { titles: ["Chief Vibes Officer"], locations: ["Atlantis"], min_score: 60 } } });
+  assert.equal(bad.status, 400);
+  assert.ok(bad.json.error.fields["prefs.titles"] && bad.json.error.fields["prefs.locations"] && bad.json.error.fields["prefs.min_score"]);
+  const ok = await call("PUT", "/api/autoapply/profile", { body: { prefs: { titles: ["backend engineer"], locations: ["Pan India"], min_score: 0, current_employer: "Acme" } } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.deepEqual(ok.json.profile.prefs.titles, ["Backend Engineer"]);
+  const badJob = await call("PUT", "/api/autoapply/profile", { body: { profile: { first_name: "Asha", experience: [{ title: "SDE" }] } } });
+  assert.equal(badJob.status, 400);
+  assert.ok(badJob.json.error.fields["profile.experience.0.company"]);
+  // restore the prefs the later tests use
+  await call("PUT", "/api/autoapply/profile", { body: { prefs: { titles: ["backend engineer"], locations: ["bengaluru", "remote"] } } });
 });
 
 test("resume upload: type/size checks, storage path, parsed draft", async () => {
@@ -294,7 +315,7 @@ test("batch review: remove task, approve queues shortlisted", async () => {
   assert.equal(db.rows("aa_tasks").find((t) => t.id === t0.id).status, "removed");
 });
 
-test("pause / resume / cancel -> refund_due -> refunds cron -> refunded", async () => {
+test("pause / resume / cancel = pause (never a refund) / refunds cron leaves it alone", async () => {
   const p = await call("POST", `/api/autoapply/batches/${batchId}/pause`);
   assert.equal(p.json.batch.status, "paused");
   const p2 = await call("POST", `/api/autoapply/batches/${batchId}/pause`);
@@ -304,34 +325,33 @@ test("pause / resume / cancel -> refund_due -> refunds cron -> refunded", async 
   const b = db.rows("aa_batches").find((x) => x.id === batchId);
   b.credits_used = 20;
   const [inflight] = seedTasks(batchId, ["running", "needs_you"]);
-  const ny = { id: crypto.randomUUID(), task_id: db.rows("aa_tasks").at(-1).id, user_id: PRO, kind: "captcha", payload: {} };
+  const nyTask = db.rows("aa_tasks").at(-1);
+  const ny = { id: crypto.randomUUID(), task_id: nyTask.id, user_id: PRO, kind: "captcha", payload: {} };
   db.rows("aa_needs_you").push({ ...ny, resolved_at: null, created_at: new Date().toISOString() });
   const c = await call("POST", `/api/autoapply/batches/${batchId}/cancel`);
-  // a task is in flight: the cancel is parked (paused + cancel_requested_at), not refund_due yet
-  assert.equal(c.json.batch.status, "paused");
-  assert.ok(c.json.batch.cancel_requested_at);
-  assert.equal((await call("POST", `/api/autoapply/batches/${batchId}/resume`)).status, 409, "no resume while cancelling");
-  const tasks = db.rows("aa_tasks").filter((t) => t.batch_id === batchId);
-  assert.ok(!tasks.some((t) => ["shortlisted", "queued"].includes(t.status)));
-  assert.equal(db.rows("aa_needs_you").find((n) => n.id === ny.id).resolution, "expired");
+  assert.equal(c.status, 200, JSON.stringify(c.json));
+  assert.equal(c.json.batch.status, "paused", "cancel of a paid batch is a pause");
+  assert.equal(c.json.paused, true);
+  assert.ok(!c.json.batch.cancel_requested_at);
+  assert.equal(inflight.status, "running", "in-flight work untouched");
+  assert.equal(nyTask.status, "needs_you");
+  assert.equal(db.rows("aa_needs_you").find((n) => n.id === ny.id).resolved_at, null, "needs-you kept");
 
-  let out = await runAutoApplyRefunds({ db, razorpay });
-  assert.equal(b.status, "paused", "still in flight: cron leaves it parked");
+  const out = await runAutoApplyRefunds({ db, razorpay });
   assert.ok(!out.results.find((x) => x.batch_id === batchId));
-  inflight.status = "applied";
-  out = await runAutoApplyRefunds({ db, razorpay });
-  const res = out.results.find((x) => x.batch_id === batchId);
-  assert.equal(res.refunded_paise, 35940); // 59900 * 30 / 50
-  assert.equal(b.status, "refunded");
-  assert.equal(b.refund_paise, 35940);
-  assert.equal(b.razorpay_refund_id, "rfnd_1");
-  const led = db.rows("aa_credit_ledger").filter((l) => l.batch_id === batchId && l.reason === "refund");
-  assert.deepEqual(led.map((l) => l.delta), [-30]);
-  // crash-safety: batch flipped back to refund_due after Razorpay refunded -> reuse, no 2nd refund
+  assert.equal(b.status, "paused");
+  assert.equal(refunds.length, 0);
+  // even a stray refund_due (legacy path) is put back to work, never refunded
   b.status = "refund_due";
-  await runAutoApplyRefunds({ db, razorpay });
-  assert.equal(refunds.length, 1);
-  assert.equal(db.rows("aa_credit_ledger").filter((l) => l.batch_id === batchId && l.reason === "refund").length, 1);
+  const out2 = await runAutoApplyRefunds({ db, razorpay });
+  assert.equal(out2.results.find((x) => x.batch_id === batchId).reverted, "running");
+  assert.equal(b.status, "running");
+  assert.equal(refunds.length, 0);
+  assert.equal(db.rows("aa_credit_ledger").filter((l) => l.batch_id === batchId && l.reason === "refund").length, 0);
+  // resume any time
+  b.status = "paused";
+  assert.equal((await call("POST", `/api/autoapply/batches/${batchId}/resume`)).json.batch.status, "running");
+  inflight.status = "applied";
 });
 
 test("needs-you: list, answer -> aa_answers + task queued; done; double resolve", async () => {
@@ -341,7 +361,7 @@ test("needs-you: list, answer -> aa_answers + task queued; done; double resolve"
   const n1 = { id: crypto.randomUUID(), task_id: ta.id, user_id: PRO, kind: "question", payload: { question: label, options: ["Yes", "No"] }, resolved_at: null, created_at: new Date().toISOString() };
   const n2 = { id: crypto.randomUUID(), task_id: tb.id, user_id: PRO, kind: "captcha", payload: { apply_url: "https://x" }, resolved_at: null, created_at: new Date().toISOString() };
   db.rows("aa_needs_you").push(n1, n2);
-  const list = await call("GET", "/api/autoapply/needs-you");
+  const list = await call("GET", "/api/autoapply/needs-you?all=1");
   const item = list.json.items.find((i) => i.id === n1.id);
   assert.equal(item.task.company, ta.company);
   const a = await call("POST", `/api/autoapply/needs-you/${n1.id}`, { body: { action: "answer", answer: "Yes" } });
@@ -362,7 +382,7 @@ test("needs-you: list, answer -> aa_answers + task queued; done; double resolve"
   assert.equal(d.json.item.resolution, "done_by_user");
   assert.equal(tb.status, "skipped");
   assert.equal(tb.reason_code, "done_by_user");
-  const after = await call("GET", "/api/autoapply/needs-you");
+  const after = await call("GET", "/api/autoapply/needs-you?all=1");
   assert.ok(!after.json.items.find((i) => i.id === n1.id || i.id === n2.id));
 });
 
@@ -404,10 +424,10 @@ test("needs-you: profile item (no task) is listed; only dismiss; pause / cancel 
   assert.equal(p.status, 200, JSON.stringify(p.json));
   assert.equal(p.json.batch.status, "paused");
   assert.equal(db.rows("aa_needs_you").find((n) => n.id === ny.id).resolved_at, null);
-  // cancel the last waiting batch: unused credits -> refund_due and the profile item closes
+  // cancel (= pause, no refund) the last waiting batch: the profile item closes
   const c = await call("POST", `/api/autoapply/batches/${b2.id}/cancel`);
   assert.equal(c.status, 200, JSON.stringify(c.json));
-  assert.equal(c.json.batch.status, "refund_due");
+  assert.equal(c.json.batch.status, "paused");
   const closed = db.rows("aa_needs_you").find((n) => n.id === ny.id);
   assert.ok(closed.resolved_at);
   assert.equal(closed.resolution, "dismissed");

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { BarChart3, Building2, CalendarCheck, MessageSquareReply, Send, XCircle } from 'lucide-react'
 import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
 import { useReplyStats } from '../../lib/useAutoApply'
-import { fmtDate, num } from './ui'
+import { EmptyArt, SectionHead, StatTile, fmtDate, num } from './ui'
 
 const pct = (n) => `${(Number(n) || 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })}%`
 
@@ -63,24 +64,24 @@ export default function StatsSection() {
             ) : q.isError ? (
                 <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load stats" />
             ) : !t || t.applied === 0 ? (
-                <EmptyState title="No applications yet" message="Reply rates show up once we have applied to jobs for you." action={<Link to="/autoapply/buy" className="aa-btn is-primary">Buy a pack</Link>} />
+                <EmptyState icon={<EmptyArt kind="stats" tone="active" />} title="No applications yet" message="Reply rates show up once we have applied to jobs for you." action={<Link to="/autoapply/buy" className="aa-btn is-primary">Buy a pack</Link>} />
             ) : (
                 <div className="aa-stack">
-                    <div className="aa-grid">
-                        <div className="aa-card"><div className="aa-stat-value">{num(t.applied)}</div><div className="aa-stat-label">Applied</div></div>
-                        <div className="aa-card"><div className="aa-stat-value">{pct(t.rate)}</div><div className="aa-stat-label">Got a reply ({num(t.replies)})</div></div>
-                        <div className="aa-card"><div className="aa-stat-value">{num(t.interviews)}</div><div className="aa-stat-label">Interviews ({pct(t.interview_rate)})</div></div>
-                        <div className="aa-card"><div className="aa-stat-value">{num(t.rejections)}</div><div className="aa-stat-label">Rejections</div></div>
+                    <div className="aa-tiles" style={{ marginBottom: 0 }}>
+                        <StatTile icon={Send} tone="success" label="Applied" value={t.applied} hint="Last 90 days" />
+                        <StatTile icon={MessageSquareReply} tone="active" label="Got a reply" value={t.replies} hint={`${pct(t.rate)} reply rate`} />
+                        <StatTile icon={CalendarCheck} tone="success" label="Interviews" value={t.interviews} hint={`${pct(t.interview_rate)} of applications`} />
+                        <StatTile icon={XCircle} tone="history" label="Rejections" value={t.rejections} hint="Kept for 30 days" />
                     </div>
                     <p className="aa-faint" style={{ margin: 0 }}>
                         A reply is any mail from the company other than an automatic &ldquo;application received&rdquo; or a verification code. Each application counts once.
                     </p>
-                    <section className="aa-card" aria-labelledby="st-role">
-                        <h2 id="st-role" className="aa-h2">By role family</h2>
+                    <section className="aa-card aa-seg tone-active" aria-labelledby="st-role">
+                        <SectionHead id="st-role" icon={BarChart3} tone="active" title="By role family" />
                         <StatsTable rows={d.by_role} caption="Reply rates by role family" firstCol="Role family" />
                     </section>
-                    <section className="aa-card" aria-labelledby="st-co">
-                        <h2 id="st-co" className="aa-h2">By company</h2>
+                    <section className="aa-card aa-seg tone-active" aria-labelledby="st-co">
+                        <SectionHead id="st-co" icon={Building2} tone="active" title="By company" />
                         <StatsTable rows={d.by_company} caption="Reply rates by company" firstCol="Company" />
                     </section>
                 </div>

@@ -45,15 +45,14 @@ export function liveStatus({ batch, counts = {}, nextAt = null, engine = "off", 
   } else if (st === "review") {
     message = "Your shortlist is ready. Review it and approve to start applying.";
   } else if (st === "paused") {
-    message = batch.cancel_requested_at
-      ? "Cancelling: finishing the applications already in progress, then unused credits are refunded."
-      : "Paused. Resume whenever you are ready.";
+    message = `Paused. Resume any time: we keep going until all ${total} applications are submitted.`;
   } else if (st === "completed" || st === "expired") {
     phase = "done";
     message = `Finished: ${b.applied} application${b.applied === 1 ? "" : "s"} submitted.`;
   } else if (st === "refund_due" || st === "refunding" || st === "refunded") {
+    // only payment-safety or admin refunds reach these states (a bought batch is never refunded automatically)
     phase = "done";
-    message = st === "refunded" ? "Finished. Unused credits were refunded." : "Finished. Unused credits are being refunded.";
+    message = st === "refunded" ? "This payment was refunded." : "This payment is being refunded.";
   } else if (st === "cancelled") {
     phase = "done";
     message = "Cancelled.";
@@ -70,12 +69,14 @@ export function liveStatus({ batch, counts = {}, nextAt = null, engine = "off", 
       ? "Queued: the next applications start in a few minutes."
       : `Queued: applications start within about ${START_WITHIN_MIN} minutes.`;
   } else if (st === "waiting_supply") {
-    message = "Waiting for new matching jobs. We check new postings every day; unused credits are refunded if none turn up.";
+    message = `Waiting for new matching jobs. We check new postings every day and widen the search; we keep going until all ${total} applications are submitted.`;
   } else if (used >= total && total > 0) {
     phase = "done";
     message = `All ${total} credits used.`;
+  } else if (b.needs_you > 0 && used + b.needs_you >= total) {
+    message = "Almost done: the last applications need a few details from you. Open Needs you to fill one short form.";
   } else {
-    message = "Looking for more matching jobs.";
+    message = `Looking for more matching jobs. We keep going until all ${total} applications are submitted.`;
   }
   return { phase, engine, next_at: nextAt, buckets: b, message };
 }

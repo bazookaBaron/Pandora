@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Bell } from 'lucide-react'
+import { Bell, Paperclip } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
 import { GuideNextCta } from '../../components/onboarding/AAProgressGuide'
 import { useAutoApplyMe, useInbox, useInboxCompanies, useInboxMail, useInboxUnread, useMarkAllRead } from '../../lib/useAutoApply'
-import { AALayout, CopyButton, PageHeader, fmtAgo, fmtDate } from './ui'
+import { AALayout, CopyButton, EmptyArt, PageHeader, fmtAgo, fmtDate } from './ui'
 import NotifyButton from './NotifyButton'
 import InterviewCard, { safeHref } from './InterviewCard'
 import InterviewsPanel from './InterviewsPanel'
@@ -38,14 +38,18 @@ const isUrgent = (m) => URGENT_KINDS.has(m.kind) || !!(m.urgent || m.action_need
 function tone(m) {
     if (isUrgent(m)) return ' t-urgent'
     if (m.category === 'important') return ' t-warm'
-    if (m.category === 'rejected') return ' t-warm-soft'
-    if (m.category === 'received') return ' t-pop'
+    if (m.category === 'code') return ' t-pop'
+    if (m.category === 'received') return ' t-green'
     return ' t-muted'
 }
 
-function rowKind(m) {
-    if (isUrgent(m)) return ' is-urgent'
-    return ` k-${m.category || 'other'}`
+// row accent (semantic tones, autoapply.css): act now = attention, applied receipt = success,
+// rejection / other = history
+function rowTone(m) {
+    if (isUrgent(m) || m.category === 'important') return 'tone-attention'
+    if (m.category === 'code') return 'tone-active'
+    if (m.category === 'received') return 'tone-success'
+    return 'tone-history'
 }
 
 function TypePill({ m }) {
@@ -217,45 +221,38 @@ export default function InboxPage() {
                         <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load mail" />
                     ) : mails.length === 0 ? (
                         <EmptyState
-                            icon="✉️"
+                            icon={<EmptyArt kind={term || company || unreadOnly ? 'search' : 'inbox'} tone="active" />}
                             title={term || company || unreadOnly ? 'No matches' : 'No mail yet. Replies, assessments and interview invites land here.'}
                             message={term || company || unreadOnly ? 'Try a different search or filter.' : undefined}
                             action={term || company || unreadOnly ? undefined : <GuideNextCta fallback={{ to: '/autoapply', label: 'Open overview' }} />}
                         />
                     ) : (
                         <>
-                            <ul className="aa-list">
-                                {mails.map((m) => (
-                                    <li key={m.id}>
-                                        <button
-                                            type="button"
-                                            className={`aa-card aa-mail-row${rowKind(m)}${isUnread(m) ? ' is-unread' : ''}`}
-                                            onClick={() => setParam('mail', String(m.id))}
-                                            aria-label={`${isUnread(m) ? 'Unread: ' : ''}${m.subject || '(no subject)'}`}
-                                        >
-                                            <span className="aa-spread" style={{ gap: 10 }}>
-                                                <span style={{ minWidth: 0, textAlign: 'left' }}>
-                                                    <span className="aa-mail-subject">
-                                                        {isUnread(m) && <span className="aa-unread-dot" aria-hidden />}
-                                                        {m.subject || '(no subject)'}
-                                                    </span>
-                                                    <span className="aa-faint aa-mail-meta">
-                                                        {m.company ? `${m.company} · ` : ''}{m.from_name || m.sender} · <time dateTime={m.received_at} title={fmtDate(m.received_at)}>{fmtAgo(m.received_at)}</time>
-                                                    </span>
-                                                </span>
-                                                <span className="aa-row" style={{ gap: 6, flexShrink: 0 }}>
-                                                    {m.has_attachments && <span className="aa-pill" title="Had an attachment">📎</span>}
+                            <ul className="aa-mail-list" aria-label="Emails">
+                                {mails.map((m) => {
+                                    const unreadRow = isUnread(m)
+                                    const from = m.company || m.from_name || m.sender
+                                    return (
+                                        <li key={m.id}>
+                                            <button
+                                                type="button"
+                                                className={`aa-mail-line ${rowTone(m)}${unreadRow ? ' is-unread' : ''}`}
+                                                onClick={() => setParam('mail', String(m.id))}
+                                                aria-label={`${unreadRow ? 'Unread. ' : ''}${label(m)} from ${from}: ${m.subject || '(no subject)'}, ${fmtAgo(m.received_at)}`}
+                                            >
+                                                <span className="m-dot" aria-hidden="true" />
+                                                <span className="m-from" title={m.from_name ? `${m.from_name} <${m.sender}>` : m.sender}>{from}</span>
+                                                <span className="m-subj">{m.subject || '(no subject)'}</span>
+                                                <span className="m-tail" aria-hidden="true">
+                                                    {m.codes?.length > 0 && <span className="aa-otp">{m.codes[0]}</span>}
+                                                    {m.has_attachments && <Paperclip size={12} style={{ color: 'var(--muted)' }} />}
                                                     <TypePill m={m} />
                                                 </span>
-                                            </span>
-                                            {m.codes?.length > 0 && (
-                                                <span className="aa-row" style={{ marginTop: 8 }}>
-                                                    {m.codes.slice(0, 3).map((c) => <span key={c} className="aa-otp" aria-label={`Code ${c}`}>{c}</span>)}
-                                                </span>
-                                            )}
-                                        </button>
-                                    </li>
-                                ))}
+                                                <time className="m-time" dateTime={m.received_at} title={fmtDate(m.received_at)} aria-hidden="true">{fmtAgo(m.received_at)}</time>
+                                            </button>
+                                        </li>
+                                    )
+                                })}
                             </ul>
                             {q.hasNextPage && (
                                 <div className="aa-row" style={{ justifyContent: 'center', marginTop: 14 }}>

@@ -1,29 +1,43 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { readFlag, readGoals, tourProgressKeyFor, writeFlag } from './storage'
+import { readFlag, tourProgressKeyFor, writeFlag } from './storage'
 import './firstrun.css'
 
 const AUTOAPPLY_ON = import.meta.env.VITE_AUTOAPPLY === '1'
 
-// Each step navigates to `route`, waits for `anchor` (a data-tour value on that page's main
-// control) and highlights it, also ringing the nav item `nav`. Missing anchor -> falls back to the
-// nav item, then to a centered tooltip. `route: null` stays on the current page.
-const BASE_STEPS = [
-    { id: 'jobs', goal: 'jobs', route: '/', nav: 'jobs', anchor: 'jobs-filters', title: 'Jobs board', text: 'Search and filter fresh openings by role, city, company and level.' },
-    ...(AUTOAPPLY_ON ? [{ id: 'autoapply', goal: 'autoapply', route: '/autoapply', nav: 'autoapply', anchor: 'autoapply-pipeline', title: 'Auto Apply', text: 'Pick a pipeline once and we apply to matching jobs for you.' }] : []),
-    { id: 'referrals', goal: 'referrals', route: '/referrals', nav: 'referrals', anchor: 'referrals-tabs', title: 'Referrals', text: 'Request a referral, browse open requests, or track your own.' },
-    { id: 'prep', goal: 'practice', route: '/dsa', nav: 'prep', anchor: 'dsa-list', title: 'Prep', text: 'DSA, HLD, LLD and Interview Questions live under Prep; start with company-wise DSA problems.' },
-    { id: 'profile', goal: null, route: '/profile', nav: 'profile', anchor: 'profile-hero', title: 'Profile', text: 'Your details, plan and referral preferences live here.' },
-    { id: 'theme', goal: null, route: null, nav: 'theme', anchor: 'theme', title: 'Theme', text: 'Switch between light and dark any time.' },
+// Each step navigates to `route`, waits for `anchor` (a CSS selector; the first visible match wins)
+// and cuts it out of a plain dim overlay, also cutting out the navbar item `nav`. `openMenu` opens
+// the Prep menu (desktop dropdown or mobile hamburger sheet) first and shows `note`.
+// Missing anchor -> falls back to the nav item, then to a centered tooltip.
+const STEPS = [
+    {
+        id: 'jobs', route: '/', nav: '[data-tour="jobs"]', anchor: '[data-tour="jobs-filters"]',
+        title: 'Jobs', text: 'Browse fresh openings and filter them by role, city, company and level.',
+    },
+    {
+        id: 'dsa', route: '/dsa', nav: '[data-tour="prep"]', anchor: '[data-tour="dsa-list"]',
+        title: 'DSA practice', text: 'Work through company-wise DSA problems and track what you have solved.',
+    },
+    {
+        id: 'design', route: '/dsa', openMenu: true, nav: '[data-tour="prep"]', anchor: '.prep-menu-list, .mobile-prep-group',
+        title: 'HLD and LLD', text: 'System design practice for high-level and low-level design rounds lives in the Prep menu.',
+        note: "We've opened the menu for you.",
+    },
+    ...(AUTOAPPLY_ON ? [{
+        id: 'autoapply', route: '/autoapply', nav: '[data-tour="autoapply"]', anchor: '[data-tour="autoapply-pipeline"]',
+        title: 'Auto Apply', text: 'Choose a pipeline once and we apply to matching jobs on your behalf.',
+    }] : []),
 ]
 
 const WAIT_MS = 3000
-
 const PAD = 6
 const FOCUSABLE = 'button:not([disabled])'
+const MENU_BTN = '[data-tour="prep"]'
 
-function findTarget(id) {
-    const els = document.querySelectorAll(`[data-tour="${id}"]`)
+function findTarget(sel) {
+    if (!sel) return null
+    let els
+    try { els = document.querySelectorAll(sel) } catch { return null }
     for (const el of els) {
         const r = el.getBoundingClientRect()
         if (r.width > 0 && r.height > 0) return el
@@ -31,11 +45,12 @@ function findTarget(id) {
     return null
 }
 
-function measure(id) {
-    const el = findTarget(id)
-    if (!el) return null
-    const r = el.getBoundingClientRect()
-    return { top: r.top, left: r.left, width: r.width, height: r.height }
+/** Opens/closes the Prep menu (desktop dropdown or mobile sheet) by toggling its own button. */
+function setMenuOpen(open) {
+    const btn = findTarget(MENU_BTN)
+    if (!btn) return
+    const isOpen = btn.getAttribute('aria-expanded') === 'true'
+    if (isOpen !== open) { try { btn.click() } catch { /* ignore */ } }
 }
 
 function readProgress(uid) {
@@ -45,14 +60,13 @@ function readProgress(uid) {
     } catch { return null }
 }
 
-/** Resolves with the visible [data-tour=id] element, or null after `timeout` ms (or when cancelled). */
-function waitForSelector(id, isCancelled, timeout = WAIT_MS) {
+/** Resolves with the first visible match of `sel`, or null after `timeout` ms (or when cancelled). */
+function waitForSelector(sel, isCancelled, timeout = WAIT_MS) {
     return new Promise((resolve) => {
         const t0 = Date.now()
         const tick = () => {
             if (isCancelled()) return resolve(null)
-            let el = null
-            try { el = findTarget(id) } catch { el = null }
+            const el = findTarget(sel)
             if (el) return resolve(el)
             if (Date.now() - t0 >= timeout) return resolve(null)
             requestAnimationFrame(tick)
@@ -61,21 +75,31 @@ function waitForSelector(id, isCancelled, timeout = WAIT_MS) {
     })
 }
 
-/** Spotlight tour: blurred+dimmed page with one highlighted element and a tooltip. */
+const grab = (el) => {
+    if (!el || !el.isConnected) return null
+    const r = el.getBoundingClientRect()
+    return r.width > 0 && r.height > 0 ? { top: r.top, left: r.left, width: r.width, height: r.height } : null
+}
+const same = (a, b) => a === b || (a && b && a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height)
+const padRect = (r, p, vp) => {
+    const top = Math.max(0, Math.round(r.top - p))
+    const left = Math.max(0, Math.round(r.left - p))
+    const bottom = Math.min(vp.h, Math.round(r.top + r.height + p))
+    const right = Math.min(vp.w, Math.round(r.left + r.width + p))
+    return { top, left, width: Math.max(0, right - left), height: Math.max(0, bottom - top) }
+}
+
+/**
+ * Spotlight tour: a plain semi-transparent overlay (no blur) with the target and its navbar item
+ * cut out so they stay crisp, plus a tooltip card. Clicks outside the card are swallowed.
+ */
 export default function GuidedTour({ uid, onClose }) {
     const navigate = useNavigate()
     const location = useLocation()
     const pathRef = useRef(location.pathname)
     pathRef.current = location.pathname
-
-    const steps = useMemo(() => {
-        const goals = readGoals(uid)
-        // steps matching a chosen goal go first (stable otherwise)
-        return BASE_STEPS
-            .map((s, i) => ({ s, i, rank: s.goal && goals.includes(s.goal) ? 0 : 1 }))
-            .sort((a, b) => a.rank - b.rank || a.i - b.i)
-            .map((x) => x.s)
-    }, [uid])
+    const maskId = 'fr-mask-' + useId().replace(/[^a-zA-Z0-9_-]/g, '')
+    const steps = STEPS
 
     // where the user started (restored after a reload) so closing the tour returns them there
     const originRef = useRef(null)
@@ -101,25 +125,41 @@ export default function GuidedTour({ uid, onClose }) {
         writeFlag(tourProgressKeyFor(uid), JSON.stringify({ id: step.id, from: originRef.current }))
     }, [uid, step.id])
 
+    // never leave the menu open behind us
+    useEffect(() => () => setMenuOpen(false), [])
+
     // close = end the tour and put the user back where they started
     const finish = useCallback(() => {
         writeFlag(tourProgressKeyFor(uid), null)
+        setMenuOpen(false)
         const from = originRef.current || '/'
         if (pathRef.current + window.location.search !== from) { try { navigate(from) } catch { /* ignore */ } }
         onClose()
     }, [uid, navigate, onClose])
 
-    // navigate -> wait for the page anchor -> highlight (skip the step if the route redirected away)
+    // navigate -> (open menu) -> wait for the anchor -> highlight (skip the step if the route redirected away)
     useEffect(() => {
         let cancelled = false
         const isCancelled = () => cancelled
         setTarget({ anchor: null, nav: null })
+        if (!step.openMenu) setMenuOpen(false)
         const run = async () => {
             try {
                 if (step.route && pathRef.current !== step.route) navigate(step.route)
+                if (step.openMenu) {
+                    // the menus close on route change, so open only once the route has settled
+                    const t0 = Date.now()
+                    while (!cancelled && step.route && pathRef.current !== step.route && Date.now() - t0 < WAIT_MS) {
+                        await new Promise((r) => setTimeout(r, 50))
+                    }
+                    await waitForSelector(MENU_BTN, isCancelled)
+                    await new Promise((r) => setTimeout(r, 60))
+                    if (cancelled) return
+                    setMenuOpen(true)
+                }
                 const anchorEl = await waitForSelector(step.anchor, isCancelled)
                 if (cancelled) return
-                const navEl = step.nav && step.nav !== step.anchor ? findTarget(step.nav) : null
+                const navEl = findTarget(step.nav)
                 const arrived = !step.route || pathRef.current === step.route
                 if (!arrived && !anchorEl) {
                     // redirected (e.g. gated page): skip this step in the direction of travel
@@ -127,7 +167,9 @@ export default function GuidedTour({ uid, onClose }) {
                     if (n >= steps.length) { finish(); return }
                     if (n >= 0) { setIdx(n); return }
                 }
-                if (anchorEl) { try { anchorEl.scrollIntoView({ block: 'center', inline: 'nearest' }) } catch { /* old browser */ } }
+                if (anchorEl && !step.openMenu) {
+                    try { anchorEl.scrollIntoView({ block: 'center', inline: 'nearest' }) } catch { /* old browser */ }
+                }
                 setTarget({ anchor: anchorEl, nav: navEl })
             } catch {
                 if (!cancelled) setTarget({ anchor: null, nav: null })
@@ -139,12 +181,6 @@ export default function GuidedTour({ uid, onClose }) {
 
     const measureAll = useCallback(() => {
         setVp((v) => (v.w === window.innerWidth && v.h === window.innerHeight ? v : { w: window.innerWidth, h: window.innerHeight }))
-        const grab = (el) => {
-            if (!el || !el.isConnected) return null
-            const r = el.getBoundingClientRect()
-            return r.width > 0 && r.height > 0 ? { top: r.top, left: r.left, width: r.width, height: r.height } : null
-        }
-        const same = (a, b) => a === b || (a && b && a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height)
         const a = grab(target.anchor)
         const n = grab(target.nav)
         setRect((p) => (same(p, a) ? p : a))
@@ -166,93 +202,114 @@ export default function GuidedTour({ uid, onClose }) {
     // Spotlight: the page anchor, else the nav item, else a centered tooltip.
     const spot = rect || navRect
 
-    // place the tooltip below the target (above if no room), clamped to the viewport
+    // place the tooltip below the target (above if no room), clamped to the viewport, on whole pixels
     useLayoutEffect(() => {
         const tip = tipRef.current
         if (!tip) return
+        if (!spot) { setPos(null); return }
         const tw = tip.offsetWidth
         const th = tip.offsetHeight
-        if (!spot) { setPos(null); return }
         const m = 12
         let top = spot.top + spot.height + PAD + 10
         if (top + th > vp.h - m) top = spot.top - PAD - 10 - th
         if (top < m) top = Math.max(m, vp.h - th - m)
         const left = Math.min(Math.max(m, spot.left + spot.width / 2 - tw / 2), Math.max(m, vp.w - tw - m))
-        setPos({ top, left })
+        setPos({ top: Math.round(top), left: Math.round(left) })
     }, [spot, vp, idx])
 
     useEffect(() => {
         const opener = document.activeElement
         return () => { try { opener?.focus?.() } catch { /* gone */ } }
     }, [])
-    useEffect(() => { tipRef.current?.focus() }, [idx])
+    useEffect(() => { tipRef.current?.focus({ preventScroll: true }) }, [idx])
 
     const next = () => { if (last) finish(); else { dirRef.current = 1; setIdx(idx + 1) } }
     const back = () => { if (idx > 0) { dirRef.current = -1; setIdx(idx - 1) } }
 
     function onKeyDown(e) {
-        if (e.key === 'Escape') { e.stopPropagation(); finish(); return }
+        // keep the navbar's own Escape/outside handlers from fighting the tour
+        e.stopPropagation()
+        if (e.key === 'Escape') { finish(); return }
         if (e.key === 'ArrowRight') { e.preventDefault(); next(); return }
         if (e.key === 'ArrowLeft') { e.preventDefault(); back(); return }
         if (e.key === 'Tab' && tipRef.current) {
             const items = [...tipRef.current.querySelectorAll(FOCUSABLE)]
-            if (!items.length) return
+            if (!items.length) { e.preventDefault(); return }
             const first = items[0]
             const lastEl = items[items.length - 1]
             const a = document.activeElement
             if (e.shiftKey && (a === first || a === tipRef.current)) { e.preventDefault(); lastEl.focus() }
             else if (!e.shiftKey && a === lastEl) { e.preventDefault(); first.focus() }
+            else if (!tipRef.current.contains(a)) { e.preventDefault(); first.focus() }
         }
     }
 
-    // four panes around the target so the target itself stays sharp
-    let panes
-    let ring = null
-    if (spot) {
-        const t = Math.max(0, spot.top - PAD)
-        const l = Math.max(0, spot.left - PAD)
-        const r = Math.min(vp.w, spot.left + spot.width + PAD)
-        const b = Math.min(vp.h, spot.top + spot.height + PAD)
-        panes = [
-            { top: 0, left: 0, width: vp.w, height: t },
-            { top: b, left: 0, width: vp.w, height: Math.max(0, vp.h - b) },
-            { top: t, left: 0, width: l, height: Math.max(0, b - t) },
-            { top: t, left: r, width: Math.max(0, vp.w - r), height: Math.max(0, b - t) },
-        ]
-        ring = { top: t, left: l, width: r - l, height: b - t }
+    // Swallow pointer events so the page (and the open Prep menu's outside-click handler) never sees them.
+    const swallow = (e) => { e.stopPropagation(); if (e.type !== 'mousedown' && e.type !== 'touchstart') e.preventDefault() }
+
+    const holes = []
+    if (step.openMenu && rect && navRect) {
+        // the menu button and its open list read as one highlighted block
+        const top = Math.min(rect.top, navRect.top)
+        const left = Math.min(rect.left, navRect.left)
+        const bottom = Math.max(rect.top + rect.height, navRect.top + navRect.height)
+        const right = Math.max(rect.left + rect.width, navRect.left + navRect.width)
+        holes.push(padRect({ top, left, width: right - left, height: bottom - top }, PAD, vp))
     } else {
-        panes = [{ top: 0, left: 0, width: vp.w, height: vp.h }]
+        if (rect) holes.push(padRect(rect, PAD, vp))
+        if (navRect) holes.push(padRect(navRect, 4, vp))
     }
-    const navRing = rect && navRect
-        ? { top: navRect.top - 4, left: navRect.left - 4, width: navRect.width + 8, height: navRect.height + 8 }
-        : null
 
     return (
         <div className="fr-tour" onKeyDown={onKeyDown}>
-            {panes.map((p, i) => <div key={i} className="fr-pane" style={p} onClick={(e) => e.stopPropagation()} />)}
-            {ring && <div className="fr-ring" style={ring} aria-hidden="true" />}
-            {navRing && <div key={step.id} className="fr-ring is-nav" style={navRing} aria-hidden="true" />}
+            <div
+                className="fr-shield"
+                aria-hidden="true"
+                onMouseDown={swallow}
+                onTouchStart={swallow}
+                onClick={swallow}
+            />
+            <svg className="fr-dim" width={vp.w} height={vp.h} aria-hidden="true" focusable="false">
+                <defs>
+                    <mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width={vp.w} height={vp.h}>
+                        <rect x="0" y="0" width={vp.w} height={vp.h} fill="white" />
+                        {holes.map((h, i) => <rect key={i} x={h.left} y={h.top} width={h.width} height={h.height} rx="8" fill="black" />)}
+                    </mask>
+                </defs>
+                <rect className="fr-dim-fill" x="0" y="0" width={vp.w} height={vp.h} mask={`url(#${maskId})`} />
+            </svg>
+            {holes.map((h, i) => (
+                <div key={step.id + i} className={'fr-ring' + (i === 1 ? ' is-nav' : '')} style={h} aria-hidden="true" />
+            ))}
+            <p className="fr-live" aria-live="polite" aria-atomic="true">
+                {`Step ${idx + 1} of ${steps.length}: ${step.title}. ${step.note ? step.note + ' ' : ''}${step.text}`}
+            </p>
             <div
                 ref={tipRef}
                 className={'fr-tip' + (spot && pos ? '' : ' is-center')}
                 style={spot && pos ? { top: pos.top, left: pos.left } : undefined}
                 role="dialog"
                 aria-modal="true"
-                aria-label={`Tour: ${step.title}`}
+                aria-labelledby={maskId + '-t'}
+                aria-describedby={maskId + '-d'}
                 tabIndex={-1}
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
             >
                 <div className="fr-tip-head">
-                    <strong>{step.title}</strong>
+                    <span className="fr-tip-count">{idx + 1} / {steps.length}</span>
                     <button type="button" className="fr-skip" onClick={finish}>Skip</button>
                 </div>
-                <p className="fr-tip-text">{step.text}</p>
+                <strong className="fr-tip-title" id={maskId + '-t'}>{step.title}</strong>
+                {step.note && <p className="fr-tip-note">{step.note}</p>}
+                <p className="fr-tip-text" id={maskId + '-d'}>{step.text}</p>
                 <div className="fr-tip-foot">
-                    <div className="fr-dots" aria-label={`Step ${idx + 1} of ${steps.length}`}>
+                    <div className="fr-dots" aria-hidden="true">
                         {steps.map((s, i) => <span key={s.id} className={'fr-pip' + (i === idx ? ' is-on' : '')} />)}
                     </div>
                     <div className="fr-actions-r">
                         {idx > 0 && <button type="button" className="fr-btn" onClick={back}>Back</button>}
-                        <button type="button" className="fr-btn is-primary" onClick={next}>{last ? 'Done' : 'Next'}</button>
+                        <button type="button" className="fr-btn is-primary" onClick={next}>{last ? 'Got it' : 'Next'}</button>
                     </div>
                 </div>
             </div>
