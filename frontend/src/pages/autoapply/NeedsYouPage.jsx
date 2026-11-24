@@ -5,6 +5,7 @@ import { GuideNextCta } from '../../components/onboarding/AAProgressGuide'
 import { useNeedsYou, useResolveNeedsYou } from '../../lib/useAutoApply'
 import { Link } from 'react-router-dom'
 import { AALayout, InlineConfirm, PageHeader, ProfileMissing, fmtAgo } from './ui'
+import { safeHref } from './InterviewCard'
 
 const KIND = {
     profile: { title: 'Complete your profile', help: 'A paid batch is waiting until your profile is complete. We start applying on our next check after you finish it.' },
@@ -61,7 +62,7 @@ function TaskItem({ item }) {
     const resolve = useResolveNeedsYou()
     const p = item.payload || {}
     const meta = KIND[item.kind] || KIND.other
-    const link = p.apply_url || item.task?.apply_url
+    const link = safeHref(p.apply_url) || safeHref(item.task?.apply_url)
     const [answer, setAnswer] = useState(p.suggestion ?? '')
     const [confirmDismiss, setConfirmDismiss] = useState(false)
     const id = `ny-${item.id}`

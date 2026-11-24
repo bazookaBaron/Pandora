@@ -307,13 +307,17 @@ test("pause / resume / cancel -> refund_due -> refunds cron -> refunded", async 
   const ny = { id: crypto.randomUUID(), task_id: db.rows("aa_tasks").at(-1).id, user_id: PRO, kind: "captcha", payload: {} };
   db.rows("aa_needs_you").push({ ...ny, resolved_at: null, created_at: new Date().toISOString() });
   const c = await call("POST", `/api/autoapply/batches/${batchId}/cancel`);
-  assert.equal(c.json.batch.status, "refund_due");
+  // a task is in flight: the cancel is parked (paused + cancel_requested_at), not refund_due yet
+  assert.equal(c.json.batch.status, "paused");
+  assert.ok(c.json.batch.cancel_requested_at);
+  assert.equal((await call("POST", `/api/autoapply/batches/${batchId}/resume`)).status, 409, "no resume while cancelling");
   const tasks = db.rows("aa_tasks").filter((t) => t.batch_id === batchId);
   assert.ok(!tasks.some((t) => ["shortlisted", "queued"].includes(t.status)));
   assert.equal(db.rows("aa_needs_you").find((n) => n.id === ny.id).resolution, "expired");
 
   let out = await runAutoApplyRefunds({ db, razorpay });
-  assert.equal(out.results.find((x) => x.batch_id === batchId).skipped, "in_flight");
+  assert.equal(b.status, "paused", "still in flight: cron leaves it parked");
+  assert.ok(!out.results.find((x) => x.batch_id === batchId));
   inflight.status = "applied";
   out = await runAutoApplyRefunds({ db, razorpay });
   const res = out.results.find((x) => x.batch_id === batchId);
@@ -644,7 +648,7 @@ test("inbox: category / kind / company / unread filters, unread count, read on o
 test("push: key, subscribe (validated, per-user), unsubscribe", async () => {
   const k = await call("GET", "/api/autoapply/push/key");
   assert.deepEqual(k.json, { enabled: true, key: "BPUBLICKEY" });
-  const sub = { endpoint: "https://push.example.test/abc", keys: { p256dh: "p256", auth: "authsecret" } };
+  const sub = { endpoint: "https://fcm.googleapis.com/fcm/send/abc", keys: { p256dh: "p256", auth: "authsecret" } };
   assert.equal((await call("POST", "/api/autoapply/push/subscribe", { body: sub })).status, 200);
   assert.equal((await call("POST", "/api/autoapply/push/subscribe", { body: sub })).status, 200, "idempotent on endpoint");
   assert.equal(db.rows("aa_push_subscriptions").length, 1);

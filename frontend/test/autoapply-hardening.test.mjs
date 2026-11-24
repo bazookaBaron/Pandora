@@ -174,7 +174,7 @@ test("authAgeS uses the newest amr timestamp, never iat", () => {
 // ── API: consent, retry-safe mutations, push ownership, read-all ────────────
 const db = createFakeDb({
   aa_profiles: [{ user_id: U2, apply_alias: "two.zzzz", consent_at: new Date().toISOString(), onboarding_done: true }],
-  aa_push_subscriptions: [{ user_id: U2, endpoint: "https://push.test/dev-2", p256dh: "k2", auth: "a2" }],
+  aa_push_subscriptions: [{ user_id: U2, endpoint: "https://updates.push.services.mozilla.com/wpush/v2/dev-2", p256dh: "k2", auth: "a2" }],
 });
 const mailDb = createFakeDb();
 const orders = [];
@@ -281,17 +281,17 @@ test("needs-you: a failed answer write leaves the item open, so the retry succee
 });
 
 test("push/subscribe never reassigns another user's device; returns the subscription", async () => {
-  const stolen = await call("POST", "/api/autoapply/push/subscribe", { body: { endpoint: "https://push.test/dev-2", keys: { p256dh: "evil", auth: "evil" } } });
+  const stolen = await call("POST", "/api/autoapply/push/subscribe", { body: { endpoint: "https://updates.push.services.mozilla.com/wpush/v2/dev-2", keys: { p256dh: "evil", auth: "evil" } } });
   assert.equal(stolen.status, 409);
   assert.equal(stolen.json.error.code, "endpoint_owned");
-  const row = db.rows("aa_push_subscriptions").find((x) => x.endpoint === "https://push.test/dev-2");
+  const row = db.rows("aa_push_subscriptions").find((x) => x.endpoint === "https://updates.push.services.mozilla.com/wpush/v2/dev-2");
   assert.deepEqual([row.user_id, row.p256dh], [U2, "k2"]);
-  const mine = await call("POST", "/api/autoapply/push/subscribe", { body: { endpoint: "https://push.test/dev-1", keys: { p256dh: "k1", auth: "a1" } } });
+  const mine = await call("POST", "/api/autoapply/push/subscribe", { body: { endpoint: "https://updates.push.services.mozilla.com/wpush/v2/dev-1", keys: { p256dh: "k1", auth: "a1" } } });
   assert.equal(mine.status, 200);
-  assert.equal(mine.json.subscription.endpoint, "https://push.test/dev-1");
-  const refresh = await call("POST", "/api/autoapply/push/subscribe", { body: { endpoint: "https://push.test/dev-1", keys: { p256dh: "k1b", auth: "a1" } } });
+  assert.equal(mine.json.subscription.endpoint, "https://updates.push.services.mozilla.com/wpush/v2/dev-1");
+  const refresh = await call("POST", "/api/autoapply/push/subscribe", { body: { endpoint: "https://updates.push.services.mozilla.com/wpush/v2/dev-1", keys: { p256dh: "k1b", auth: "a1" } } });
   assert.equal(refresh.status, 200);
-  assert.equal(db.rows("aa_push_subscriptions").find((x) => x.endpoint === "https://push.test/dev-1").p256dh, "k1b");
+  assert.equal(db.rows("aa_push_subscriptions").find((x) => x.endpoint === "https://updates.push.services.mozilla.com/wpush/v2/dev-1").p256dh, "k1b");
 });
 
 test("inbox: unread count via head count; read-all returns how many it marked", async () => {

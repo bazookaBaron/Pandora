@@ -28,7 +28,7 @@ import { isEligiblePlan, usageFor } from "../lib/autoapply/limits.js";
 import { AAError, createAutoApplyOrder, quoteAutoApplyCoupon, verifyAutoApplyPayment, handleAutoApplyWebhook, expirePendingOrders } from "../lib/autoapply/orders.js";
 import { verifyInbound, storeInbound } from "../lib/autoapply/inbound.js";
 import { mailDb as realMailDb } from "../lib/autoapply/mailDb.js";
-import { sendPushForMail, vapidConfig } from "../lib/autoapply/push.js";
+import { sendPushForMail, vapidConfig, isAllowedPushEndpoint } from "../lib/autoapply/push.js";
 import { cleanupExpiredMail, sendDailyAlerts } from "../lib/autoapply/mailJobs.js";
 import { NOTIFY_CATEGORIES } from "../lib/autoapply/classify.js";
 import { processRefunds } from "../lib/autoapply/refunds.js";
@@ -685,6 +685,7 @@ export function createAutoApplyRouter(deps = {}) {
     writeLimiter,
     wrap("batch/resume", async (req, res) => {
       const batch = await ownBatch(req.user.id, req.params.id);
+      if (batch.cancel_requested_at) throw new AAError(409, "cancel_pending", "This pack is being cancelled; it can't be resumed.");
       const inReview = batch.review_until && new Date(batch.review_until).getTime() > now().getTime();
       res.json({ batch: await updateBatchIf(batch, ["paused"], { status: inReview ? "review" : "running" }) });
     }),
@@ -709,8 +710,21 @@ export function createAutoApplyRouter(deps = {}) {
           .from("aa_tasks")
           .update({ status: "cancelled", reason_code: "batch_cancelled" })
           .eq("batch_id", batch.id)
-          .in("status", ["shortlisted", "queued", "failed", "needs_you"]);
+          .in("status", ["shortlisted", "queued", "failed"]);
         if (error) throw error;
+        // needs_you tasks too, EXCEPT 'verify_submission': the application may already be submitted (the user
+        // still has to confirm it), so it stays open and the refunds cron's credit count stays honest.
+        const { data: ny, error: nyErr } = await db.from("aa_tasks").select("id, reason_code").eq("batch_id", batch.id).eq("status", "needs_you");
+        if (nyErr) throw nyErr;
+        const nyIds = (ny || []).filter((t) => t.reason_code !== "verify_submission").map((t) => t.id);
+        if (nyIds.length) {
+          const { error: nyUpErr } = await db
+            .from("aa_tasks")
+            .update({ status: "cancelled", reason_code: "batch_cancelled" })
+            .in("id", nyIds)
+            .eq("status", "needs_you");
+          if (nyUpErr) throw nyUpErr;
+        }
         const { data: cancelledTasks, error: tErr } = await db.from("aa_tasks").select("id").eq("batch_id", batch.id).eq("status", "cancelled");
         if (tErr) throw tErr;
         const ids = (cancelledTasks || []).map((t) => t.id);
@@ -726,9 +740,24 @@ export function createAutoApplyRouter(deps = {}) {
       let updated = batch;
       if (!done) {
         let next;
+        let patch = null;
         if (batch.status === "pending_payment") next = "cancelled";
-        else next = Number(batch.credits_used) < Number(batch.credits_total) ? "refund_due" : "completed";
-        updated = await updateBatchIf(batch, allowed, { status: next });
+        else {
+          // A worker may be applying right now (claimed/running/waiting_code/submitting) and may still spend a
+          // credit, so refund_due vs completed can't be decided yet: park the batch as 'paused' with
+          // cancel_requested_at; the refunds cron finalizes it once nothing is in flight (finalizeCancelRequests).
+          const { count: busy, error: bErr } = await db
+            .from("aa_tasks")
+            .select("id", { count: "exact", head: true })
+            .eq("batch_id", batch.id)
+            .in("status", ["claimed", "running", "waiting_code", "submitting"]);
+          if (bErr) throw bErr;
+          if (busy > 0) {
+            next = "paused";
+            patch = { cancel_requested_at: now().toISOString() };
+          } else next = Number(batch.credits_used) < Number(batch.credits_total) ? "refund_due" : "completed";
+        }
+        updated = await updateBatchIf(batch, allowed, { status: next, ...(patch || {}) });
       }
       if (batch.status === "waiting_profile") await closeProfileItemIfIdle(req.user.id);
       res.json({ batch: updated });
@@ -1148,9 +1177,7 @@ export function createAutoApplyRouter(deps = {}) {
       const keys = b.keys || {};
       const p256dh = keys.p256dh || b.p256dh;
       const auth = keys.auth || b.auth;
-      let okUrl = false;
-      try { okUrl = typeof endpoint === "string" && new URL(endpoint).protocol === "https:"; } catch { okUrl = false; }
-      if (!okUrl || endpoint.length > 2000) throw bad("endpoint must be an https URL.");
+      if (!isAllowedPushEndpoint(endpoint)) throw bad("endpoint must be an https URL of a browser push service.");
       if (typeof p256dh !== "string" || typeof auth !== "string" || !p256dh || !auth || p256dh.length > 200 || auth.length > 100) {
         throw bad("keys.p256dh and keys.auth are required.");
       }

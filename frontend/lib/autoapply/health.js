@@ -5,8 +5,9 @@
  * stats.interval_s (fallback by component: discovery 4 h, scheduler 5 min, worker:* 1 min).
  *
  * Admins: there is no admin role in the app's auth, so admin access is an env allowlist on the server:
- *   AA_ADMIN_EMAILS   comma-separated emails (case-insensitive)
- *   AA_ADMIN_USER_IDS comma-separated auth user ids
+ *   AA_ADMIN_USER_IDS comma-separated auth user ids (preferred; when set, emails are ignored)
+ *   AA_ADMIN_EMAILS   comma-separated emails (case-insensitive), used only when no ids are set and only for a
+ *                     confirmed email (req.user.email_confirmed, from requireAuth)
  * Unset = nobody is an admin.
  */
 export const DEFAULT_INTERVAL_S = { discovery: 4 * 3600, scheduler: 300, worker: 60 };
@@ -16,8 +17,11 @@ const list = (v) => String(v || "").split(",").map((s) => s.trim().toLowerCase()
 export function isAdminUser(user, env = process.env) {
   if (!user) return false;
   const ids = list(env.AA_ADMIN_USER_IDS);
+  // ids are authoritative: when AA_ADMIN_USER_IDS is set, the email list is ignored
+  if (ids.length) return !!user.id && ids.includes(String(user.id).toLowerCase());
   const emails = list(env.AA_ADMIN_EMAILS);
-  return (!!user.id && ids.includes(String(user.id).toLowerCase())) || (!!user.email && emails.includes(String(user.email).toLowerCase()));
+  // email fallback only for a confirmed address (an unconfirmed sign-up must not claim an admin's email)
+  return !!user.email && user.email_confirmed === true && emails.includes(String(user.email).toLowerCase());
 }
 
 export function intervalFor(row) {

@@ -54,7 +54,11 @@ export async function resolveUser(token) {
   try {
     const { data, error } = await supabaseAdmin.auth.getUser(token);
     if (error || !data?.user) return null;
-    const user = { id: data.user.id, email: data.user.email ?? null };
+    const user = {
+      id: data.user.id,
+      email: data.user.email ?? null,
+      email_confirmed: !!(data.user.email_confirmed_at || data.user.confirmed_at),
+    };
     cacheSet(token, user);
     return user;
   } catch {

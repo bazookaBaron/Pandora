@@ -82,9 +82,10 @@ import {
   runDailyMailAlerts,
   runInterviewReminders,
 } from "./routes/autoapply.js";
-import { makeLimiter, tokenOrIpKey } from "./lib/rateKeys.js";
+import { makeLimiter, tokenOrIpKey, ipKey } from "./lib/rateKeys.js";
 import { registerProfileCompanyRoutes, getVerifiedCompany } from "./routes/profileCompany.js";
 import { createWorkerBroker } from "./routes/workerBroker.js";
+import { cleanupOldProofs } from "./lib/autoapply/proofRetention.js";
 import {
   computePeriodEnd,
   claimPayment,
@@ -3884,6 +3885,15 @@ app.post("/api/run", requireAuth, runLimiter, async (req, res) => {
 // for a fixed term; when it lapses the entitlements lazy check drops the user
 // to free. DORMANT until RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are set.
 const checkoutLimiter = makeLimiter({ windowMs: 60 * 1000, max: 12 });
+// Coupon checks are per IP too (the user-keyed checkout limiter alone lets one person guess codes from many
+// throwaway accounts): 20 coupon attempts per 15 min per IP across plan + AutoApply.
+const couponIpLimiter = makeLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  keyGenerator: ipKey,
+  message: { error: "coupon_rate_limited", message: "Too many coupon attempts - try again later." },
+});
+const couponIpGate = (req, res, next) => (req.body && req.body.coupon_code ? couponIpLimiter(req, res, next) : next());
 
 const PAID_PLANS = ["pro", "max"];
 const PERIODS = ["monthly", "yearly"];
@@ -3958,6 +3968,7 @@ app.post(
 //   → { ok, plan, current_period_end } | { ok, dry: true, kind, plan }
 app.post(
   "/api/payments/coupon",
+  couponIpLimiter,
   requireAuth,
   checkoutLimiter,
   async (req, res) => {
@@ -4484,6 +4495,8 @@ app.use("/api/autoapply", (_req, res, next) =>
     ? next()
     : res.status(404).json({ error: { code: "not_enabled", message: "AutoApply is not available yet." } }),
 );
+app.use("/api/autoapply/orders/coupon", couponIpLimiter);
+app.post("/api/autoapply/orders", couponIpGate);
 app.use(
   "/api/autoapply",
   createAutoApplyRouter({ limiters: { checkout: checkoutLimiter, write: catalogLimiter } }),
@@ -5103,17 +5116,25 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 // AutoApply refunds: 'refund_due' batches -> Razorpay refund of the unused
-// share -> ledger 'refund' -> 'refunded'. Every 15 min.
-if (process.env.SUPABASE_SERVICE_ROLE_KEY && razorpay.isEnabled()) {
+// share -> ledger 'refund' -> 'refunded'. Every 15 min. Runs without Razorpay keys too: zero-amount (coupon)
+// batches, parked cancels and stale waiting_supply batches need no Razorpay call (paid refunds then wait).
+if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (!razorpay.isEnabled()) console.warn("[autoapply] Razorpay keys not set: paid refunds wait, zero-amount batches still processed");
   cron.schedule("*/15 * * * *", () => runAutoApplyRefunds(), { timezone: "Asia/Kolkata" });
 } else {
-  console.warn("[autoapply] refunds cron disabled (no SUPABASE_SERVICE_ROLE_KEY or Razorpay keys)");
+  console.warn("[autoapply] refunds cron disabled (no SUPABASE_SERVICE_ROLE_KEY)");
 }
 
 // AutoApply pending orders: pending_payment older than 24 h -> 'cancelled' (a payment that still lands is
 // auto-refunded by markBatchPaid). Hourly.
 if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
   cron.schedule("10 * * * *", () => runExpirePendingOrders().then((r) => { if (r.expired) console.log("[autoapply] pending orders expired", r); }, (e) => console.error("[autoapply] pending expiry failed:", (e && e.message) || e)), { timezone: "Asia/Kolkata" });
+}
+
+// AutoApply proof retention: aa-proof screenshots older than 30 days are deleted and aa_tasks.proof_path nulled
+// (confirmation_text stays). Daily 04:10 IST.
+if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  cron.schedule("10 4 * * *", () => cleanupOldProofs({ db: supabaseAdmin }).then((r) => console.log("[autoapply] proof retention", r)), { timezone: "Asia/Kolkata" });
 }
 
 // AutoApply mail (mail lives only inside Vloombox; see docs/autoapply-contract.md).

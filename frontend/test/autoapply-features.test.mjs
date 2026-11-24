@@ -305,7 +305,9 @@ test("health: stale after 2 x interval, error wins, summary order", () => {
 
 test("isAdminUser: env allowlist by email or id, nobody by default", () => {
   assert.equal(isAdminUser({ id: U1, email: "a@x.com" }, {}), false);
-  assert.equal(isAdminUser({ id: U1, email: "Boss@X.com" }, { AA_ADMIN_EMAILS: "boss@x.com, other@y.com" }), true);
+  assert.equal(isAdminUser({ id: U1, email: "Boss@X.com", email_confirmed: true }, { AA_ADMIN_EMAILS: "boss@x.com, other@y.com" }), true);
+  assert.equal(isAdminUser({ id: U1, email: "Boss@X.com" }, { AA_ADMIN_EMAILS: "boss@x.com" }), false, "unconfirmed email");
+  assert.equal(isAdminUser({ id: U1, email: "boss@x.com", email_confirmed: true }, { AA_ADMIN_EMAILS: "boss@x.com", AA_ADMIN_USER_IDS: "someone-else" }), false, "ids set: emails ignored");
   assert.equal(isAdminUser({ id: U1, email: null }, { AA_ADMIN_USER_IDS: U1.toUpperCase() }), true);
   assert.equal(isAdminUser(null, { AA_ADMIN_EMAILS: "a@x.com" }), false);
 });
@@ -422,7 +424,7 @@ before(async () => {
       authenticate: (req, res, next) => {
         const uid = String(req.headers.authorization || "").replace(/^Bearer /, "");
         if (!USERS[uid]) return res.status(401).json({ error: { code: "auth_required", message: "x" } });
-        req.user = { id: uid, email: uid === ADMIN ? "admin@vloombox.test" : `${uid.slice(-4)}@mail.test` };
+        req.user = { id: uid, email: uid === ADMIN ? "admin@vloombox.test" : `${uid.slice(-4)}@mail.test`, email_confirmed: true };
         next();
       },
     }),

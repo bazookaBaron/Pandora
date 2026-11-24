@@ -106,6 +106,12 @@ export function createFakeDb(seed = {}) {
         filters.push((r) => re.test(String(r[c] ?? "")));
         return b;
       },
+      not(c, o, v) {
+        if (o === "is" && v === null) filters.push((r) => r[c] !== null && r[c] !== undefined);
+        else if (o === "eq") filters.push((r) => r[c] !== v);
+        else throw new Error("fake not(): unsupported " + o);
+        return b;
+      },
       neq(c, v) { filters.push((r) => r[c] !== v); return b; },
       in(c, vs) { filters.push((r) => vs.includes(r[c])); return b; },
       is(c, v) { filters.push((r) => (v === null ? r[c] === null || r[c] === undefined : r[c] === v)); return b; },

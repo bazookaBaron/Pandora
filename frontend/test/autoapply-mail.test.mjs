@@ -207,9 +207,9 @@ test("push: disabled without VAPID env, sends to every subscription, drops dead 
   assert.equal(vapidConfig({ VAPID_PUBLIC_KEY: "a", VAPID_PRIVATE_KEY: "b" }).subject, "mailto:support.vloombox@gmail.com");
   const db = createFakeDb({
     aa_push_subscriptions: [
-      { user_id: U(1), endpoint: "https://p.test/live", p256dh: "k", auth: "a" },
-      { user_id: U(1), endpoint: "https://p.test/gone", p256dh: "k", auth: "a" },
-      { user_id: U(2), endpoint: "https://p.test/other", p256dh: "k", auth: "a" },
+      { user_id: U(1), endpoint: "https://fcm.googleapis.com/fcm/send/live", p256dh: "k", auth: "a" },
+      { user_id: U(1), endpoint: "https://fcm.googleapis.com/fcm/send/gone", p256dh: "k", auth: "a" },
+      { user_id: U(2), endpoint: "https://fcm.googleapis.com/fcm/send/other", p256dh: "k", auth: "a" },
     ],
   });
   const event = { id: 9, sender: "Acme HR <hr@acme.com>", subject: "Your online assessment" };
@@ -231,7 +231,7 @@ test("push: disabled without VAPID env, sends to every subscription, drops dead 
   assert.equal(pushPayload({ id: 3, kind: "interview", company: "Acme", sender: "x@acme.com", subject: "Interview" }).title, "Interview invite · Acme");
   assert.equal(pushPayload({ id: 4, category: "rejected", sender: "x@acme.com", subject: "Update" }).title, "Application update");
   assert.equal(pushPayload({ id: 5, kind: "offer", sender: "x@acme.com", subject: "Offer" }).title, "Offer received");
-  assert.deepEqual(db.rows("aa_push_subscriptions").map((s) => s.endpoint).sort(), ["https://p.test/live", "https://p.test/other"]);
+  assert.deepEqual(db.rows("aa_push_subscriptions").map((s) => s.endpoint).sort(), ["https://fcm.googleapis.com/fcm/send/live", "https://fcm.googleapis.com/fcm/send/other"]);
 
   assert.equal((await sendPushForMail({ db, event, userId: U(1), webpush, prefs: { push: false } })).skipped, "opted_out");
   // a transient failure keeps the subscription and never throws

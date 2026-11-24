@@ -21,6 +21,23 @@ async function loadWebPush(env) {
   return realWebPush;
 }
 
+// Push services a browser subscription may point at. Anything else (IP literals, other hosts, non-https,
+// custom ports, credentials in the URL) is rejected so a subscription can't make the server POST to an
+// arbitrary URL (SSRF).
+const PUSH_HOSTS_EXACT = ["fcm.googleapis.com", "web.push.apple.com"];
+const PUSH_HOST_SUFFIXES = [".push.services.mozilla.com", ".notify.windows.com"];
+
+export function isAllowedPushEndpoint(endpoint) {
+  if (typeof endpoint !== "string" || endpoint.length > 2000) return false;
+  let u;
+  try { u = new URL(endpoint); } catch { return false; }
+  if (u.protocol !== "https:" || u.username || u.password || (u.port && u.port !== "443")) return false;
+  const host = u.hostname.toLowerCase();
+  if (!host || host.startsWith("[") || /^[0-9.]+$/.test(host) || host.includes(":")) return false; // IP literals
+  if (PUSH_HOSTS_EXACT.includes(host)) return true;
+  return PUSH_HOST_SUFFIXES.some((sfx) => host.endsWith(sfx) && host.length > sfx.length && /^[a-z0-9.-]+$/.test(host));
+}
+
 const clip = (s, n) => String(s || "").replace(/\s+/g, " ").trim().slice(0, n);
 
 export function senderLabel(event) {
@@ -69,6 +86,10 @@ export async function sendPushToUser({ db, userId, payload, prefs, env = process
     let sent = 0;
     const dead = [];
     for (const s of subs || []) {
+      if (!isAllowedPushEndpoint(s.endpoint)) {
+        dead.push(s.endpoint); // pre-allowlist row pointing somewhere else: drop it, never POST to it
+        continue;
+      }
       try {
         await wp.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, body, { TTL: 86400 });
         sent++;

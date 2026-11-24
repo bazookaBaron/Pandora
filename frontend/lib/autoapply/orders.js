@@ -90,7 +90,10 @@ export async function createAutoApplyOrder({ db, razorpay, getUserPlan, userId, 
     );
   }
 
-  const redeemed = code ? await couponOrThrow(db, { code, userId, target: "autoapply" }) : null;
+  // A free pack (price 0) redeems the coupon now. A paid coupon pack (per_job_rupee) only stores the code: the
+  // coupon is redeemed when the payment is captured (markBatchPaid), so an abandoned checkout never uses it up
+  // and the global / per-user limits are enforced under the redeem_coupon row lock at capture time.
+  const redeemed = code && price === 0 ? await couponOrThrow(db, { code, userId, target: "autoapply" }) : null;
   const row = {
     user_id: userId,
     pack_kind: input.pack_kind,
@@ -102,6 +105,7 @@ export async function createAutoApplyOrder({ db, razorpay, getUserPlan, userId, 
     credits_total: input.pack_size,
   };
   if (redeemed) Object.assign(row, { coupon_code: code, coupon_redemption_id: redeemed.redemptionId });
+  else if (code) row.coupon_code = code;
   const { data: batch, error } = await db.from("aa_batches").insert(row).select("*").single();
   if (error) {
     if (redeemed) await releaseCoupon(db, redeemed.redemptionId);
@@ -164,6 +168,7 @@ async function insertPurchaseLedger(db, batch, paymentId, note) {
 }
 
 export const LATE_PAYMENT_NOTE = "late_payment_auto_refund";
+export const COUPON_UNAVAILABLE_NOTE = "coupon_unavailable_auto_refund";
 export const CAP_OVERFLOW_NOTE = "monthly_cap_auto_refund";
 
 /**
@@ -196,19 +201,39 @@ export async function markBatchPaid({ db, batch, paymentId, now = new Date() }) 
       next = "refund_due";
       note = LATE_PAYMENT_NOTE;
     }
+    // paid coupon pack: redeem the coupon now that the money is in. If it is no longer available (used up by
+    // other captures, or this user's limit reached), the payment is refunded in full instead of activated.
+    let redemption = null;
+    if (next === "paid" && current.coupon_code && !current.coupon_redemption_id && Number(current.price_paise) > 0) {
+      try {
+        redemption = await redeemCoupon(db, { code: current.coupon_code, userId: current.user_id, target: "autoapply" });
+      } catch (err) {
+        if (!(err && String(err.code || "").startsWith("coupon_"))) throw err;
+        next = "refund_due";
+        note = COUPON_UNAVAILABLE_NOTE;
+      }
+    }
     if (next) {
+      const patch = { status: next, purchased_at: purchasedAt, expires_at: expiresAt, razorpay_payment_id: paymentId };
+      if (redemption) patch.coupon_redemption_id = redemption.redemptionId;
       const { data: won, error } = await db
         .from("aa_batches")
-        .update({ status: next, purchased_at: purchasedAt, expires_at: expiresAt, razorpay_payment_id: paymentId })
+        .update(patch)
         .eq("id", current.id)
         .eq("status", current.status)
         .is("purchased_at", null)
         .select("*");
-      if (error) throw error;
+      if (error) {
+        if (redemption) await releaseCoupon(db, redemption.redemptionId);
+        throw error;
+      }
       if (won && won[0]) {
         current = won[0];
+        if (redemption) await db.from("coupon_redemptions").update({ batch_id: current.id }).eq("id", redemption.redemptionId);
         if (note) console.warn(`[autoapply] payment ${paymentId} for batch ${current.id}: ${note} (refund_due)`);
       } else {
+        // another caller (verify vs webhook) won the flip: give back the redemption this call took
+        if (redemption) await releaseCoupon(db, redemption.redemptionId);
         note = null;
         const { data: again, error: rErr } = await db.from("aa_batches").select("*").eq("id", batch.id).maybeSingle();
         if (rErr) throw rErr;

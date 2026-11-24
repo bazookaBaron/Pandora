@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
+import { safeHref } from './InterviewCard'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { fetchTaskProof, useAutoApplyRealtime, useBatch, useBatchAction, useCompanySuggest, useRemoveTask, useSetMustCompanies } from '../../lib/useAutoApply'
 import {
@@ -263,8 +264,8 @@ const TaskTable = memo(function TaskTable({ batchId, batchStatus, tasks }) {
                                 <td>
                                     <div className="aa-row" style={{ gap: 6 }}>
                                         {t.status === 'applied' && t.has_proof && <ProofButton batchId={batch.id} task={t} />}
-                                        {t.apply_url && (
-                                            <a className="aa-btn" href={t.apply_url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${t.company} job posting`}>
+                                        {safeHref(t.apply_url) && (
+                                            <a className="aa-btn" href={safeHref(t.apply_url)} target="_blank" rel="noopener noreferrer" aria-label={`Open ${t.company} job posting`}>
                                                 <ExternalLink size={12} aria-hidden /> Job
                                             </a>
                                         )}

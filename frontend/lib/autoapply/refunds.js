@@ -15,7 +15,11 @@
  *    reused (a crash between Razorpay and our DB write never double-refunds);
  *  • a batch with nothing paid (no payment id / purchased_at) has nothing to refund: -> 'cancelled' instead of
  *    being retried every 15 minutes;
- *  • the final status flip is conditional on status = 'refunding'.
+ *  • the final status flip is conditional on status = 'refunding';
+ *  • zero-amount batches (coupon packs, nothing left to pay back) are processed without Razorpay; a batch that
+ *    needs a Razorpay refund while Razorpay is not configured stays queued.
+ * Before the refund pass: cancel requests parked while tasks were in flight are finalized, and waiting_supply
+ * batches with nothing queued and nothing applied for 7 days are moved to refund_due.
  */
 const IN_FLIGHT = ["claimed", "running", "waiting_code", "submitting"];
 const MIN_REFUND_PAISE = 100;
@@ -74,6 +78,11 @@ async function refundOne({ db, razorpay, batch: candidate, now }) {
     let refunded = 0;
 
     if (remaining > 0 && paise >= MIN_REFUND_PAISE) {
+      if (!razorpay || !razorpay.isEnabled()) {
+        // money to give back but no Razorpay keys here: leave it queued (zero-amount batches still go through)
+        await release(db, batch.id);
+        return { batch_id: batch.id, skipped: "razorpay_disabled" };
+      }
       const existing = await razorpay.listRefunds(batch.razorpay_payment_id);
       if (existing === null) {
         await release(db, batch.id);
@@ -123,6 +132,83 @@ async function refundOne({ db, razorpay, batch: candidate, now }) {
   }
 }
 
+const DAY_MS = 86400000;
+export const SUPPLY_GIVE_UP_MS = 7 * DAY_MS;
+const CANCELLABLE = ["shortlisted", "queued", "failed"];
+
+const nextAfterStop = (b) => (Number(b.credits_used) < Number(b.credits_total) ? "refund_due" : "completed");
+
+/**
+ * Cancels requested while tasks were in flight (batch 'paused' + cancel_requested_at, set by the cancel route):
+ * once nothing is in flight, cancel what is left and move to refund_due / completed.
+ */
+export async function finalizeCancelRequests({ db, limit = 50 }) {
+  const { data: rows, error } = await db
+    .from("aa_batches")
+    .select("id, status, credits_used, credits_total, cancel_requested_at")
+    .eq("status", "paused")
+    .not("cancel_requested_at", "is", null)
+    .limit(limit);
+  if (error) throw error;
+  const out = [];
+  for (const b of rows || []) {
+    const { count: inflight, error: cErr } = await db.from("aa_tasks").select("id", { count: "exact", head: true }).eq("batch_id", b.id).in("status", IN_FLIGHT);
+    if (cErr) throw cErr;
+    if (inflight > 0) continue;
+    const { error: tErr } = await db.from("aa_tasks").update({ status: "cancelled", reason_code: "batch_cancelled" }).eq("batch_id", b.id).in("status", CANCELLABLE);
+    if (tErr) throw tErr;
+    // credits_used may have moved while tasks finished: decide on the fresh row
+    const { data: fresh, error: fErr } = await db.from("aa_batches").select("id, status, credits_used, credits_total").eq("id", b.id).maybeSingle();
+    if (fErr) throw fErr;
+    if (!fresh || fresh.status !== "paused") continue;
+    const next = nextAfterStop(fresh);
+    const { data: won, error: uErr } = await db.from("aa_batches").update({ status: next }).eq("id", b.id).eq("status", "paused").select("id");
+    if (uErr) throw uErr;
+    if (won && won[0]) out.push({ batch_id: b.id, status: next });
+  }
+  return out;
+}
+
+/**
+ * waiting_supply batches that got nowhere: 0 queued tasks and nothing applied for 7 days (counting from the
+ * purchase when nothing was ever applied) -> refund_due (or completed when no credits are left). The refunds
+ * pass that follows still waits for in-flight tasks before refunding.
+ */
+export async function giveUpWaitingSupply({ db, now = new Date(), limit = 50 }) {
+  const cutoff = new Date(now.getTime() - SUPPLY_GIVE_UP_MS).toISOString();
+  const { data: rows, error } = await db
+    .from("aa_batches")
+    .select("id, status, credits_used, credits_total, purchased_at")
+    .eq("status", "waiting_supply")
+    .lt("purchased_at", cutoff)
+    .limit(limit);
+  if (error) throw error;
+  const out = [];
+  for (const b of rows || []) {
+    const { count: queued, error: qErr } = await db.from("aa_tasks").select("id", { count: "exact", head: true }).eq("batch_id", b.id).eq("status", "queued");
+    if (qErr) throw qErr;
+    if (queued > 0) continue;
+    const { count: recent, error: aErr } = await db
+      .from("aa_tasks")
+      .select("id", { count: "exact", head: true })
+      .eq("batch_id", b.id)
+      .eq("status", "applied")
+      .gte("submitted_at", cutoff);
+    if (aErr) throw aErr;
+    if (recent > 0) continue;
+    const next = nextAfterStop(b);
+    const { data: won, error: uErr } = await db
+      .from("aa_batches")
+      .update({ status: next, waiting_detail: "no matching jobs for 7 days" })
+      .eq("id", b.id)
+      .eq("status", "waiting_supply")
+      .select("id");
+    if (uErr) throw uErr;
+    if (won && won[0]) out.push({ batch_id: b.id, status: next });
+  }
+  return out;
+}
+
 // Per-process overlap guard only (one pass at a time in this replica); cross-replica safety is the claim above.
 let running = false;
 
@@ -132,7 +218,16 @@ export async function processRefunds({ db, razorpay, limit = 25, now = new Date(
   running = true;
   const results = [];
   try {
-    if (!razorpay.isEnabled()) return { disabled: true };
+    // runs with or without Razorpay keys: zero-amount (coupon) batches need no Razorpay call
+    let finalized = [];
+    let gaveUp = [];
+    try {
+      finalized = await finalizeCancelRequests({ db });
+      gaveUp = await giveUpWaitingSupply({ db, now });
+    } catch (e) {
+      console.error("[autoapply/refunds] pre-pass:", (e && e.message) || String(e));
+    }
+    if (finalized.length || gaveUp.length) console.log("[autoapply/refunds] pre-pass", JSON.stringify({ finalized, gaveUp }));
     const { data: due, error } = await db
       .from("aa_batches")
       .select("id, status, updated_at")
