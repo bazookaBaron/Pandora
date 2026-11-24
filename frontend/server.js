@@ -84,6 +84,7 @@ import {
 } from "./routes/autoapply.js";
 import { makeLimiter, tokenOrIpKey } from "./lib/rateKeys.js";
 import { registerProfileCompanyRoutes, getVerifiedCompany } from "./routes/profileCompany.js";
+import { createWorkerBroker } from "./routes/workerBroker.js";
 import {
   computePeriodEnd,
   claimPayment,
@@ -210,6 +211,11 @@ app.use(
     credentials: false,
   }),
 );
+
+// On-demand Vast worker broker (routes/workerBroker.js, WORKER_CONTRACT.md). Server-to-server: no session auth
+// (one-time bootstrap token, then a bearer worker token), its own 16 KB JSON parser and rate limits. Mounted
+// before the global parser / generalLimiter; /api/* never reaches the SPA fallback.
+app.use("/api/internal/worker", createWorkerBroker());
 
 // AutoApply inbound mail from the Email Worker (docs/autoapply-contract.md).
 // The HMAC covers the exact raw bytes, so this one route gets its own raw

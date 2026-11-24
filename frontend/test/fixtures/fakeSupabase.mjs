@@ -16,6 +16,7 @@ const UNIQUE = {
   aa_push_subscriptions: [["id"], ["endpoint"]],
   aa_needs_you: [["id"]],
   aa_portal_accounts: [["user_id", "tenant_host"]],
+  aa_worker_launches: [["id"], ["worker_id"]],
 };
 
 const DEFAULTS = {
@@ -211,6 +212,10 @@ export function createFakeDb(seed = {}) {
         return {
           async upload(p, buf, o) { storage.push({ op: "upload", bucket, path: p, size: buf.length, o }); return { data: { path: p }, error: null }; },
           async remove(paths) { storage.push({ op: "remove", bucket, paths }); return { data: [], error: null }; },
+          async createSignedUploadUrl(p, o) {
+            storage.push({ op: "sign_upload", bucket, path: p, o });
+            return { data: { signedUrl: `https://storage.test/upload/${bucket}/${p}?token=up`, token: "up", path: p }, error: null };
+          },
           async createSignedUrl(p, expiresIn) {
             storage.push({ op: "sign", bucket, path: p, expiresIn });
             return { data: { signedUrl: `https://storage.test/${bucket}/${p}?token=signed&expires=${expiresIn}` }, error: null };
