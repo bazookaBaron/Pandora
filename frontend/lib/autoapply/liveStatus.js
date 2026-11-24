@@ -22,6 +22,8 @@ export function buckets(counts = {}) {
   };
 }
 
+const rupeesText = (paise) => `₹${Math.round(paise / 100).toLocaleString("en-IN")}`;
+
 const fmtTime = (iso) =>
   new Date(iso).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit", day: "numeric", month: "short" });
 
@@ -52,7 +54,11 @@ export function liveStatus({ batch, counts = {}, nextAt = null, engine = "off", 
   } else if (st === "refund_due" || st === "refunding" || st === "refunded") {
     // only payment-safety or admin refunds reach these states (a bought batch is never refunded automatically)
     phase = "done";
-    message = st === "refunded" ? "This payment was refunded." : "This payment is being refunded.";
+    // one short line; the amount only when something was actually paid back (a ₹0 line is noise)
+    const paise = Number(batch && batch.refund_paise) || 0;
+    message = st !== "refunded"
+      ? "This payment is being refunded."
+      : paise > 0 ? `Refunded ${rupeesText(paise)}.` : "This payment was refunded.";
   } else if (st === "cancelled") {
     phase = "done";
     message = "Cancelled.";

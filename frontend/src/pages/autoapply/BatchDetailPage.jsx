@@ -1,11 +1,11 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { CheckCircle2, Clock, Coins, ExternalLink, Hand, ListChecks, Loader, MinusCircle, Star } from 'lucide-react'
+import { CheckCircle2, Clock, Coins, ExternalLink, FileCheck2, Hand, ListChecks, Loader, Mail, MinusCircle, Star } from 'lucide-react'
 import { safeHref } from './InterviewCard'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { fetchTaskProof, useAutoApplyRealtime, useBatch, useBatchAction, useCompanySuggest, useSetMustCompanies } from '../../lib/useAutoApply'
 import {
-    AALayout, BatchStatusPill, EmptyArt, InlineConfirm, MustCompaniesInput, PACK_KINDS, PageHeader, ProfileMissing, Progress, SectionHead, TaskStatusPill,
+    AALayout, BatchStatusPill, EmptyArt, InlineConfirm, MustCompaniesInput, PACK_KINDS, PageHeader, ProfileMissing, Progress, SectionHead,
     batchTone, fmtDate, num, rupees,
 } from './ui'
 
@@ -146,12 +146,13 @@ function ProofButton({ batchId, task }) {
             setBusy(false)
         }
     }
+    const label = `View proof of the ${task.company} application`
     return (
         <>
-            <button type="button" className="aa-btn" onClick={open} disabled={busy} aria-label={`View proof of the ${task.company} application`}>
-                {busy ? 'Opening…' : 'View proof'}
+            <button type="button" className="aa-btn aa-icon-btn" onClick={open} disabled={busy} aria-label={label} title={err || 'Proof'}>
+                {busy ? <Loader size={13} aria-hidden="true" /> : <FileCheck2 size={13} aria-hidden="true" />}
             </button>
-            {err && <span className="aa-faint" role="alert">{err}</span>}
+            {err && <span className="aa-sr" role="alert">{err}</span>}
         </>
     )
 }
@@ -191,57 +192,46 @@ function MustCompaniesEditor({ batch }) {
 
 // Only what the user acts on or keeps: applied jobs (with proof / confirmation) and jobs that need them.
 // Skipped, removed, cancelled and unmatched jobs are counted ("Not applied") but never listed.
-// Memoised: the page re-renders on every realtime/poll update; the table only needs to when its tasks change.
-const TaskTable = memo(function TaskTable({ batchId, tasks, attention = false, empty = null }) {
+// One compact line per job (two on phones): company · title · date · icon actions.
+// Memoised: the page re-renders on every realtime/poll update; the list only needs to when its tasks change.
+const TaskList = memo(function TaskList({ batchId, tasks, attention = false, empty = null }) {
     if (!tasks.length) return empty
-    const whenLabel = attention ? 'Since' : 'Submitted'
     return (
-        <div className="aa-table-wrap">
-            <table className="aa-table">
-                <caption className="aa-sr">{attention ? 'Jobs that need you' : 'Applied jobs'}</caption>
-                <thead>
-                    <tr>
-                        <th scope="col">Company</th><th scope="col">Title</th><th scope="col">Status</th>
-                        <th scope="col">{whenLabel}</th><th scope="col"><span className="aa-sr">Actions</span></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {tasks.map((t) => (
-                        <tr key={t.id}>
-                            <td className="aa-strong" data-label="Company">{t.company}</td>
-                            <td data-label="Title">{t.title}</td>
-                            <td data-label="Status">
-                                <TaskStatusPill status={t.status} />
-                                {t.status === 'applied' && t.confirmation_text && (
-                                    <div className="aa-faint" style={{ marginTop: 4, maxWidth: 320, overflowWrap: 'anywhere' }} title={t.confirmation_text}>
-                                        “{t.confirmation_text.length > 140 ? `${t.confirmation_text.slice(0, 140)}…` : t.confirmation_text}”
-                                    </div>
-                                )}
-                                {t.status === 'applied' && t.confirmation_mail && (
-                                    <div style={{ marginTop: 4 }}>
-                                        <Link to={`/autoapply/inbox?mail=${encodeURIComponent(t.confirmation_mail.id)}`} style={{ color: 'var(--pop)', fontSize: '0.72rem' }}>
-                                            Confirmation mail: {t.confirmation_mail.subject || '(no subject)'}
-                                        </Link>
-                                    </div>
-                                )}
-                            </td>
-                            <td data-label={whenLabel}>{t.submitted_at ? fmtDate(t.submitted_at) : t.updated_at ? fmtDate(t.updated_at) : '—'}</td>
-                            <td>
-                                <div className="aa-row" style={{ gap: 6 }}>
-                                    {t.status === 'applied' && t.has_proof && <ProofButton batchId={batchId} task={t} />}
-                                    {t.status === 'needs_you' && <Link to="/autoapply/needs-you" className="aa-btn is-warm"><Hand size={12} aria-hidden="true" /> Answer</Link>}
-                                    {safeHref(t.apply_url) && (
-                                        <a className="aa-btn" href={safeHref(t.apply_url)} target="_blank" rel="noopener noreferrer" aria-label={`Open ${t.company} job posting`}>
-                                            <ExternalLink size={12} aria-hidden /> Job
-                                        </a>
-                                    )}
-                                </div>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
+        <ul className="aa-tl" aria-label={attention ? 'Jobs that need you' : 'Applied jobs'}>
+            {tasks.map((t) => {
+                const when = t.submitted_at || (attention ? t.updated_at : null)
+                const job = safeHref(t.apply_url)
+                const full = `${t.company} · ${t.title}`
+                return (
+                    <li key={t.id} className="aa-tl-row">
+                        <span className="aa-tl-main" title={full}>
+                            <span className="aa-tl-co">{t.company}</span>
+                            <span className="aa-tl-sep" aria-hidden="true"> · </span>
+                            <span className="aa-tl-title">{t.title}</span>
+                        </span>
+                        <span className="aa-tl-when">
+                            {when ? <time dateTime={when} title={`${attention ? 'Since' : 'Submitted'} ${fmtDate(when)}`}>{fmtDate(when, false)}</time> : '—'}
+                        </span>
+                        <span className="aa-tl-acts">
+                            {attention && <Link to="/autoapply/needs-you" className="aa-btn is-warm aa-tl-answer"><Hand size={12} aria-hidden="true" /> Answer</Link>}
+                            {!attention && t.has_proof && <ProofButton batchId={batchId} task={t} />}
+                            {job && (
+                                <a className="aa-btn aa-icon-btn" href={job} target="_blank" rel="noopener noreferrer" aria-label={`Open ${t.company} job posting`} title="Job posting">
+                                    <ExternalLink size={13} aria-hidden="true" />
+                                </a>
+                            )}
+                            {!attention && t.confirmation_mail && (
+                                <Link className="aa-btn aa-icon-btn" to={`/autoapply/inbox?mail=${encodeURIComponent(t.confirmation_mail.id)}`}
+                                    aria-label={`Confirmation mail from ${t.company}: ${t.confirmation_mail.subject || '(no subject)'}`}
+                                    title={`Confirmation mail: ${t.confirmation_mail.subject || '(no subject)'}`}>
+                                    <Mail size={13} aria-hidden="true" />
+                                </Link>
+                            )}
+                        </span>
+                    </li>
+                )
+            })}
+        </ul>
     )
 })
 
@@ -319,13 +309,14 @@ export default function BatchDetailPage() {
                             <SectionHead id="prog-h" icon={ListChecks} tone={batchTone(batch.status)} title="Progress" />
                             <Progress used={batch.credits_used} total={batch.credits_total} />
                             {q.data?.live && <LiveFlow live={q.data.live} />}
-                            {batch.status === 'refund_due' || batch.status === 'refunding' || batch.status === 'refunded' ? (
+                            {!q.data?.live && ['refund_due', 'refunding', 'refunded'].includes(batch.status) && (
+                                // fallback only: the live line above already says this in one sentence (with the amount when > 0)
                                 <p className="aa-muted" style={{ margin: '12px 0 0' }}>
                                     {batch.status === 'refunded'
-                                        ? `Refunded ${batch.refund_paise != null ? rupees(batch.refund_paise) : ''} for unused credits.`
-                                        : 'A refund for unused credits is being processed.'}
+                                        ? (Number(batch.refund_paise) > 0 ? `Refunded ${rupees(batch.refund_paise)}.` : 'This payment was refunded.')
+                                        : 'This payment is being refunded.'}
                                 </p>
-                            ) : null}
+                            )}
                             {batch.status === 'waiting_profile' && (
                                 <ProfileMissing
                                     style={{ marginTop: 12 }}
@@ -359,14 +350,14 @@ export default function BatchDetailPage() {
                             <section className="aa-card aa-seg is-tinted tone-attention" aria-labelledby="need-h">
                                 <SectionHead id="need-h" icon={Hand} tone="attention" title="Needs you" count={needTasks.length}
                                     sub="These applications wait for your answer. No credit is used meanwhile." />
-                                <TaskTable batchId={batch.id} tasks={needTasks} attention />
+                                <TaskList batchId={batch.id} tasks={needTasks} attention />
                             </section>
                         )}
 
                         <section className="aa-card aa-seg tone-success" aria-labelledby="tasks-h">
                             <SectionHead id="tasks-h" icon={CheckCircle2} tone="success" title="Applied" count={appliedTasks.length}
                                 sub={notApplied > 0 ? `${num(notApplied)} not applied (skipped, closed or removed). Those cost nothing.` : undefined} />
-                            <TaskTable batchId={batch.id} tasks={appliedTasks}
+                            <TaskList batchId={batch.id} tasks={appliedTasks}
                                 empty={<EmptyState compact icon={<EmptyArt kind="jobs" tone="success" />} title="No applications submitted yet"
                                     message="Applied jobs show up here with proof and the company's confirmation. This page updates on its own." />} />
                         </section>

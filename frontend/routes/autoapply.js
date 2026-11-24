@@ -37,7 +37,7 @@ import { processRefunds } from "../lib/autoapply/refunds.js";
 import { profileCheck, profileReadiness } from "../lib/autoapply/profileGate.js";
 import { normMustCompanies } from "../lib/autoapply/companies.js";
 import { broadenOptions, evaluate as supplyEvaluate, titleKeywords, userCtx as supplyUserCtx } from "../lib/autoapply/supplyMatch.js";
-import { chargeSummary, matchConfirmationMails, replyStats, STATS_WINDOW_DAYS } from "../lib/autoapply/insights.js";
+import { batchChargeSummary, batchCounts, matchConfirmationMails, replyStats, STATS_WINDOW_DAYS } from "../lib/autoapply/insights.js";
 import { healthSummary, isAdminUser } from "../lib/autoapply/health.js";
 import { sendInterviewReminders } from "../lib/autoapply/reminders.js";
 import { extractText, draftFromText, maybeEnrichWithAi } from "../lib/autoapply/resumeParse.js";
@@ -48,7 +48,7 @@ export { AAError, handleAutoApplyWebhook };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
-const TASK_FIELDS = "id, company, title, ats, status, reason_code, score, submitted_at, apply_url, confirmation_text, proof_path, not_charged";
+const TASK_FIELDS = "id, company, title, ats, status, reason_code, score, submitted_at, updated_at, apply_url, confirmation_text, proof_path, not_charged";
 const PROOF_BUCKET = "aa-proof";
 const PROOF_URL_TTL_S = 300; // signed proof URLs live 5 minutes
 const EDITABLE_BATCH = ["paid", "shortlisting", "review", "running", "paused", "waiting_supply", "waiting_profile"];
@@ -701,8 +701,8 @@ export function createAutoApplyRouter(deps = {}) {
         .limit(2000);
       if (error) throw error;
       const rows = data || [];
-      const counts = {};
-      for (const t of rows) counts[t.status] = (counts[t.status] || 0) + 1;
+      // not-applied rows of a finished batch are deleted after 30 days (sql/47); final_counts keeps their numbers
+      const counts = batchCounts(rows, batch.final_counts);
       // the 'received' mail that confirms each applied task, if one arrived (mail db; never fails the page)
       let confirm = new Map();
       const submits = rows.filter((t) => t.status === "applied" && t.submitted_at).map((t) => Date.parse(t.submitted_at)).filter((n) => !Number.isNaN(n));
@@ -732,7 +732,8 @@ export function createAutoApplyRouter(deps = {}) {
         .order("not_before", { ascending: true })
         .limit(1);
       const live = liveStatus({ batch, counts, nextAt: (nx && nx[0] && nx[0].not_before) || null, engine: await engineState(db), now: now() });
-      res.json({ batch, counts, live, charge: chargeSummary(rows), tasks });
+      const { final_counts: finalCounts, ...batchOut } = batch; // internal retention snapshot, already merged into counts
+      res.json({ batch: batchOut, counts, live, charge: batchChargeSummary(rows, finalCounts), tasks });
     }),
   );
 
@@ -1336,7 +1337,7 @@ export function createAutoApplyRouter(deps = {}) {
     }),
   );
 
-  // Reply rates over the last 90 days, per company and per role family (tasks: main db; mail + interviews: mail db).
+  // Reply rates over the last 90 days, in total and per role family (tasks: main db; mail + interviews: mail db).
   router.get(
     "/stats/replies",
     wrap("stats/replies", async (req, res) => {

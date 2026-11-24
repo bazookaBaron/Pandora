@@ -5,7 +5,9 @@
  *   matchConfirmationMails(tasks, mails) applied task id -> the 'received' mail that confirms it (same company,
  *                                        arrived from 10 min before to 3 days after the submit)
  *   roleFamily(title)                    'Senior Backend Engineer' -> 'backend'
- *   replyStats({tasks, mails, interviews, now}) per company and per role family, last 90 days
+ *   batchCounts / batchChargeSummary    the same, merged with aa_batches.final_counts (sql/47: the retention job
+ *                                        deletes not-applied task rows of finished batches after 30 days)
+ *   replyStats({tasks, mails, interviews, now}) totals and per role family, last 90 days
  */
 import { companyKey, sameCompany } from "./companies.js";
 
@@ -32,6 +34,40 @@ export function chargeSummary(tasks) {
     } else if (!["removed", "cancelled"].includes(t.status)) out.in_progress++;
   }
   return out;
+}
+
+// ── counts that survive task retention (sql/47) ────────────────────────────
+// The daily retention job deletes skipped / failed / removed / cancelled task rows of a finished batch once they are
+// 30 days old, after storing the batch's counts in aa_batches.final_counts = {v, at, status: {status: n},
+// reasons: [{status, reason_code, n}]}. Those statuses only ever shrink afterwards, so the larger of the stored and
+// the live number is the right one (before any deletion they are equal).
+export const PRUNED_STATUSES = ["skipped", "failed", "removed", "cancelled"];
+
+export function batchCounts(rows, finalCounts) {
+  const counts = {};
+  for (const t of rows || []) counts[t.status] = (counts[t.status] || 0) + 1;
+  const snap = finalCounts && typeof finalCounts.status === "object" && finalCounts.status;
+  if (snap) {
+    for (const s of PRUNED_STATUSES) {
+      const n = Number(snap[s]) || 0;
+      if (n > (counts[s] || 0)) counts[s] = n;
+    }
+  }
+  return counts;
+}
+
+export function batchChargeSummary(rows, finalCounts) {
+  const live = chargeSummary(rows);
+  const reasons = finalCounts && Array.isArray(finalCounts.reasons) ? finalCounts.reasons : null;
+  if (!reasons) return live;
+  const snap = { not_charged: 0, by_reason: { failed: 0, captcha: 0, blocked: 0, other: 0 } };
+  for (const r of reasons) {
+    const n = Number(r && r.n) || 0;
+    if (n <= 0 || !NOT_CHARGED_STATUSES.includes(r.status)) continue;
+    snap.not_charged += n;
+    snap.by_reason[notChargedGroup(r)] += n;
+  }
+  return snap.not_charged > live.not_charged ? { ...live, ...snap } : live;
 }
 
 // ── confirmation mail ───────────────────────────────────────────────────────
@@ -114,7 +150,8 @@ const rate = (n, d) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
 
 /**
  * tasks: applied aa_tasks rows {id, company, title, submitted_at}; mails: aa_mail_events {id, company, category, kind,
- * received_at}; interviews: aa_interviews {mail_event_id, company}. Each reply mail is attributed to the user's latest
+ * received_at}; interviews: aa_interviews {mail_event_id, company}. Returns totals and by_role (no per-company table:
+ * the stats page does not show one). Each reply mail is attributed to the user's latest
  * applied task at that company submitted before the mail (else the earliest one after it); a task counts as replied /
  * interviewed / rejected once, so every rate is between 0 and 100 %.
  */
@@ -166,11 +203,9 @@ export function replyStats({ tasks = [], mails = [], interviews = [], now = new 
     if (f && f.rejection) row.rejections++;
     map.set(key, row);
   };
-  const companies = new Map();
   const roles = new Map();
   const totals = { applied: 0, replies: 0, interviews: 0, rejections: 0 };
   for (const t of applied) {
-    bump(companies, t.key, String(t.company).trim(), t);
     bump(roles, t.family, ROLE_FAMILY_LABELS[t.family] || t.family, t);
     const f = flags.get(t.id);
     totals.applied++;
@@ -186,7 +221,6 @@ export function replyStats({ tasks = [], mails = [], interviews = [], now = new 
     window_days: windowDays,
     since: new Date(since).toISOString(),
     totals: { ...totals, rate: rate(totals.replies, totals.applied), interview_rate: rate(totals.interviews, totals.applied) },
-    by_company: finish(companies),
     by_role: finish(roles),
   };
 }

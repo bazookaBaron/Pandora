@@ -87,6 +87,7 @@ import { makeLimiter, tokenOrIpKey, ipKey } from "./lib/rateKeys.js";
 import { registerProfileCompanyRoutes, getVerifiedCompany } from "./routes/profileCompany.js";
 import { createWorkerBroker } from "./routes/workerBroker.js";
 import { cleanupOldProofs } from "./lib/autoapply/proofRetention.js";
+import { cleanupOldTasks } from "./lib/autoapply/taskRetention.js";
 import {
   computePeriodEnd,
   claimPayment,
@@ -5136,10 +5137,13 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
   cron.schedule("10 * * * *", () => runExpirePendingOrders().then((r) => { if (r.expired) console.log("[autoapply] pending orders expired", r); }, (e) => console.error("[autoapply] pending expiry failed:", (e && e.message) || e)), { timezone: "Asia/Kolkata" });
 }
 
-// AutoApply proof retention: aa-proof screenshots older than 30 days are deleted and aa_tasks.proof_path nulled
-// (confirmation_text stays). Daily 04:10 IST.
+// AutoApply proof retention: aa-proof screenshots older than 30 days are deleted and aa_tasks.proof_path nulled.
+// Daily 04:10 IST. Task retention (sql/47) at 04:20 IST: finished batches' not-applied task rows older than 30 days
+// are deleted (counts kept in aa_batches.final_counts) and applied rows lose their heavy fields
+// (evidence / confirmation_text / reason_detail / artifacts_prefix), in short batched calls.
 if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
   cron.schedule("10 4 * * *", () => cleanupOldProofs({ db: supabaseAdmin }).then((r) => console.log("[autoapply] proof retention", r)), { timezone: "Asia/Kolkata" });
+  cron.schedule("20 4 * * *", () => cleanupOldTasks({ db: supabaseAdmin }).then((r) => console.log("[autoapply] task retention", r)), { timezone: "Asia/Kolkata" });
 }
 
 // AutoApply mail (mail lives only inside Vloombox; see docs/autoapply-contract.md).

@@ -251,7 +251,7 @@ test("roleFamily", () => {
   assert.equal(roleFamily("Chef"), "other");
 });
 
-test("replyStats: per company and role family, last 90 days, rates bounded", () => {
+test("replyStats: totals and per role family, last 90 days, rates bounded, no per-company table", () => {
   const now = new Date("2026-11-21T00:00:00Z");
   const d = (days) => new Date(now.getTime() - days * 86400000).toISOString();
   const tasks = [
@@ -270,17 +270,13 @@ test("replyStats: per company and role family, last 90 days, rates bounded", () 
   ];
   const s = replyStats({ tasks, mails, interviews: [{ mail_event_id: 1, company: "Acme" }], now });
   assert.equal(s.window_days, 90);
-  assert.deepEqual(s.totals, { applied: 3, replies: 2, interviews: 1, rejections: 1, rate: 66.7, interview_rate: 33.3 });
-  const acme = s.by_company.find((r) => r.key === "acme");
-  assert.deepEqual([acme.applied, acme.replies, acme.interviews, acme.rejections, acme.rate], [2, 1, 1, 0, 50]);
-  const beta = s.by_company.find((r) => r.key === "beta");
-  assert.deepEqual([beta.applied, beta.replies, beta.rejections], [1, 1, 1]);
-  assert.equal(s.by_company.some((r) => r.key === "oldco"), false, "older than 90 days");
+  assert.deepEqual(s.totals, { applied: 3, replies: 2, interviews: 1, rejections: 1, rate: 66.7, interview_rate: 33.3 }, "Old Co is older than 90 days");
+  assert.equal("by_company" in s, false, "the stats page has no By company section; the server no longer computes it");
   const be = s.by_role.find((r) => r.key === "backend");
   assert.deepEqual([be.applied, be.replies], [2, 1], "Beta's rejection; Acme's mail goes to the latest Acme task (frontend)");
   const fe = s.by_role.find((r) => r.key === "frontend");
   assert.deepEqual([fe.applied, fe.replies, fe.interviews], [1, 1, 1]);
-  for (const r of [...s.by_company, ...s.by_role]) assert.ok(r.rate >= 0 && r.rate <= 100);
+  for (const r of s.by_role) assert.ok(r.rate >= 0 && r.rate <= 100);
 });
 
 // ── health / admin ──────────────────────────────────────────────────────────
@@ -529,9 +525,9 @@ test("GET /stats/replies: own data only, last 90 days", async () => {
   const r = await call("GET", "/api/autoapply/stats/replies");
   assert.equal(r.status, 200);
   assert.equal(r.json.window_days, 90);
-  const acme = r.json.by_company.find((c) => c.key === "acme");
-  assert.deepEqual([acme.applied, acme.replies, acme.interviews], [1, 1, 1]);
+  assert.equal("by_company" in r.json, false);
   assert.ok(r.json.by_role.length >= 1);
+  assert.ok(r.json.totals.replies >= 1 && r.json.totals.interviews >= 1, "Acme's interview mail counts for U1");
   const other = await call("GET", "/api/autoapply/stats/replies", { user: U2 });
   assert.equal(other.json.totals.replies, 0);
 });

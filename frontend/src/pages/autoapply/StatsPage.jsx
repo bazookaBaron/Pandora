@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BarChart3, Building2, CalendarCheck, MessageSquareReply, Send, XCircle } from 'lucide-react'
+import { BarChart3, CalendarCheck, MessageSquareReply, Send, XCircle } from 'lucide-react'
 import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
 import { useReplyStats } from '../../lib/useAutoApply'
 import { EmptyArt, SectionHead, StatTile, fmtDate, num } from './ui'
@@ -78,11 +78,7 @@ export default function StatsSection() {
                     </p>
                     <section className="aa-card aa-seg tone-active" aria-labelledby="st-role">
                         <SectionHead id="st-role" icon={BarChart3} tone="active" title="By role family" />
-                        <StatsTable rows={d.by_role} caption="Reply rates by role family" firstCol="Role family" />
-                    </section>
-                    <section className="aa-card aa-seg tone-active" aria-labelledby="st-co">
-                        <SectionHead id="st-co" icon={Building2} tone="active" title="By company" />
-                        <StatsTable rows={d.by_company} caption="Reply rates by company" firstCol="Company" />
+                        <StatsTable rows={d.by_role || []} caption="Reply rates by role family" firstCol="Role family" />
                     </section>
                 </div>
             )}
