@@ -60,6 +60,8 @@ BEGIN
   END IF;
 END $$;
 
+GRANT EXECUTE ON FUNCTION public.aa_mail_retention_more() TO service_role;   -- the Pandora daily cleanup calls it
+
 CREATE INDEX IF NOT EXISTS idx_aa_mail_other_received ON public.aa_mail_events (received_at)
   WHERE category = 'other';
 

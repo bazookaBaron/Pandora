@@ -36,6 +36,10 @@ export async function cleanupExpiredMail({ mailDb, now = new Date(), batchSize =
       if (ids.length < batchSize) break;
     }
   }
+  // sql/mail/06: 'other' mail after 90 days (the mail project has no pg_cron); a missing function is not an error
+  const { data: other, error: oErr } = await mailDb.rpc("aa_mail_retention_more");
+  if (oErr) console.warn(`[autoapply] aa_mail_retention_more skipped: ${oErr.message || oErr}`);
+  else deleted += Number(other) || 0;
   return { deleted };
 }
 
