@@ -24,6 +24,7 @@ import * as realResend from "../services/resend.js";
 
 import { publicQuestions, validateAnswer, isValidKey, learnedKey, LEARNED_KEY_RE } from "../lib/autoapply/questions.js";
 import { decryptSecret } from "../lib/autoapply/vault.js";
+import { engineState, liveStatus } from "../lib/autoapply/liveStatus.js";
 import { isEligiblePlan, usageFor } from "../lib/autoapply/limits.js";
 import { AAError, createAutoApplyOrder, quoteAutoApplyCoupon, verifyAutoApplyPayment, handleAutoApplyWebhook, expirePendingOrders } from "../lib/autoapply/orders.js";
 import { verifyInbound, storeInbound } from "../lib/autoapply/inbound.js";
@@ -646,7 +647,17 @@ export function createAutoApplyRouter(deps = {}) {
         const m = confirm.get(t.id);
         return { ...publicTask(t), confirmation_mail: m ? { id: m.id, subject: m.subject || null, from_name: m.from_name || null, received_at: m.received_at } : null };
       });
-      res.json({ batch, counts, charge: chargeSummary(rows), tasks });
+      // live status line: earliest queued not_before of this batch + the on-demand apply server's state
+      const { data: nx } = await db
+        .from("aa_tasks")
+        .select("not_before")
+        .eq("batch_id", batch.id)
+        .eq("user_id", req.user.id)
+        .eq("status", "queued")
+        .order("not_before", { ascending: true })
+        .limit(1);
+      const live = liveStatus({ batch, counts, nextAt: (nx && nx[0] && nx[0].not_before) || null, engine: await engineState(db), now: now() });
+      res.json({ batch, counts, live, charge: chargeSummary(rows), tasks });
     }),
   );
 

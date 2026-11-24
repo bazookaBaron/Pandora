@@ -285,6 +285,36 @@ const TaskTable = memo(function TaskTable({ batchId, batchStatus, tasks }) {
     )
 })
 
+const FLOW_STEPS = [
+    ['queued', 'Queued'],
+    ['applying', 'Applying'],
+    ['applied', 'Applied'],
+    ['needs_you', 'Needs you'],
+    ['not_applied', 'Not applied'],
+]
+
+// Queued -> Applying -> Applied, plus the two side outcomes, and one plain sentence about what happens now.
+function LiveFlow({ live }) {
+    const b = live.buckets || {}
+    const busy = live.phase === 'applying' || live.phase === 'starting'
+    return (
+        <div style={{ marginTop: 12 }}>
+            <ol className="aa-flow" aria-label="Applications by stage">
+                {FLOW_STEPS.map(([k, label]) => (
+                    <li key={k} className={`aa-flow-step is-${k}${b[k] ? ' has' : ''}`}>
+                        <span className="aa-flow-n">{num(b[k] || 0)}</span>
+                        <span className="aa-flow-label">{label}</span>
+                    </li>
+                ))}
+            </ol>
+            <p className="aa-flow-msg" role="status" aria-live="polite">
+                {busy && <span className="aa-flow-dot" aria-hidden="true" />}
+                {live.message}
+            </p>
+        </div>
+    )
+}
+
 export default function BatchDetailPage() {
     const { id } = useParams()
     const [params] = useSearchParams()
@@ -324,13 +354,7 @@ export default function BatchDetailPage() {
                     <div className="aa-stack">
                         <section className="aa-card" aria-label="Progress">
                             <Progress used={batch.credits_used} total={batch.credits_total} />
-                            {Object.keys(counts).length > 0 && (
-                                <div className="aa-chips" style={{ marginTop: 12 }} aria-label="Jobs by status">
-                                    {TASK_STATUS_ORDER.filter((s) => counts[s]).map((s) => (
-                                        <span key={s} className="aa-chip">{taskStatusLabel(s)} <strong>{num(counts[s])}</strong></span>
-                                    ))}
-                                </div>
-                            )}
+                            {q.data?.live && <LiveFlow live={q.data.live} />}
                             {batch.status === 'refund_due' || batch.status === 'refunding' || batch.status === 'refunded' ? (
                                 <p className="aa-muted" style={{ margin: '12px 0 0' }}>
                                     {batch.status === 'refunded'

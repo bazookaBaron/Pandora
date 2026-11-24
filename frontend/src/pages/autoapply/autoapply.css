@@ -278,3 +278,20 @@
     .aa-batch-prog { grid-column: 1 / -1; order: 5; }
     .aa-batch-date { order: 4; }
 }
+
+/* batch live progress: Queued -> Applying -> Applied (+ Needs you, Not applied) */
+.aa-flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.aa-flow-step { min-width: 0; border: 1px solid var(--subtle); border-radius: 6px; padding: 8px 6px; text-align: center; background: var(--panel); }
+.aa-flow-n { display: block; font-size: 1.05rem; font-weight: 800; color: var(--muted); }
+.aa-flow-label { display: block; font-size: 0.68rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aa-flow-step.has .aa-flow-n { color: var(--bright); }
+.aa-flow-step.is-applying.has { border-color: var(--pop); }
+.aa-flow-step.is-applying.has .aa-flow-n { color: var(--pop); }
+.aa-flow-step.is-applied.has .aa-flow-n { color: var(--green); }
+.aa-flow-step.is-needs_you.has { border-color: var(--warm); }
+.aa-flow-step.is-needs_you.has .aa-flow-n { color: var(--warm); }
+.aa-flow-msg { margin: 10px 0 0; font-size: 0.78rem; color: var(--accent); display: flex; align-items: center; gap: 8px; }
+.aa-flow-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pop); flex: none; animation: aa-flow-pulse 1.4s ease-in-out infinite; }
+@keyframes aa-flow-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .aa-flow-dot { animation: none; } }
+@media (max-width: 480px) { .aa-flow { gap: 4px; } .aa-flow-step { padding: 6px 2px; } .aa-flow-label { font-size: 0.6rem; } }
