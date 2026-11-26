@@ -1,27 +1,42 @@
-/* Buy page: supply panel (match count, broaden chips, kind comparison). Brand tokens from src/index.css only. */
+/* Buy page: compact pickers, match count, sample rows. Brand tokens from src/index.css only. */
 
-.buy-count { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; }
-.buy-count-num { font-size: 2.4rem; font-weight: 900; line-height: 1; color: var(--pop); letter-spacing: -0.03em; }
+.buy-opts { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.buy-opts .aa-choice { padding: 10px 12px; gap: 2px; }
+.buy-opts .aa-choice-price { font-size: 1.05rem; }
+.buy-h2-gap { margin-top: 14px; }
+
+.buy-count { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+.buy-count-num { font-size: 2rem; font-weight: 900; line-height: 1; color: var(--pop); letter-spacing: -0.03em; }
 .buy-count-num.is-low { color: var(--warm); }
 .buy-count-text { font-size: 0.9rem; font-weight: 800; color: var(--bright); }
-.buy-count-sub { font-size: 0.74rem; color: var(--muted); margin-top: var(--sp-1); }
+.buy-count-sub { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
 
-.buy-kinds { display: flex; gap: var(--sp-2); flex-wrap: wrap; font-size: 0.72rem; color: var(--accent); }
-.buy-kinds strong { color: var(--bright); }
-
-.buy-broaden { display: flex; flex-direction: column; gap: var(--sp-2); }
-.buy-broaden-title { font-size: 0.72rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-.buy-broaden-chips { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-.buy-broaden-chip {
-    display: inline-flex; align-items: center; gap: var(--sp-2); padding: 7px 12px; border-radius: 999px;
-    font-family: inherit; font-size: 0.74rem; font-weight: 800; cursor: pointer; text-align: left;
-    color: var(--bright); background: var(--pop-dim); border: 1px solid var(--pop);
+.buy-switch {
+    margin-top: 4px; padding: 0; border: 0; background: none; font: inherit; font-size: 0.72rem; color: var(--accent);
+    cursor: pointer; text-decoration: underline; text-underline-offset: 2px; text-align: left;
 }
-.buy-broaden-chip:hover:not(:disabled) { background: var(--surface); }
-.buy-broaden-chip:disabled { opacity: 0.5; cursor: not-allowed; }
-.buy-broaden-chip .buy-gain { color: var(--pop); font-weight: 900; white-space: nowrap; }
+.buy-switch:hover:not(:disabled) { color: var(--pop); }
+.buy-switch:disabled { opacity: 0.5; cursor: not-allowed; }
 
-@media (max-width: 560px) {
-    .buy-count-num { font-size: 2rem; }
-    .buy-broaden-chip { width: 100%; justify-content: space-between; }
+.buy-sample { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.74rem; }
+.buy-sample td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--subtle); color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.buy-sample tr:last-child td { border-bottom: 0; }
+.buy-sample .buy-sample-co { width: 32%; color: var(--bright); font-weight: 700; }
+.buy-sample .buy-sample-when { width: 86px; padding-right: 0; text-align: right; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+.buy-keep { margin: 0; font-size: 0.72rem; color: var(--muted); }
+
+.buy-more { padding: 12px 14px; }
+.buy-more > summary { cursor: pointer; font-size: 0.72rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.buy-more[open] > summary { color: var(--bright); }
+
+/* phones: each sample row is one line, "company · title", truncated */
+@media (max-width: 480px) {
+    .buy-count-num { font-size: 1.7rem; }
+    .buy-sample, .buy-sample tbody { display: block; }
+    .buy-sample tr { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 0; border-bottom: 1px solid var(--subtle); }
+    .buy-sample tr:last-child { border-bottom: 0; }
+    .buy-sample td { display: inline; padding: 0; border: 0; }
+    .buy-sample .buy-sample-co::after { content: ' · '; color: var(--faint); font-weight: 400; }
+    .buy-sample .buy-sample-when { display: none; }
 }

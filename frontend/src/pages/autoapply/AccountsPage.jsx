@@ -148,13 +148,13 @@ export default function SitesSection() {
     return (
         <section aria-labelledby="sites-h">
             <SectionHead id="sites-h" icon={KeyRound} tone="active" title="Job-site accounts" count={accounts.length || null}
-                sub="Accounts we created for you on company career sites. Passwords are encrypted; each reveal is logged." />
+                sub="Passwords are encrypted; each reveal is logged." />
             {q.isLoading ? (
                 <LoadingState label="Loading accounts…" />
             ) : q.isError ? (
                 <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load accounts" />
             ) : accounts.length === 0 ? (
-                <EmptyState icon={<EmptyArt kind="accounts" tone="active" />} title="No accounts yet" message="When a site needs an account to apply, we create one with your apply address and list it here." />
+                <EmptyState icon={<EmptyArt kind="accounts" tone="active" />} title="No accounts yet" message="Sites where we created a login for you show up here." />
             ) : (
                 <>
                     <div className="aa-row aa-acct-search" role="search">
@@ -170,10 +170,10 @@ export default function SitesSection() {
                     </p>
                     {shown.length === 0 ? (
                         <EmptyState compact icon={<EmptyArt kind="search" tone="history" />} title="No account for that company"
-                            message="We have not needed a login on that company's career site yet." action={<button type="button" className="aa-btn" onClick={() => setTerm('')}>Clear search</button>} />
+                            message="No login on that site yet." action={<button type="button" className="aa-btn" onClick={() => setTerm('')}>Clear search</button>} />
                     ) : (
                         <div className="aa-table-wrap">
-                            <table className="aa-table">
+                            <table className="aa-table is-lines">
                                 <caption className="aa-sr">Career-site accounts</caption>
                                 <thead><tr><th scope="col">Company</th><th scope="col">Site</th><th scope="col">Login</th><th scope="col">Status</th><th scope="col">Last used</th><th scope="col">Password</th></tr></thead>
                                 <tbody>
@@ -181,12 +181,12 @@ export default function SitesSection() {
                                         const [label, tone] = STATUS[a.status] || [a.status, 't-muted']
                                         return (
                                             <tr key={a.tenant_host}>
-                                                <td className="aa-strong" data-label="Company" style={{ textTransform: 'capitalize' }}>{companyOf(a.tenant_host)}</td>
-                                                <td data-label="Site" style={{ overflowWrap: 'anywhere' }}>{a.tenant_host}</td>
-                                                <td data-label="Login" style={{ overflowWrap: 'anywhere' }}>{a.login_email}</td>
+                                                <td className="aa-strong aa-m-main" data-label="Company" style={{ textTransform: 'capitalize' }} title={a.tenant_host}>{companyOf(a.tenant_host)}</td>
+                                                <td className="aa-m-hide" data-label="Site" style={{ overflowWrap: 'anywhere' }}>{a.tenant_host}</td>
+                                                <td className="aa-m-hide" data-label="Login" style={{ overflowWrap: 'anywhere' }}>{a.login_email}</td>
                                                 <td data-label="Status"><span className={`aa-pill ${tone}`}>{label}</span></td>
-                                                <td data-label="Last used">{a.last_used_at ? fmtDate(a.last_used_at) : `Created ${fmtDate(a.created_at, false)}`}</td>
-                                                <td data-label="Password"><Reveal host={a.tenant_host} /></td>
+                                                <td className="aa-m-hide" data-label="Last used">{a.last_used_at ? fmtDate(a.last_used_at) : `Created ${fmtDate(a.created_at, false)}`}</td>
+                                                <td className="aa-m-act" data-label="Password"><Reveal host={a.tenant_host} /></td>
                                             </tr>
                                         )
                                     })}

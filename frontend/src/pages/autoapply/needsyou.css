@@ -37,7 +37,17 @@
 
 .ny-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; bottom: 0; padding: 12px 0; background: var(--surface); }
 
+.ny-job-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 @media (max-width: 640px) {
     .ny-grid { grid-template-columns: minmax(0, 1fr); }
-    .ny-mini { width: 100%; }
+}
+/* phones: each job is one line (name truncated, icon link, one control) */
+@media (max-width: 480px) {
+    .ny-job-row { flex-wrap: nowrap; gap: 8px; }
+    .ny-job { flex-wrap: nowrap; flex: 1 1 auto; }
+    .ny-link-text { display: none; }
+    .ny-mini { min-width: 0; width: 128px; flex: none; }
+    .ny-yn { flex-wrap: nowrap; gap: 10px; flex: none; }
+    .ny-h { font-size: 0.84rem; }
 }

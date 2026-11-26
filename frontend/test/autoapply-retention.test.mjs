@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 
 import { createAutoApplyRouter } from "../routes/autoapply.js";
-import { batchCounts, batchChargeSummary, chargeSummary, PRUNED_STATUSES } from "../lib/autoapply/insights.js";
+import { batchCounts, PRUNED_STATUSES } from "../lib/autoapply/insights.js";
 import { buckets, liveStatus } from "../lib/autoapply/liveStatus.js";
 import { cleanupOldTasks, TASK_RETENTION_DAYS, TASK_RETENTION_FN } from "../lib/autoapply/taskRetention.js";
 import { createFakeDb } from "./fixtures/fakeSupabase.mjs";
@@ -55,15 +55,6 @@ test("batchCounts: no snapshot = plain status counts; after deletion the snapsho
   // applied / needs_you always come from the live rows (they are never deleted)
   assert.equal(batchCounts([{ status: "applied" }], { status: { applied: 99 } }).applied, 1);
   assert.deepEqual(batchCounts([], { status: "garbage" }), {});
-});
-
-test("batchChargeSummary: Not charged breakdown survives deletion, live numbers win when larger", () => {
-  const before = chargeSummary(fullRows);
-  assert.deepEqual(batchChargeSummary(fullRows, snapshot), before);
-  assert.deepEqual(batchChargeSummary(afterRows, snapshot), before);
-  assert.deepEqual(before, { applied: 3, not_charged: 7, in_progress: 0, by_reason: { failed: 2, captcha: 3, blocked: 1, other: 1 } });
-  assert.deepEqual(batchChargeSummary(afterRows, null), chargeSummary(afterRows));
-  assert.deepEqual(batchChargeSummary(fullRows, { reasons: [] }), before, "empty snapshot never lowers live numbers");
 });
 
 // ── refunded: one short line ────────────────────────────────────────────────
@@ -190,7 +181,6 @@ test("GET /batches/:id: a pruned finished batch shows the same counts as before 
   assert.equal(res.status, 200, JSON.stringify(j));
   assert.deepEqual(j.counts, { applied: 3, skipped: 4, failed: 2, removed: 1, cancelled: 1, needs_you: 1 });
   assert.equal(j.live.buckets.not_applied, 8);
-  assert.deepEqual(j.charge, chargeSummary(fullRows));
   assert.equal("final_counts" in j.batch, false, "internal snapshot not sent to the browser");
   assert.equal(j.tasks.length, afterRows.length);
 

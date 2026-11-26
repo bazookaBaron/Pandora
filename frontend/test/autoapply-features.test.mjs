@@ -13,7 +13,7 @@ import { profileReadiness, profileReady, fixLinkFor } from "../lib/autoapply/pro
 import { googleCalendarUrl, buildIcs, foldLine, icsEscape, interviewWindow, icsFileName } from "../lib/autoapply/calendar.js";
 import { reminderDue, reminderPayload, sendInterviewReminders } from "../lib/autoapply/reminders.js";
 import { normMustCompanies, companyKey, sameCompany } from "../lib/autoapply/companies.js";
-import { chargeSummary, matchConfirmationMails, roleFamily, replyStats } from "../lib/autoapply/insights.js";
+import { matchConfirmationMails, roleFamily, replyStats } from "../lib/autoapply/insights.js";
 import { healthView, healthSummary, isAdminUser } from "../lib/autoapply/health.js";
 import { mailDedupeKey, signInbound, storeInbound } from "../lib/autoapply/inbound.js";
 import { createFakeDb } from "./fixtures/fakeSupabase.mjs";
@@ -204,18 +204,6 @@ test("companyKey / sameCompany", () => {
 });
 
 // ── insights ────────────────────────────────────────────────────────────────
-test("chargeSummary: applied vs not charged by reason", () => {
-  const s = chargeSummary([
-    { status: "applied" }, { status: "applied" },
-    { status: "failed", reason_code: "site_error" },
-    { status: "needs_you", reason_code: "captcha" },
-    { status: "skipped", reason_code: "sso" },
-    { status: "skipped", reason_code: "job_closed" },
-    { status: "queued" }, { status: "removed" }, { status: "cancelled" },
-  ]);
-  assert.deepEqual(s, { applied: 2, not_charged: 4, in_progress: 1, by_reason: { failed: 1, captcha: 1, blocked: 1, other: 1 } });
-});
-
 test("matchConfirmationMails: same company, after the submit, one mail per task", () => {
   const t0 = Date.parse("2026-11-20T10:00:00Z");
   const iso = (ms) => new Date(t0 + ms).toISOString();
@@ -453,10 +441,10 @@ test("GET /me: readiness score and is_admin", async () => {
   assert.equal((await call("GET", "/api/autoapply/me", { user: ADMIN })).json.is_admin, true);
 });
 
-test("GET /batches/:id: charge summary, confirmation text, has_proof (no path), matched confirmation mail", async () => {
+test("GET /batches/:id: confirmation text, has_proof (no path), matched confirmation mail", async () => {
   const r = await call("GET", `/api/autoapply/batches/${BATCH}`);
   assert.equal(r.status, 200);
-  assert.deepEqual(r.json.charge, { applied: 3, not_charged: 1, in_progress: 0, by_reason: { failed: 0, captcha: 1, blocked: 0, other: 0 } });
+  assert.equal(r.json.charge, undefined);
   const t = r.json.tasks.find((x) => x.id === T_APPLIED);
   assert.equal(t.confirmation_text, "Thank you for applying to Acme!");
   assert.equal(t.has_proof, true);

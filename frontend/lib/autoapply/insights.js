@@ -1,40 +1,14 @@
 /**
  * Read-side views over tasks and mail. Pure, no I/O.
  *
- *   chargeSummary(tasks)                 batch page: applied vs not charged (failed / captcha / blocked / other)
  *   matchConfirmationMails(tasks, mails) applied task id -> the 'received' mail that confirms it (same company,
  *                                        arrived from 10 min before to 3 days after the submit)
  *   roleFamily(title)                    'Senior Backend Engineer' -> 'backend'
- *   batchCounts / batchChargeSummary    the same, merged with aa_batches.final_counts (sql/47: the retention job
+ *   batchCounts(rows, finalCounts)       task counts, merged with aa_batches.final_counts (sql/47: the retention job
  *                                        deletes not-applied task rows of finished batches after 30 days)
  *   replyStats({tasks, mails, interviews, now}) totals and per role family, last 90 days
  */
 import { companyKey, sameCompany } from "./companies.js";
-
-// ── not charged ─────────────────────────────────────────────────────────────
-// Same set as sql/25's aa_tasks_set_not_charged trigger, minus jobs the user removed / a cancelled batch dropped
-// (they were never attempted, so they are not "not charged" outcomes worth showing).
-export const NOT_CHARGED_STATUSES = ["skipped", "failed", "needs_you"];
-
-export function notChargedGroup(t) {
-  const code = String(t.reason_code || "").toLowerCase();
-  if (/captcha|bot_check|turnstile|hcaptcha|recaptcha/.test(code)) return "captcha";
-  if (/block|sso|login|signin|sign_in|forbidden|denied|rate_limit|access/.test(code)) return "blocked";
-  if (t.status === "failed") return "failed";
-  return "other";
-}
-
-export function chargeSummary(tasks) {
-  const out = { applied: 0, not_charged: 0, in_progress: 0, by_reason: { failed: 0, captcha: 0, blocked: 0, other: 0 } };
-  for (const t of tasks || []) {
-    if (t.status === "applied") out.applied++;
-    else if (NOT_CHARGED_STATUSES.includes(t.status)) {
-      out.not_charged++;
-      out.by_reason[notChargedGroup(t)]++;
-    } else if (!["removed", "cancelled"].includes(t.status)) out.in_progress++;
-  }
-  return out;
-}
 
 // ── counts that survive task retention (sql/47) ────────────────────────────
 // The daily retention job deletes skipped / failed / removed / cancelled task rows of a finished batch once they are
@@ -54,20 +28,6 @@ export function batchCounts(rows, finalCounts) {
     }
   }
   return counts;
-}
-
-export function batchChargeSummary(rows, finalCounts) {
-  const live = chargeSummary(rows);
-  const reasons = finalCounts && Array.isArray(finalCounts.reasons) ? finalCounts.reasons : null;
-  if (!reasons) return live;
-  const snap = { not_charged: 0, by_reason: { failed: 0, captcha: 0, blocked: 0, other: 0 } };
-  for (const r of reasons) {
-    const n = Number(r && r.n) || 0;
-    if (n <= 0 || !NOT_CHARGED_STATUSES.includes(r.status)) continue;
-    snap.not_charged += n;
-    snap.by_reason[notChargedGroup(r)] += n;
-  }
-  return snap.not_charged > live.not_charged ? { ...live, ...snap } : live;
 }
 
 // ── confirmation mail ───────────────────────────────────────────────────────

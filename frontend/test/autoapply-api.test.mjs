@@ -210,11 +210,13 @@ test("resume upload: type/size checks, storage path, parsed draft", async () => 
 test("GET /supply matches kind, window, prefs", async () => {
   const r = await call("GET", "/api/autoapply/supply?kind=product&window_days=7");
   assert.equal(r.status, 200);
-  assert.equal(r.json.count, 2); // Acme + Beta backend (not data scientist, not 20d old, not closed)
-  assert.deepEqual(r.json.by_ats, { workday: 1, greenhouse: 1 });
-  assert.equal(r.json.sample[0].company, "Beta");
+  assert.equal(r.json.base_count, 2); // Acme + Beta backend (not data scientist, not 20d old, not closed)
+  // short of the 50 pack: the 60-day step adds the 20-day-old job (later steps add nothing, so the label stays there)
+  assert.equal(r.json.count, 3);
+  assert.equal(r.json.widened, "incl. last 60 days");
   assert.deepEqual(Object.keys(r.json.sample[0]).sort(), ["company", "location", "posted_at", "title"]);
   const wide = await call("GET", "/api/autoapply/supply?kind=product&window_days=30");
+  assert.equal(wide.json.base_count, 3);
   assert.equal(wide.json.count, 3);
   const bad = await call("GET", "/api/autoapply/supply?kind=product&window_days=31");
   assert.equal(bad.status, 400);

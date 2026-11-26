@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { openRazorpayOrder } from '../../lib/razorpay'
-import { aaKeys, useAutoApplyMe, useCompanySuggest, useCouponQuote, useCreateOrder, useSaveProfile, useSupply, useVerifyOrder } from '../../lib/useAutoApply'
+import { useAutoApplyMe, useCompanySuggest, useCouponQuote, useCreateOrder, useSupply, useVerifyOrder } from '../../lib/useAutoApply'
 import { AALayout, MustCompaniesInput, PACK_KINDS, PACK_SIZES, PageHeader, ProfileMissing, ReadinessCard, fmtDate, num, packPrice, rupees } from './ui'
 import './buy.css'
 
@@ -18,96 +17,62 @@ function useDebounced(value, ms) {
 }
 
 const kindWord = (k) => PACK_KINDS[k].short.toLowerCase()
+const shown = (n, size) => (n >= size ? `${size}+` : num(n))
 
-function SupplyPanel({ kind, windowDays, size, supply, other, onSwitchKind, onBroaden, broadening, broadenErr, busy }) {
+/** "Includes jobs from across India, last 90 days." from GET /supply's widened_parts (the broadening ladder). */
+function widenedLine(d) {
+    const parts = (d && d.widened_parts) || []
+    if (!parts.length) return ''
+    const what = parts.includes('titles') ? 'related roles' : 'jobs'
+    const india = parts.includes('locations')
+    const days = parts.includes('window') ? d.widened_window_days : null
+    if (india) return `Includes ${what} from across India${days ? `, last ${days} days` : ''}.`
+    return `Includes ${what}${days ? ` from the last ${days} days` : ''}.`
+}
+
+function SupplyPanel({ kind, size, supply, other, onSwitchKind, busy }) {
     const d = supply.data
     const o = other.data
     const otherKind = kind === 'service' ? 'product' : 'service'
-    const low = !!d && d.count < Math.max(size, 50)
-    const broaden = (d && Array.isArray(d.broaden) ? d.broaden : []).slice().sort((a, b) => b.count - a.count)
     return (
-        <section className="aa-card" aria-labelledby="buy-supply" aria-busy={supply.isFetching || broadening}>
-            <h2 id="buy-supply" className="aa-h2">Matching jobs right now</h2>
+        <section className="aa-card buy-supply" aria-labelledby="buy-supply" aria-busy={supply.isFetching}>
+            <h2 id="buy-supply" className="aa-sr">Matching jobs</h2>
             {supply.isLoading ? (
-                <LoadingState compact label="Searching jobs that match your profile…" />
+                <LoadingState compact label="Finding matching jobs…" />
             ) : supply.isError ? (
                 <ErrorState compact err={supply.error} onRetry={() => supply.refetch()} />
             ) : d ? (
                 <div className="aa-stack">
                     <div>
                         <div className="buy-count" aria-live="polite">
-                            <span className={`buy-count-num${low ? ' is-low' : ''}`}>{num(d.count)}{d.capped ? '+' : ''}</span>
-                            <span className="buy-count-text">job{d.count === 1 ? '' : 's'} match your profile right now</span>
+                            <span className={`buy-count-num${d.count < 50 ? ' is-low' : ''}`}>{shown(d.count, size)}</span>
+                            <span className="buy-count-text">matching job{d.count === 1 ? '' : 's'}</span>
                         </div>
-                        <div className="buy-count-sub">
-                            {PACK_KINDS[kind].short}-company jobs posted in the last {windowDays} day{windowDays === 1 ? '' : 's'} that fit your roles and locations.
-                        </div>
+                        {widenedLine(d) && <div className="buy-count-sub">{widenedLine(d)}</div>}
+                        {o && o.count > d.count && (
+                            <button type="button" className="buy-switch" onClick={() => onSwitchKind(otherKind)} disabled={busy}>
+                                {shown(o.count, size)} at {kindWord(otherKind)} companies · switch to {kindWord(otherKind)}
+                            </button>
+                        )}
                     </div>
-                    {o && (
-                        <div className="buy-kinds aa-row">
-                            <span><strong>{num(o.count)}{o.capped ? '+' : ''}</strong> match at {kindWord(otherKind)} companies</span>
-                            {o.count > d.count && (
-                                <button type="button" className="aa-btn" onClick={() => onSwitchKind(otherKind)} disabled={busy}>
-                                    Switch to {kindWord(otherKind)}
-                                </button>
-                            )}
-                        </div>
-                    )}
-                    {low && kind === 'service' && (
-                        <div className="aa-note is-warn">
-                            Service-company openings for your profile are thin right now ({num(d.count)} in the last {windowDays} day{windowDays === 1 ? '' : 's'}).
-                            {o && o.count > d.count ? ` Product companies have ${num(o.count)}: pick a product pack, or widen your search below.` : ' Widen your search below to start with more matches.'}
-                        </div>
-                    )}
-                    {low && (
-                        <div className="aa-note is-info">
-                            We keep searching until all {size} applications are submitted (we widen locations, roles and dates if needed).
-                            {broaden.length > 0 ? ' Widen your search now to start with more matches:' : ''}
-                        </div>
-                    )}
-                    {low && broaden.length > 0 && (
-                        <div className="buy-broaden">
-                            <span className="buy-broaden-title">One-click broaden</span>
-                            <div className="buy-broaden-chips">
-                                {broaden.map((b) => (
-                                    <button key={b.id} type="button" className="buy-broaden-chip" onClick={() => onBroaden(b)} disabled={busy || broadening}
-                                        title={b.added && b.added.length ? `Adds ${b.added.map((x) => (x === 'Pan India' ? 'Anywhere in India' : x)).join(', ')} to your preferences` : undefined}>
-                                        <span>{b.label}</span>
-                                        <span className="buy-gain">{num(b.count)}{d.capped ? '+' : ''} jobs</span>
-                                    </button>
-                                ))}
-                            </div>
-                            {broadening && <span className="aa-faint">Updating your preferences…</span>}
-                            {broadenErr && <span className="aa-faint" role="alert" style={{ color: 'var(--red)' }}>{broadenErr}</span>}
-                        </div>
-                    )}
-                    {d.by_ats && Object.keys(d.by_ats).length > 0 && (
-                        <div className="aa-chips" aria-label="By application system">
-                            {Object.entries(d.by_ats).sort((a, b) => b[1] - a[1]).map(([ats, n]) => (
-                                <span key={ats} className="aa-chip">{ats} <span className="aa-faint">{num(n)}</span></span>
-                            ))}
-                        </div>
-                    )}
                     {Array.isArray(d.sample) && d.sample.length > 0 ? (
-                        <div className="aa-table-wrap">
-                            <table className="aa-table">
-                                <caption className="aa-sr">Sample of matching jobs</caption>
-                                <thead><tr><th>Company</th><th>Title</th><th>Location</th><th>Posted</th></tr></thead>
-                                <tbody>
-                                    {d.sample.map((j, i) => (
-                                        <tr key={`${j.company}-${j.title}-${i}`}>
-                                            <td className="aa-strong" data-label="Company">{j.company}</td>
-                                            <td data-label="Title">{j.title}</td>
-                                            <td data-label="Location">{j.location || '—'}</td>
-                                            <td data-label="Posted">{fmtDate(j.posted_at, false)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                        <table className="buy-sample">
+                            <caption className="aa-sr">Sample of matching jobs</caption>
+                            <thead className="aa-sr"><tr><th>Company</th><th>Title</th><th>Posted</th></tr></thead>
+                            <tbody>
+                                {d.sample.slice(0, 5).map((j, i) => (
+                                    <tr key={`${j.company}-${j.title}-${i}`}>
+                                        <td className="buy-sample-co">{j.company}</td>
+                                        <td className="buy-sample-title">{j.title}</td>
+                                        <td className="buy-sample-when">{fmtDate(j.posted_at, false)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     ) : (
-                        <p className="aa-faint" style={{ margin: 0 }}>No matching jobs in this window yet.</p>
+                        <p className="aa-faint" style={{ margin: 0 }}>No matching jobs yet.</p>
                     )}
+                    <p className="buy-keep">We keep applying until all {size} are submitted.</p>
                 </div>
             ) : null}
         </section>
@@ -157,14 +122,11 @@ export default function BuyPage() {
     const [mustQuery, setMustQuery] = useState('')
     const suggest = useCompanySuggest(useDebounced(mustQuery, 250), kind)
     const sizeOk = size <= remaining
-    const qc = useQueryClient()
-    const saveProfile = useSaveProfile()
-    const [broadenErr, setBroadenErr] = useState('')
     // both kinds: the panel compares them and the busier one is pre-selected (server-cached 10 min per user)
     // only once /me set the window and the slider settled (0 disables the query)
     const supplyWd = me.data && windowDays !== null && debouncedWd === wd ? debouncedWd : 0
-    const supplyService = useSupply('service', supplyWd)
-    const supplyProduct = useSupply('product', supplyWd)
+    const supplyService = useSupply('service', supplyWd, size)
+    const supplyProduct = useSupply('product', supplyWd, size)
     const supplyFor = (k) => (k === 'product' ? supplyProduct : supplyService)
 
     useEffect(() => {
@@ -176,18 +138,6 @@ export default function BuyPage() {
         setKindState(pr.count > sv.count ? 'product' : 'service')
     }, [supplyService.data, supplyProduct.data])
 
-    async function broadenPrefs(b) {
-        setBroadenErr('')
-        const prefs = { ...(me.data?.prefs || {}) }
-        if (b.locations) prefs.locations = b.locations
-        if (b.titles) prefs.titles = b.titles
-        try {
-            await saveProfile.mutateAsync({ prefs })
-            await qc.invalidateQueries({ queryKey: [...aaKeys.all, 'supply'] })
-        } catch (err) {
-            setBroadenErr(`Could not update your preferences (${errorText(err)}).`)
-        }
-    }
     const busy = !!stage
 
     // keep the selected size purchasable
@@ -272,91 +222,81 @@ export default function BuyPage() {
                     </div>
                 </div>
             )}
-            <PageHeader eyebrow="Buy" title="Buy an AutoApply pack" lead="Credits are used only when an application is submitted." />
+            <PageHeader eyebrow="Buy" title="Buy a pack" />
 
             {me.data && !onboarded && (
-                <div className="aa-note is-warn aa-spread" style={{ marginBottom: 16 }}>
-                    <span>Finish setup before buying, so we can apply with your resume and answers.</span>
+                <div className="aa-note is-warn aa-spread" style={{ marginBottom: 12 }}>
+                    <span>Finish setup before buying.</span>
                     <Link to="/autoapply/account" className="aa-btn is-primary">Go to setup</Link>
                 </div>
             )}
             {me.data && me.data.readiness ? (
-                <ReadinessCard readiness={me.data.readiness} style={{ marginBottom: 16 }} />
+                <ReadinessCard readiness={me.data.readiness} style={{ marginBottom: 12 }} />
             ) : me.data && onboarded && profileMissing.length > 0 && (
                 <ProfileMissing
-                    style={{ marginBottom: 16 }}
+                    style={{ marginBottom: 12 }}
                     missing={profileMissing}
-                    lead="Your profile is not complete. You can still buy, but the batch waits (no credit used) until you finish it. Missing:"
-                    cta="Finish your profile first"
+                    lead="Profile incomplete: the batch waits (no credit used) until you finish it. Missing:"
+                    cta="Finish your profile"
                 />
             )}
 
             <div className="aa-stack">
                 <section className="aa-card" aria-labelledby="buy-kind">
-                    <h2 id="buy-kind" className="aa-h2">1 · Companies</h2>
-                    <div className="aa-grid-2" role="radiogroup" aria-label="Pack kind">
+                    <h2 id="buy-kind" className="aa-h2">Companies</h2>
+                    <div className="buy-opts" role="radiogroup" aria-label="Pack kind">
                         {Object.entries(PACK_KINDS).map(([k, meta]) => (
-                            <button key={k} type="button" role="radio" aria-checked={kind === k} className="aa-choice" onClick={() => setKind(k)} disabled={busy}>
-                                <span className="aa-choice-title">{meta.name}</span>
-                                <span className="aa-muted">{meta.blurb}</span>
+                            <button key={k} type="button" role="radio" aria-checked={kind === k} className="aa-choice" onClick={() => setKind(k)} disabled={busy} title={meta.blurb}>
+                                <span className="aa-choice-title">{meta.short}</span>
                             </button>
                         ))}
                     </div>
-                </section>
-
-                <section className="aa-card" aria-labelledby="buy-size">
-                    <h2 id="buy-size" className="aa-h2">2 · Pack size</h2>
-                    <div className="aa-grid" role="radiogroup" aria-label="Pack size">
+                    <h2 id="buy-size" className="aa-h2 buy-h2-gap">Pack size</h2>
+                    <div className="buy-opts" role="radiogroup" aria-labelledby="buy-size">
                         {PACK_SIZES.map((s) => {
                             const p = packPrice(config, kind, s)
                             const over = s > remaining
                             return (
-                                <button key={s} type="button" role="radio" aria-checked={size === s} className="aa-choice" onClick={() => setSize(s)} disabled={busy || over || p == null}>
-                                    <span className="aa-choice-title">{s} applications</span>
-                                    <span className="aa-choice-price">{p != null ? rupees(p) : 'Unavailable'}</span>
-                                    <span className="aa-faint">{p != null ? `${rupees(p / s)} per application` : 'Price not set yet'}{over ? ' · over this month’s limit' : ''}</span>
+                                <button key={s} type="button" role="radio" aria-checked={size === s} className="aa-choice" onClick={() => setSize(s)} disabled={busy || over || p == null}
+                                    title={over ? 'Over this month’s limit' : undefined}>
+                                    <span className="aa-choice-title">{s} jobs</span>
+                                    <span className="aa-choice-price">{p != null ? rupees(p) : '—'}</span>
                                 </button>
                             )
                         })}
                     </div>
-                    <div style={{ marginTop: 14 }}>
-                        <div className="aa-spread aa-faint" style={{ marginBottom: 5 }}>
-                            <span>This month: {num(u.month_purchased)} of {num(cap)} applications purchased</span>
-                            <span>{num(remaining)} left</span>
-                        </div>
-                        <div className="aa-progress" role="progressbar" aria-label="Monthly purchase limit used" aria-valuemin={0} aria-valuemax={cap} aria-valuenow={u.month_purchased || 0}>
-                            <span style={{ width: `${cap ? Math.min(100, ((u.month_purchased || 0) / cap) * 100) : 0}%` }} />
-                        </div>
-                    </div>
-                </section>
-
-                <section className="aa-card" aria-labelledby="buy-window">
-                    <h2 id="buy-window" className="aa-h2">3 · How fresh</h2>
-                    <label className="field-label" htmlFor="buy-wd">Jobs posted in the last <span style={{ color: 'var(--pop)' }}>{wd} day{wd === 1 ? '' : 's'}</span></label>
-                    <input id="buy-wd" type="range" className="aa-range" min={1} max={maxWindow} value={wd} onChange={(e) => setWindowDays(Number(e.target.value))} disabled={busy} aria-valuetext={`${wd} days`} />
-                    <div className="field-hint">Fresher postings get more replies; a longer window finds more jobs.</div>
-                </section>
-
-                <section className="aa-card" aria-labelledby="buy-must">
-                    <h2 id="buy-must" className="aa-h2">4 · Must-apply companies <span className="aa-faint" style={{ fontWeight: 600 }}>(optional)</span></h2>
-                    <MustCompaniesInput
-                        idPrefix="buy-must"
-                        value={must}
-                        onChange={setMust}
-                        query={mustQuery}
-                        onQuery={setMustQuery}
-                        suggestions={suggest.data?.companies || []}
-                        disabled={busy}
-                    />
+                    <div className="aa-faint" style={{ marginTop: 8 }}>{num(remaining)} of {num(cap)} left this month</div>
                 </section>
 
                 {me.data && (
-                    <SupplyPanel kind={kind} windowDays={debouncedWd} size={size} supply={supplyFor(kind)} other={supplyFor(kind === 'product' ? 'service' : 'product')}
-                        onSwitchKind={setKind} onBroaden={broadenPrefs} broadening={saveProfile.isPending} broadenErr={broadenErr} busy={busy} />
+                    <SupplyPanel kind={kind} size={size} supply={supplyFor(kind)} other={supplyFor(kind === 'product' ? 'service' : 'product')}
+                        onSwitchKind={setKind} busy={busy} />
                 )}
 
+                <details className="aa-card buy-more">
+                    <summary>More options</summary>
+                    <div className="aa-stack" style={{ marginTop: 10 }}>
+                        <div>
+                            <label className="field-label" htmlFor="buy-wd">Posted in the last <span style={{ color: 'var(--pop)' }}>{wd} day{wd === 1 ? '' : 's'}</span></label>
+                            <input id="buy-wd" type="range" className="aa-range" min={1} max={maxWindow} value={wd} onChange={(e) => setWindowDays(Number(e.target.value))} disabled={busy} aria-valuetext={`${wd} days`} />
+                        </div>
+                        <div>
+                            <div className="field-label" id="buy-must">Must-apply companies</div>
+                            <MustCompaniesInput
+                                idPrefix="buy-must"
+                                value={must}
+                                onChange={setMust}
+                                query={mustQuery}
+                                onQuery={setMustQuery}
+                                suggestions={suggest.data?.companies || []}
+                                disabled={busy}
+                            />
+                        </div>
+                    </div>
+                </details>
+
                 <section className="aa-card is-pop" aria-labelledby="buy-total">
-                    <h2 id="buy-total" className="aa-h2">Total</h2>
+                    <h2 id="buy-total" className="aa-sr">Total</h2>
                     <div className="aa-row" style={{ gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                         <label className="aa-sr" htmlFor="buy-coupon">Coupon code</label>
                         <input id="buy-coupon" className="input-field" placeholder="Coupon code" value={couponInput} maxLength={40}
@@ -375,7 +315,7 @@ export default function BuyPage() {
                                 {price != null ? rupees(price) : '—'}
                                 {coupon && listPrice != null && price !== listPrice && <span className="aa-faint" style={{ textDecoration: 'line-through', fontSize: '0.8rem', marginLeft: 8 }}>{rupees(listPrice)}</span>}
                             </div>
-                            <div className="aa-faint">{PACK_KINDS[kind].name} · {size} applications · last {wd} days · GST included</div>
+                            <div className="aa-faint">{PACK_KINDS[kind].short} · {size} jobs · GST incl.</div>
                         </div>
                         <button type="button" className="aa-btn is-primary" style={{ padding: '11px 18px' }} onClick={buy}
                             disabled={busy || !onboarded || !sizeOk || price == null || (profileMissing.length > 0 && !ackWait)}>
@@ -388,9 +328,6 @@ export default function BuyPage() {
                             <span>I understand this batch waits until my profile is complete.</span>
                         </label>
                     )}
-                    <p className="aa-faint" style={{ margin: '10px 0 0' }}>
-                        We keep searching until all {size} applications are submitted (we widen locations, roles and dates if needed).
-                    </p>
                     {note?.kind === 'eligible' && (
                         <div className="aa-note is-warn aa-spread" style={{ marginTop: 12 }} role="alert">
                             <span>{note.text && note.text !== 'not_eligible' ? note.text : 'AutoApply needs an active Pro or Max plan.'}</span>

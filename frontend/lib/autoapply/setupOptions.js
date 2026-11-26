@@ -299,8 +299,9 @@ export function validateSetupAnswers(answers = {}, { today } = {}) {
 
 // ── preferences ───────────────────────────────────────────────────────────
 /** prefs -> { prefs, errors }. Titles 1..5 from the curated list, locations 1..10 from LOCATION_OPTIONS,
- *  min_score one of the three levels. Canonical casing is restored. */
-export function validatePrefsInput(prefs = {}) {
+ *  min_score one of the three levels (missing -> Balanced; `saved` = the stored prefs, whose old slider value is
+ *  snapped to the nearest level when sent back unchanged). Canonical casing is restored. */
+export function validatePrefsInput(prefs = {}, { saved } = {}) {
   const errors = {};
   const out = { ...prefs };
   const pick = (field, list, max, label) => {
@@ -320,7 +321,10 @@ export function validatePrefsInput(prefs = {}) {
   };
   pick("titles", TITLE_OPTIONS, MAX_TITLES, "job title");
   pick("locations", LOCATION_OPTIONS, MAX_LOCATIONS, "location");
-  if (out.min_score === undefined) out.min_score = MIN_SCORE_DEFAULT;
+  const legacy = saved && saved.min_score !== undefined && saved.min_score !== null && Number(out.min_score) === Number(saved.min_score);
+  // missing (older saved prefs never had one) -> Balanced; an old slider value sent back unchanged -> nearest level
+  if (out.min_score === undefined || out.min_score === null || out.min_score === "") out.min_score = MIN_SCORE_DEFAULT;
+  else if (legacy && Number.isFinite(Number(out.min_score))) out.min_score = scoreLevel(out.min_score);
   else if (!MIN_SCORE_LEVELS.some((l) => l.value === Number(out.min_score))) errors.min_score = "Choose Broad, Balanced or Strict.";
   else out.min_score = Number(out.min_score);
   return { prefs: out, errors };

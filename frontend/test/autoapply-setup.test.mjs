@@ -77,6 +77,12 @@ test("setup: prefs -> curated titles (max 5), listed locations, three match leve
   assert.ok(validatePrefsInput({ titles: six, locations: ["Remote"] }).errors.titles);
   assert.ok(validatePrefsInput({ titles: ["Backend Engineer"], locations: ["Remote"], min_score: 60 }).errors.min_score);
   assert.equal(validatePrefsInput({ titles: ["Backend Engineer"], locations: ["Remote"] }).prefs.min_score, 20);
+  // saved prefs without a level (null) or with an old slider value sent back unchanged: Balanced / nearest level
+  assert.equal(validatePrefsInput({ titles: ["Backend Engineer"], locations: ["Remote"], min_score: null }).prefs.min_score, 20);
+  const legacy = validatePrefsInput({ titles: ["Backend Engineer"], locations: ["Remote"], min_score: 45 }, { saved: { min_score: 45 } });
+  assert.deepEqual(legacy.errors, {});
+  assert.equal(legacy.prefs.min_score, 30);
+  assert.ok(validatePrefsInput({ titles: ["Backend Engineer"], locations: ["Remote"], min_score: 45 }, { saved: { min_score: 20 } }).errors.min_score);
   assert.deepEqual([scoreLevel(0), scoreLevel(15), scoreLevel(60)], [0, 20, 30]);
 });
 

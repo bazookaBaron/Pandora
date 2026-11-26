@@ -172,7 +172,7 @@ function ResumeStep({ me, onNext, draft, setDraft }) {
     return (
         <section className="aa-card aa-seg tone-active aa-stack" aria-labelledby="st-resume">
             <SectionHead id="st-resume" icon={FileText} tone="active" title="Resume"
-                sub={`We read your resume to fill application forms. PDF or DOCX, up to 5 MB.${onFile ? ' A resume is already on file; upload again to replace it.' : ''}`} />
+                sub={`PDF or DOCX, up to 5 MB.${onFile ? ' On file; upload again to replace.' : ''}`} />
             <div className="aa-row">
                 <label className="aa-btn is-primary" htmlFor="aa-resume-file" style={{ cursor: upload.isPending ? 'wait' : 'pointer' }}>
                     {upload.isPending ? 'Reading resume…' : onFile ? 'Replace resume' : 'Upload resume'}
@@ -185,7 +185,7 @@ function ResumeStep({ me, onNext, draft, setDraft }) {
 
             {shown.length > 0 && (
                 <>
-                    <div className="aa-note is-info">Check what we read and fix anything wrong. Every past job needs its title and company, and add your skills: application forms ask for both.</div>
+                    <div className="aa-note is-info">Check what we read. Each job needs a title and company; add your skills.</div>
                     <div className="aa-stack">
                         {shown.map(([k, v]) => (
                             <DraftField key={k} k={k} value={v} errors={errors} onChange={(nv) => setDraft({ ...draft, [k]: nv })} />
@@ -431,7 +431,7 @@ function AnswersStep({ onNext, draft }) {
     return (
         <form className="aa-card aa-seg tone-active aa-stack" onSubmit={submit} aria-labelledby="st-answers" noValidate>
             <SectionHead id="st-answers" icon={IdCard} tone="active" title="Standard answers"
-                sub="These answer the questions application forms ask. Every question is required so we never get stuck mid-application; pick from the lists, they match what forms expect." />
+                sub="All required, so applications never get stuck." />
             {GROUPS.map((g) => {
                 const list = questions.filter((q) => q.group === g)
                 if (!list.length) return null
@@ -479,7 +479,7 @@ function TitlePicker({ values, onChange }) {
             <input id="pf-titles" type="search" className="input-field" value={text} maxLength={60} autoComplete="off" disabled={full}
                 placeholder={full ? `Up to ${MAX_TITLES} titles` : 'Search roles, e.g. backend, analyst, product'} onChange={(e) => setText(e.target.value)}
                 aria-describedby="pf-titles-hint" aria-controls="pf-titles-opts" />
-            <div id="pf-titles-hint" className="field-hint">Pick up to {MAX_TITLES}. We also match everyday variants (e.g. Software Engineer takes SDE, Developer).</div>
+            <div id="pf-titles-hint" className="field-hint">Up to {MAX_TITLES}. Variants (SDE, Developer) are included.</div>
             {!full && (
                 <div id="pf-titles-opts" className="aa-multi-opts" role="group" aria-label="Matching roles" style={{ marginTop: 8 }}>
                     {matches.map((o) => (
@@ -503,7 +503,7 @@ function LocationPicker({ values, onChange }) {
                     return <button key={o.value} type="button" className="aa-opt" aria-pressed={on} disabled={!on && values.length >= MAX_LOCATIONS} onClick={() => toggle(o.value)}>{o.label}</button>
                 })}
             </div>
-            <div id="pf-locs-hint" className="field-hint">More locations means more matching jobs. &ldquo;Anywhere in India&rdquo; matches every city.</div>
+            <div id="pf-locs-hint" className="field-hint">&ldquo;Anywhere in India&rdquo; matches every city.</div>
         </div>
     )
 }
@@ -561,7 +561,7 @@ function prefsState(p, me) {
     return {
         titles,
         locations: locs.length ? locs : suggestLocations(me),
-        minScore: p.min_score === undefined ? 20 : scoreLevel(p.min_score),
+        minScore: p.min_score === undefined || p.min_score === null || p.min_score === "" ? 20 : scoreLevel(p.min_score),
         blocked: Array.isArray(p.blocked_companies) ? p.blocked_companies : [],
         employer: p.current_employer || '',
     }
@@ -605,7 +605,7 @@ function PrefsStep({ me, onNext }) {
 
     return (
         <form className="aa-card aa-seg tone-active aa-stack" onSubmit={submit} aria-labelledby="st-prefs" noValidate>
-            <SectionHead id="st-prefs" icon={SlidersHorizontal} tone="active" title="Preferences" sub="What we look for. Everything here is picked from lists, so it matches how jobs are posted." />
+            <SectionHead id="st-prefs" icon={SlidersHorizontal} tone="active" title="Preferences" />
             <fieldset className="aa-fs tone-active">
                 <legend><Briefcase size={14} aria-hidden="true" />Roles</legend>
                 <TitlePicker values={st.titles} onChange={edit('titles')} />
@@ -626,7 +626,6 @@ function PrefsStep({ me, onNext }) {
                         </button>
                     ))}
                 </div>
-                <div className="field-hint" style={{ marginTop: 8 }}>Jobs without a description are always judged on title and location only.</div>
             </fieldset>
             <fieldset className="aa-fs tone-history">
                 <legend><Lock size={14} aria-hidden="true" />Never apply to</legend>
@@ -686,7 +685,7 @@ function EmailStep({ me, onNext }) {
     return (
         <form className="aa-card aa-seg tone-active aa-stack" onSubmit={submit} aria-labelledby="st-email" noValidate>
             <SectionHead id="st-email" icon={Mail} tone="active" title="Email"
-                sub="Companies email your Vloombox address. Everything shows up in your Vloombox inbox, and we alert you about assessments and interviews. We never forward your mail." />
+                sub="Companies email this address; it shows up in your Inbox." />
 
             <div className="aa-field">
                 <span className="field-label">Your Vloombox address</span>
@@ -696,7 +695,7 @@ function EmailStep({ me, onNext }) {
                         <CopyButton text={address} label="Copy address" />
                     </div>
                 ) : (
-                    <p className="aa-faint" style={{ margin: 0 }}>Your address is created when you save your profile for the first time.</p>
+                    <p className="aa-faint" style={{ margin: 0 }}>Created when you first save your profile.</p>
                 )}
             </div>
 
@@ -704,7 +703,7 @@ function EmailStep({ me, onNext }) {
                 <label className="field-label" htmlFor="em-contact">Send alerts to<span className="aa-req" aria-hidden> *</span></label>
                 <input id="em-contact" type="email" className="input-field" value={contact} maxLength={254} onChange={(e) => setContact(e.target.value)} onBlur={() => setTouched(true)}
                     placeholder="you@example.com" autoComplete="email" aria-required="true" aria-invalid={!!(touched && error)} aria-describedby="em-contact-hint em-contact-err" />
-                <div id="em-contact-hint" className="field-hint">A short email once a day when you have new assessments or interviews. It never contains the message itself; it links to your Vloombox inbox.</div>
+                <div id="em-contact-hint" className="field-hint">Daily email when assessments or interviews arrive.</div>
                 <FieldError id="em-contact-err" msg={touched ? error : null} />
             </div>
             <div className="aa-field">
@@ -718,7 +717,7 @@ function EmailStep({ me, onNext }) {
             <div className="aa-field">
                 <span className="field-label">Instant alerts</span>
                 <NotifyButton />
-                <div className="field-hint">Get a notification on this device the moment an important message arrives.</div>
+                <div className="field-hint">Notify this device when an important mail arrives.</div>
             </div>
 
             <StepNote state={note} />
@@ -756,7 +755,7 @@ function ConsentStep({ me }) {
                 <input type="checkbox" checked={review} onChange={(e) => setReview(e.target.checked)} />
                 <span>
                     <strong style={{ color: 'var(--bright)' }}>Let me review the shortlist before applying.</strong><br />
-                    You get {hours} hours to approve early. After that we start applying.
+                    {hours} hours to approve, then we apply.
                 </span>
             </label>
             <label className="aa-check">
@@ -828,9 +827,7 @@ export default function SetupSection({ initialStep = null }) {
     return (
         <div>
             {!allDone && (
-                <p className="aa-setup-intro">
-                    Fill in these details once and we&apos;ll start applying for you. Each step unlocks when the one before it is done.
-                </p>
+                <p className="aa-setup-intro">Fill these in once to start.</p>
             )}
             <ol className="aa-setup-pipe" aria-label="Setup steps">
                 {STEPS.map((s, i) => {

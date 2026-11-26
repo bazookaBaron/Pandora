@@ -183,7 +183,7 @@ export function setupLinkFor(missing) {
 }
 const missingLabel = (m) => (typeof m === 'object' && m ? m.label || m.key : String(m))
 
-export function ProfileMissing({ missing, lead = 'We start applying as soon as your profile is complete. Still missing:', cta = 'Complete your profile', style }) {
+export function ProfileMissing({ missing, lead = 'Profile incomplete. Missing:', cta = 'Complete your profile', style }) {
     const list = Array.isArray(missing) ? missing : []
     return (
         <div className="aa-note is-warn aa-stack" style={style} role="status">
@@ -212,11 +212,11 @@ export function ReadinessCard({ readiness, title = 'Profile readiness', compact 
                 <span style={{ width: `${pct}%` }} />
             </div>
             {ok ? (
-                <p className="aa-muted" style={{ margin: '10px 0 0' }}>Your profile is complete. We can apply as soon as a batch starts.</p>
+                <p className="aa-muted" style={{ margin: '8px 0 0' }}>Profile complete.</p>
             ) : (
                 <>
                     <p className="aa-muted" style={{ margin: '10px 0 6px' }}>
-                        {missing.length} item{missing.length === 1 ? '' : 's'} left. A paid batch waits (no credit used) until these are done:
+                        {missing.length} item{missing.length === 1 ? '' : 's'} left:
                     </p>
                     <ul className="aa-list" style={{ margin: 0 }}>
                         {(compact ? missing.slice(0, 5) : missing).map((m) => (
@@ -441,8 +441,7 @@ export function UpgradeCard({ plan }) {
                 AutoApply needs Pro or Max
             </h2>
             <p className="aa-muted" style={{ margin: '8px 0 14px' }}>
-                {plan && plan !== 'free' ? `Your current plan (${plan}) doesn't include AutoApply. ` : "You're on the Free plan. "}
-                Upgrade to Pro or Max to buy AutoApply packs. Credits are only used when an application is actually submitted.
+                {plan && plan !== 'free' ? `Your plan (${plan}) doesn't include it.` : "You're on the Free plan."}
             </p>
             <Link to="/pricing" className="aa-btn is-primary">See Pro and Max</Link>
         </section>

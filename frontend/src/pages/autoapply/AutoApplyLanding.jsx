@@ -72,13 +72,13 @@ function Batches({ q }) {
             <section className="aa-card aa-seg tone-active" aria-label="Batches">
                 <EmptyState compact icon={<EmptyArt kind="batches" tone="active" />}
                     title="No batches yet"
-                    message="Buy a pack and we start shortlisting matching jobs within minutes."
+                    message="Buy a pack to start."
                     action={<Link to="/autoapply/buy" className="aa-btn is-primary"><ShoppingBag size={13} aria-hidden="true" /> Buy a pack</Link>} />
             </section>
         )
     }
     return (
-        <div className="aa-stack" style={{ gap: 22 }}>
+        <div className="aa-stack" style={{ gap: 16 }}>
             {ongoing.length > 0 && (
                 <section aria-labelledby="aa-ongoing">
                     <SectionHead id="aa-ongoing" icon={Layers} tone="active" title="Ongoing batches" count={ongoing.length} />
@@ -110,7 +110,7 @@ function KeyNumbers({ batches, needCount }) {
                     to={active.length ? undefined : '/autoapply/buy'} />
             </div>
             <div role="listitem" style={{ display: 'grid' }}>
-                <StatTile icon={CheckCircle2} tone="success" label="Applied" value={applied} hint="Submitted for you" />
+                <StatTile icon={CheckCircle2} tone="success" label="Applied" value={applied} />
             </div>
             <div role="listitem" style={{ display: 'grid' }}>
                 <StatTile icon={Hand} tone="attention" label="Needs you" value={needCount}
@@ -137,9 +137,8 @@ export default function AutoApplyLanding() {
     const needs = useNeedsYou({ enabled: eligible })
     const needCount = eligible ? (needs.data?.items?.length || 0) : 0
     const pipeline = data && (
-        <section data-tour="autoapply-pipeline" aria-labelledby="aa-pipe" style={{ marginBottom: 22 }}>
-            <SectionHead id="aa-pipe" icon={ShoppingBag} tone="active" title="Buy a pack"
-                sub="Credits are used only when an application is submitted. Prices include GST." />
+        <section data-tour="autoapply-pipeline" aria-labelledby="aa-pipe" style={{ marginBottom: 16 }}>
+            <SectionHead id="aa-pipe" icon={ShoppingBag} tone="active" title="Buy a pack" />
             <div className="aa-grid-2 aa-pipe-grid">
                 {['service', 'product'].map((kind) => (
                     <PipelineCard key={kind} kind={kind} config={data.config} eligible={eligible} onboardingDone={data.onboarding_done} />
@@ -152,7 +151,7 @@ export default function AutoApplyLanding() {
         <AALayout>
             <PageHeader
                 title="AutoApply"
-                lead="Buy a pack, set your preferences once, and we submit applications for you."
+                lead="We apply to jobs for you."
                 actions={needCount > 0 && (
                     <Link to="/autoapply/needs-you" className="aa-chip-link" aria-label={`${needCount} applications need you`}>
                         Needs you ({needCount})

@@ -16,8 +16,8 @@ function JobLine({ job }) {
     const name = [job.company || 'Unknown company', job.title].filter(Boolean).join(' · ')
     return (
         <span className="ny-job">
-            <span>{name}</span>
-            {link && <a href={link} target="_blank" rel="noopener noreferrer" className="ny-link"><ExternalLink size={11} aria-hidden /> Open</a>}
+            <span className="ny-job-name" title={name}>{name}</span>
+            {link && <a href={link} target="_blank" rel="noopener noreferrer" className="ny-link" aria-label={`Open ${name}`}><ExternalLink size={11} aria-hidden /><span className="ny-link-text"> Open</span></a>}
         </span>
     )
 }
@@ -122,8 +122,8 @@ export default function NeedsYouPage() {
     return (
         <AALayout gate>
             <PageHeader
-                title="A few details to finish your applications"
-                lead="Some application forms asked for things we did not have. Fill them in once here and we retry every one of those applications. We keep going until all your applications are submitted."
+                title="Needs you"
+                lead="Fill these in once and we retry those applications."
             />
             {q.isLoading ? (
                 <LoadingState label="Loading…" />
@@ -131,29 +131,28 @@ export default function NeedsYouPage() {
                 <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load" />
             ) : (
                 <div className="aa-stack">
-                    {profile && <ProfileMissing missing={profile.missing} lead="A batch is waiting until your profile is complete. Still missing:" />}
+                    {profile && <ProfileMissing missing={profile.missing} lead="A batch waits for your profile. Missing:" />}
 
                     {empty ? (
                         <EmptyState
                             icon="✅"
                             title={accumulating > 0 ? 'Nothing to fill in yet' : 'Nothing needs you right now'}
                             message={accumulating > 0
-                                ? `We are still applying. ${accumulating} application${accumulating === 1 ? '' : 's'} need${accumulating === 1 ? 's' : ''} a detail from you; we collect them and ask you once, when the batch's other work is done.`
-                                : 'If a form asks something we cannot answer, it shows up here as one short form at the end of your batch.'}
+                                ? `${accumulating} application${accumulating === 1 ? '' : 's'} will need a detail; we ask once, at the end.`
+                                : 'Questions we cannot answer show up here.'}
                             action={<GuideNextCta fallback={{ to: '/autoapply', label: 'Open batches' }} />}
                         />
                     ) : (
                         <form className="ny-form aa-stack" onSubmit={submit} noValidate>
                             {accumulating > 0 && (
                                 <p className="aa-note is-info ny-flat" role="status">
-                                    {accumulating} more application{accumulating === 1 ? ' is' : 's are'} still in progress; anything they need is added here later.
+                                    {accumulating} more still in progress.
                                 </p>
                             )}
 
                             {fields.length > 0 && (
                                 <section className="aa-card ny-section" aria-labelledby="ny-q-h">
                                     <h2 id="ny-q-h" className="ny-h">Missing details <span className="aa-faint">({filled}/{fields.length})</span></h2>
-                                    <p className="aa-muted ny-sub">Saved to your answers and reused on every future application.</p>
                                     <div className="ny-grid">
                                         {fields.map((f) => {
                                             const id = `ny-f-${f.id}`
@@ -178,8 +177,8 @@ export default function NeedsYouPage() {
                                     <h2 id={`ny-s-${s.id}`} className="ny-h">{s.title}</h2>
                                     <p className="aa-muted ny-sub">
                                         {s.kind === 'verify_email'
-                                            ? 'The site sent a verification email to your AutoApply address. Open Inbox, click the link, then tick below.'
-                                            : 'The site needs you to sign in or finish the account once. Do it on the site, then tick below.'}
+                                            ? 'Click the link in the verification mail (Inbox), then tick below.'
+                                            : 'Sign in on the site once, then tick below.'}
                                     </p>
                                     <ul className="ny-jobs">{s.jobs.map((j) => <li key={j.item_id}><JobLine job={j} /></li>)}</ul>
                                     <label className="ny-check">
@@ -192,7 +191,7 @@ export default function NeedsYouPage() {
                             {manualSites.length > 0 && (
                                 <section className="aa-card ny-section" aria-labelledby="ny-m-h">
                                     <h2 id="ny-m-h" className="ny-h">Sites we cannot apply on for you</h2>
-                                    <p className="aa-muted ny-sub">A captcha or a social sign-in blocks us. Apply yourself if you like; these never use a credit.</p>
+                                    <p className="aa-muted ny-sub">Blocked by a captcha or social sign-in. No credit used.</p>
                                     {manualSites.map((s) => (
                                         <div key={s.id} className="ny-site">
                                             <div className="ny-site-name">{s.site}</div>
@@ -221,14 +220,14 @@ export default function NeedsYouPage() {
                             {unconfirmed.length > 0 && (
                                 <section className="aa-card ny-section" aria-labelledby="ny-u-h">
                                     <h2 id="ny-u-h" className="ny-h">Did these go through?</h2>
-                                    <p className="aa-muted ny-sub">We pressed submit but could not see the confirmation. Check the site or your Inbox. Yes uses one credit; No and we try again.</p>
+                                    <p className="aa-muted ny-sub">No confirmation seen. Yes uses one credit; No retries.</p>
                                     <ul className="ny-jobs">
                                         {unconfirmed.map((u) => (
                                             <li key={u.item_id} className="ny-job-row">
                                                 <JobLine job={u} />
                                                 <span className="ny-yn">
                                                     <label className="ny-check">
-                                                        <input type="checkbox" checked={unconf[u.item_id] === 'yes'} onChange={(e) => setUnconf((m) => ({ ...m, [u.item_id]: e.target.checked ? 'yes' : '' }))} /> Yes, it went through
+                                                        <input type="checkbox" checked={unconf[u.item_id] === 'yes'} onChange={(e) => setUnconf((m) => ({ ...m, [u.item_id]: e.target.checked ? 'yes' : '' }))} /> Yes
                                                     </label>
                                                     <label className="ny-check">
                                                         <input type="checkbox" checked={unconf[u.item_id] === 'no'} onChange={(e) => setUnconf((m) => ({ ...m, [u.item_id]: e.target.checked ? 'no' : '' }))} /> No

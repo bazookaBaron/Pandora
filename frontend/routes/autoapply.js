@@ -36,8 +36,8 @@ import { NOTIFY_CATEGORIES } from "../lib/autoapply/classify.js";
 import { processRefunds } from "../lib/autoapply/refunds.js";
 import { profileCheck, profileReadiness } from "../lib/autoapply/profileGate.js";
 import { normMustCompanies } from "../lib/autoapply/companies.js";
-import { broadenOptions, evaluate as supplyEvaluate, titleKeywords, userCtx as supplyUserCtx } from "../lib/autoapply/supplyMatch.js";
-import { batchChargeSummary, batchCounts, matchConfirmationMails, replyStats, STATS_WINDOW_DAYS } from "../lib/autoapply/insights.js";
+import { BROADEN_MAX, broadenPlan, evaluate as supplyEvaluate, titleKeywords, userCtx as supplyUserCtx, widenedLabel } from "../lib/autoapply/supplyMatch.js";
+import { batchCounts, matchConfirmationMails, replyStats, STATS_WINDOW_DAYS } from "../lib/autoapply/insights.js";
 import { healthSummary, isAdminUser } from "../lib/autoapply/health.js";
 import { sendInterviewReminders } from "../lib/autoapply/reminders.js";
 import { extractText, draftFromText, maybeEnrichWithAi } from "../lib/autoapply/resumeParse.js";
@@ -218,9 +218,9 @@ function cleanCompany(v, field, errors) {
   else if (t.length > COMPANY_MAX) errors[field] = `At most ${COMPANY_MAX} characters per company.`;
   return t;
 }
-function normPrefs(prefs) {
+function normPrefs(prefs, saved) {
   if (!isPlainObject(prefs)) throw bad("prefs must be an object.");
-  const { prefs: out, errors } = validatePrefsInput(prefs);
+  const { prefs: out, errors } = validatePrefsInput(prefs, { saved: isPlainObject(saved) ? saved : undefined });
   if (out.blocked_companies !== undefined) {
     if (!Array.isArray(out.blocked_companies) || out.blocked_companies.some((x) => typeof x !== "string")) errors.blocked_companies = "Must be a list of company names.";
     else {
@@ -399,7 +399,7 @@ export function createAutoApplyRouter(deps = {}) {
         patch.profile = b.profile;
       }
       if (b.prefs !== undefined) {
-        const p = normPrefs(b.prefs);
+        const p = normPrefs(b.prefs, existing && existing.prefs);
         if (!jsonSizeOk(p)) throw bad("prefs is too large.");
         patch.prefs = p;
       }
@@ -561,7 +561,10 @@ export function createAutoApplyRouter(deps = {}) {
   );
 
   // GET /supply: the jobs the scheduler would shortlist for this user right now (same hard gates as
-  // saas/matching.py, ported in lib/autoapply/supplyMatch.js) + one-click pref changes that would raise the count
+  // saas/matching.py, ported in lib/autoapply/supplyMatch.js). When fewer than the pack size (?pack=50|100, default
+  // 50) match, it walks the scheduler's broadening ladder (scheduler.broaden_plan: 60 / 90 days, + Pan India +
+  // Remote, + related titles) and stops at the first step that reaches the pack size, or after the last step. The
+  // scheduler applies the same ladder after purchase, so the count is what the pack really draws from.
   router.get(
     "/supply",
     wrap("supply", async (req, res) => {
@@ -569,48 +572,78 @@ export function createAutoApplyRouter(deps = {}) {
       if (!["service", "product"].includes(kind)) throw bad("kind must be 'service' or 'product'.");
       const wd = req.query.window_days === undefined ? AUTO_APPLY.window_days_default : Number(req.query.window_days);
       if (!Number.isInteger(wd) || wd < 1 || wd > AUTO_APPLY.window_days_max) throw bad(`window_days must be 1..${AUTO_APPLY.window_days_max}.`);
+      const sizes = Object.keys(AUTO_APPLY.packs[kind] || {}).map(Number);
+      const pack = req.query.pack === undefined ? Math.min(...sizes) : Number(req.query.pack);
+      if (!sizes.includes(pack)) throw bad(`pack must be one of ${sizes.join(", ")}.`);
       const [prof, answers] = await Promise.all([getProfile(req.user.id), getAnswers(req.user.id)]);
       const prefs = (prof && prof.prefs) || {};
-      // the scan below reads up to SUPPLY_MAX_ROWS rows: cached per (user, kind, window, prefs)
-      const cacheKey = `${req.user.id}|${kind}|${wd}|${JSON.stringify(prefs)}`;
+      // the scans below read up to SUPPLY_MAX_ROWS rows each: cached per (user, kind, window, pack, prefs)
+      const cacheKey = `${req.user.id}|${kind}|${wd}|${pack}|${JSON.stringify(prefs)}`;
       const hit = supplyCache.get(cacheKey, now().getTime());
       if (hit) return res.json(hit);
-      const options = broadenOptions(prefs);
       const ctxFor = (p) => supplyUserCtx(prof || {}, answers, p);
-      const user = ctxFor(prefs);
-      const variants = options.map((o) => ({ ...o, user: ctxFor({ ...prefs, ...(o.locations ? { locations: o.locations } : {}), ...(o.titles ? { titles: o.titles } : {}) }) }));
       // prefilter titles in SQL (keywords every matching title contains) so the scan stays small; none when the
       // user has no titles (the default engineering pattern) or a title has no safe keyword
-      const kws = user.titles.length ? titleKeywords([...new Set([...user.expanded, ...variants.flatMap((v) => v.user.expanded)])]) : null;
-      const since = new Date(now().getTime() - wd * 86400000).toISOString();
-      let qb = db
-        .from("aa_jobs")
-        .select("company, company_key, title, location, country, posted_at, ats")
-        .is("closed_at", null)
-        .eq("company_kind", kind)
-        .gte("posted_at", since);
-      if (kws && kws.length && kws.length <= 60) qb = qb.or(kws.map((k) => `title.ilike.%${k}%`).join(","));
-      const { data, error } = await qb.order("posted_at", { ascending: false }).limit(SUPPLY_MAX_ROWS);
-      if (error) throw error;
-      const rows = data || [];
-      const jobs = rows.filter((j) => supplyEvaluate(j, user).ok);
-      const by_ats = {};
-      for (const j of jobs) by_ats[j.ats] = (by_ats[j.ats] || 0) + 1;
-      const broaden = [];
-      for (const v of variants) {
-        const n = rows.reduce((acc, j) => acc + (supplyEvaluate(j, v.user).ok ? 1 : 0), 0);
-        if (n > jobs.length) {
-          broaden.push({ id: v.id, label: v.label, added: v.added, count: n, ...(v.locations ? { locations: v.locations } : {}), ...(v.titles ? { titles: v.titles } : {}) });
+      const scan = async (days, users) => {
+        const kws = users.every((u) => u.titles.length) ? titleKeywords([...new Set(users.flatMap((u) => u.expanded))]) : null;
+        let qb = db
+          .from("aa_jobs")
+          .select("company, company_key, title, location, country, posted_at, ats")
+          .is("closed_at", null)
+          .eq("company_kind", kind)
+          .gte("posted_at", new Date(now().getTime() - days * 86400000).toISOString());
+        if (kws && kws.length && kws.length <= 120) qb = qb.or(kws.map((k) => `title.ilike.%${k}%`).join(","));
+        const { data, error } = await qb.order("posted_at", { ascending: false }).limit(SUPPLY_MAX_ROWS);
+        if (error) throw error;
+        return data || [];
+      };
+      const base = ctxFor(prefs);
+      let rows = await scan(wd, [base]);
+      let jobs = rows.filter((j) => supplyEvaluate(j, base).ok);
+      const baseCount = jobs.length;
+      let step = 0;
+      let reached = { windowDays: wd, changed: [] };
+      if (jobs.length < pack) {
+        const plans = [];
+        const seen = (plan) => `${plan.windowDays}|${plan.changed.filter((c) => c !== "score").join(",")}`;
+        for (let s = 1, prev = seen({ windowDays: wd, changed: [] }); s <= BROADEN_MAX; s++) {
+          const plan = broadenPlan(s, wd, prefs);
+          // a step that changes nothing the count can see (already 90 days, already anywhere, the min_score step)
+          // is skipped
+          if (seen(plan) === prev) continue;
+          prev = seen(plan);
+          plans.push({ step: s, plan, user: ctxFor(plan.prefs) });
+        }
+        if (plans.length) {
+          const wide = await scan(Math.max(...plans.map((p) => p.plan.windowDays)), plans.map((p) => p.user));
+          for (const p of plans) {
+            const since = now().getTime() - p.plan.windowDays * 86400000;
+            const got = wide.filter((j) => new Date(j.posted_at).getTime() >= since && supplyEvaluate(j, p.user).ok);
+            if (got.length > jobs.length) {
+              jobs = got;
+              rows = wide;
+              step = p.step;
+              reached = p.plan;
+            }
+            if (got.length >= pack) break;
+          }
         }
       }
+      const by_ats = {};
+      for (const j of jobs) by_ats[j.ats] = (by_ats[j.ats] || 0) + 1;
       const out = {
         kind,
         window_days: wd,
+        pack,
         count: jobs.length,
+        base_count: baseCount,
+        step,
+        widened: step ? widenedLabel(reached.changed, reached.windowDays) : null,
+        widened_parts: step ? reached.changed.filter((c) => c !== "score") : [],
+        widened_window_days: reached.windowDays,
         capped: rows.length >= SUPPLY_MAX_ROWS,
         by_ats,
-        sample: jobs.slice(0, 8).map(({ company, title, location, posted_at }) => ({ company, title, location, posted_at })),
-        broaden,
+        sample: jobs.slice(0, 5).map(({ company, title, location, posted_at }) => ({ company, title, location, posted_at })),
       };
       supplyCache.set(cacheKey, out, now().getTime());
       res.json(out);
@@ -732,8 +765,8 @@ export function createAutoApplyRouter(deps = {}) {
         .order("not_before", { ascending: true })
         .limit(1);
       const live = liveStatus({ batch, counts, nextAt: (nx && nx[0] && nx[0].not_before) || null, engine: await engineState(db), now: now() });
-      const { final_counts: finalCounts, ...batchOut } = batch; // internal retention snapshot, already merged into counts
-      res.json({ batch: batchOut, counts, live, charge: batchChargeSummary(rows, finalCounts), tasks });
+      const { final_counts: _finalCounts, ...batchOut } = batch; // internal retention snapshot, already merged into counts
+      res.json({ batch: batchOut, counts, live, tasks });
     }),
   );
 

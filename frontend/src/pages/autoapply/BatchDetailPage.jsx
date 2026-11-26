@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { CheckCircle2, Clock, Coins, ExternalLink, FileCheck2, Hand, ListChecks, Loader, Mail, MinusCircle, Star } from 'lucide-react'
+import { CheckCircle2, Clock, ExternalLink, FileCheck2, Hand, ListChecks, Loader, Mail, MinusCircle, Star } from 'lucide-react'
 import { safeHref } from './InterviewCard'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { fetchTaskProof, useAutoApplyRealtime, useBatch, useBatchAction, useCompanySuggest, useSetMustCompanies } from '../../lib/useAutoApply'
@@ -14,6 +14,11 @@ import {
 function Countdown({ iso, fallback }) {
     const text = useCountdown(iso)
     return <>{text || fallback}</>
+}
+
+const shortDate = (iso) => {
+    const d = new Date(iso)
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
 }
 
 function useDebounced(value, ms) {
@@ -94,40 +99,6 @@ function Controls({ batch }) {
     )
 }
 
-const NOT_CHARGED_LABEL = { failed: 'failed', captcha: 'captcha', blocked: 'blocked / sign-in', other: 'skipped' }
-
-function ChargeSummary({ charge }) {
-    if (!charge) return null
-    const reasons = Object.entries(charge.by_reason || {}).filter(([, n]) => n > 0)
-    return (
-        <section className="aa-card aa-seg tone-success" aria-labelledby="charge-h">
-            <SectionHead id="charge-h" icon={Coins} tone="success" title="Credits" />
-            <div className="aa-grid">
-                <div>
-                    <div className="aa-stat-value" style={{ color: 'var(--aa-success)' }}>{num(charge.applied)}</div>
-                    <div className="aa-stat-label">Applied · 1 credit each</div>
-                </div>
-                <div>
-                    <div className="aa-stat-value">{num(charge.not_charged)}</div>
-                    <div className="aa-stat-label">Not charged</div>
-                    {reasons.length > 0 && (
-                        <div className="aa-faint" style={{ marginTop: 4 }}>{reasons.map(([k, n]) => `${num(n)} ${NOT_CHARGED_LABEL[k] || k}`).join(' · ')}</div>
-                    )}
-                </div>
-                {charge.in_progress > 0 && (
-                    <div>
-                        <div className="aa-stat-value">{num(charge.in_progress)}</div>
-                        <div className="aa-stat-label">In progress</div>
-                    </div>
-                )}
-            </div>
-            <p className="aa-muted" style={{ margin: '12px 0 0' }}>
-                Credits are only used for jobs we actually applied to. Failed attempts, captchas, blocked sites and skipped jobs cost nothing. We keep applying until every credit in the pack is used.
-            </p>
-        </section>
-    )
-}
-
 function ProofButton({ batchId, task }) {
     const [busy, setBusy] = useState(false)
     const [err, setErr] = useState(null)
@@ -184,7 +155,7 @@ function MustCompaniesEditor({ batch }) {
             ) : current.length ? (
                 <div className="aa-chips" style={{ marginTop: 10 }}>{current.map((c) => <span key={c} className="aa-chip">{c}</span>)}</div>
             ) : (
-                <p className="aa-faint" style={{ margin: '8px 0 0' }}>None. Add up to 10 companies we should apply to first.</p>
+                <p className="aa-faint" style={{ margin: '8px 0 0' }}>None. Add up to 10 to apply to first.</p>
             )}
         </section>
     )
@@ -290,24 +261,24 @@ export default function BatchDetailPage() {
                     <p style={{ margin: '0 0 10px' }}><Link to="/autoapply" style={{ color: 'var(--pop)', fontSize: '0.76rem', textDecoration: 'none' }}>← Overview</Link></p>
                     <PageHeader
                         eyebrow={live ? 'Live' : 'Batch'}
-                        title={`${PACK_KINDS[batch.pack_kind]?.name || batch.pack_kind} · ${batch.pack_size}`}
+                        title={`${PACK_KINDS[batch.pack_kind]?.short || batch.pack_kind} · ${batch.pack_size}`}
                         lead={[
-                            batch.purchased_at && `Bought ${fmtDate(batch.purchased_at, false)}`,
+                            batch.purchased_at && `Bought ${shortDate(batch.purchased_at)}`,
                             batch.price_paise != null && rupees(batch.price_paise),
-                            batch.window_days && `jobs from the last ${batch.window_days} days`,
-                            batch.expires_at && `credits expire ${fmtDate(batch.expires_at, false)}`,
+                            batch.expires_at && `expires ${shortDate(batch.expires_at)}`,
                         ].filter(Boolean).join(' · ')}
                         actions={<BatchStatusPill status={batch.status} />}
                     />
                     {params.get('new') && (
                         <div className="aa-note is-ok" role="status" style={{ marginBottom: 14 }}>
-                            {batch.status === 'waiting_profile' ? 'Payment confirmed. Complete your profile and we start shortlisting jobs.' : 'Payment confirmed. We are shortlisting jobs for you now.'}
+                            {batch.status === 'waiting_profile' ? 'Payment confirmed. Finish your profile to start.' : 'Payment confirmed. Shortlisting jobs now.'}
                         </div>
                     )}
                     <div className="aa-stack">
                         <section className={`aa-card aa-seg tone-${batchTone(batch.status)}`} aria-labelledby="prog-h">
                             <SectionHead id="prog-h" icon={ListChecks} tone={batchTone(batch.status)} title="Progress" />
                             <Progress used={batch.credits_used} total={batch.credits_total} />
+                            <p className="aa-faint" style={{ margin: '6px 0 0' }}>Credits are only used for submitted applications.</p>
                             {q.data?.live && <LiveFlow live={q.data.live} />}
                             {!q.data?.live && ['refund_due', 'refunding', 'refunded'].includes(batch.status) && (
                                 // fallback only: the live line above already says this in one sentence (with the amount when > 0)
@@ -321,11 +292,11 @@ export default function BatchDetailPage() {
                                 <ProfileMissing
                                     style={{ marginTop: 12 }}
                                     missing={batch.waiting_detail?.missing}
-                                    lead="Waiting for your profile. We start this batch as soon as it is complete (no credit is used meanwhile). Still missing:"
+                                    lead="Waiting for your profile. Missing:"
                                 />
                             )}
                             {batch.status === 'waiting_supply' && (
-                                <p className="aa-muted" style={{ margin: '12px 0 0' }}>No more matching jobs right now. We keep checking for new postings.</p>
+                                <p className="aa-muted" style={{ margin: '12px 0 0' }}>Waiting for new matching jobs.</p>
                             )}
                         </section>
 
@@ -333,14 +304,11 @@ export default function BatchDetailPage() {
                             <section className="aa-card aa-seg is-tinted tone-waiting" aria-labelledby="rv-h">
                                 <SectionHead id="rv-h" icon={Clock} tone="waiting" title="Review window" />
                                 <p className="aa-muted" style={{ margin: '0 0 12px' }}>
-                                    Your shortlist is ready. We start applying in{' '}
-                                    <strong style={{ color: 'var(--bright)' }} aria-live="off"><Countdown iso={batch.review_until} fallback="a few hours" /></strong>
-                                    {batch.review_until && <> (at {fmtDate(batch.review_until)})</>}, or approve now. To skip a company, add it to your blocked list in Setup.
+                                    Applying starts in{' '}
+                                    <strong style={{ color: 'var(--bright)' }} aria-live="off"><Countdown iso={batch.review_until} fallback="a few hours" /></strong>, or approve now.
                                 </p>
                             </section>
                         )}
-
-                        <ChargeSummary charge={q.data?.charge} />
 
                         <MustCompaniesEditor key={(batch.must_companies || []).join('|')} batch={batch} />
 
@@ -349,17 +317,17 @@ export default function BatchDetailPage() {
                         {needTasks.length > 0 && (
                             <section className="aa-card aa-seg is-tinted tone-attention" aria-labelledby="need-h">
                                 <SectionHead id="need-h" icon={Hand} tone="attention" title="Needs you" count={needTasks.length}
-                                    sub="These applications wait for your answer. No credit is used meanwhile." />
+/>
                                 <TaskList batchId={batch.id} tasks={needTasks} attention />
                             </section>
                         )}
 
                         <section className="aa-card aa-seg tone-success" aria-labelledby="tasks-h">
                             <SectionHead id="tasks-h" icon={CheckCircle2} tone="success" title="Applied" count={appliedTasks.length}
-                                sub={notApplied > 0 ? `${num(notApplied)} not applied (skipped, closed or removed). Those cost nothing.` : undefined} />
+                                sub={notApplied > 0 ? `${num(notApplied)} not applied (free)` : undefined} />
                             <TaskList batchId={batch.id} tasks={appliedTasks}
                                 empty={<EmptyState compact icon={<EmptyArt kind="jobs" tone="success" />} title="No applications submitted yet"
-                                    message="Applied jobs show up here with proof and the company's confirmation. This page updates on its own." />} />
+                                    message="Updates on its own." />} />
                         </section>
                     </div>
                 </>

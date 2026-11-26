@@ -111,7 +111,7 @@ function MailDetail({ id, onBack }) {
                     )}
                     {m.has_attachments && (
                         <p className="aa-note" role="note" style={{ margin: 0 }}>
-                            This message had an attachment. We do not keep attachments: ask the sender to resend it to your own email address.
+                            Attachment not kept: ask the sender to resend it to your own email.
                         </p>
                     )}
                     {m.text_excerpt
@@ -175,7 +175,7 @@ export default function InboxPage() {
             <PageHeader
                 eyebrow="Inbox"
                 title="Inbox"
-                lead="Everything companies send to your Vloombox address. Receipts and rejections are deleted after 30 days."
+                lead="Mail sent to your AutoApply address."
                 actions={address ? <CopyButton text={address} label="Copy address" /> : null}
             />
             {address && <p className="aa-faint" style={{ margin: '-8px 0 12px', overflowWrap: 'anywhere' }}>{address}</p>}
@@ -242,7 +242,7 @@ export default function InboxPage() {
                                             >
                                                 <span className="m-dot" aria-hidden="true" />
                                                 <span className="m-from" title={m.from_name ? `${m.from_name} <${m.sender}>` : m.sender}>{from}</span>
-                                                <span className="m-subj">{m.subject || '(no subject)'}</span>
+                                                <span className="m-subj" title={`${from}: ${m.subject || "(no subject)"}`}>{m.subject || "(no subject)"}</span>
                                                 <span className="m-tail" aria-hidden="true">
                                                     {m.codes?.length > 0 && <span className="aa-otp">{m.codes[0]}</span>}
                                                     {m.has_attachments && <Paperclip size={12} style={{ color: 'var(--muted)' }} />}

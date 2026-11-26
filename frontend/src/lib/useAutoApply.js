@@ -68,11 +68,11 @@ export function useAnswers() {
     return useQuery({ queryKey: [...aaKeys.answers, uid], queryFn: () => aa('/answers'), enabled: !!uid })
 }
 
-export function useSupply(kind, windowDays) {
+export function useSupply(kind, windowDays, pack = 50) {
     const uid = useUid()
     return useQuery({
-        queryKey: [...aaKeys.supply(kind, windowDays), uid],
-        queryFn: () => aa(`/supply?kind=${encodeURIComponent(kind)}&window_days=${Number(windowDays)}`),
+        queryKey: [...aaKeys.supply(kind, windowDays), pack, uid],
+        queryFn: () => aa(`/supply?kind=${encodeURIComponent(kind)}&window_days=${Number(windowDays)}&pack=${Number(pack)}`),
         enabled: !!uid && !!kind && windowDays >= 1 && windowDays <= 30,
         staleTime: 60_000,
         placeholderData: (prev) => prev,
