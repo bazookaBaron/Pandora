@@ -8,6 +8,8 @@ import Footer from './components/Footer'
 import { RouteErrorBoundary } from './components/shared/ErrorBoundary'
 import SessionExpiredBanner from './components/shared/SessionExpiredBanner'
 import FirstRunHost from './components/onboarding/FirstRunHost'
+import FirstVisitPicker from './components/onboarding/FirstVisitPicker'
+import BottomNav from './components/ui/BottomNav'
 import { usePlanChangeRefetch } from './lib/useEntitlements'
 import { trackPageview } from './lib/analytics'
 import { createMutationCache } from './lib/mutationCache'
@@ -19,6 +21,7 @@ const AuthPage = lazy(() => import('./pages/AuthPage'))
 const HomePage = lazy(() => import('./pages/HomePage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const PricingPage = lazy(() => import('./pages/PricingPage'))
+const PreparePage = lazy(() => import('./pages/PreparePage'))
 const DSAListPage = lazy(() => import('./pages/dsa/DSAListPage'))
 const DSACompanyPage = lazy(() => import('./pages/dsa/DSACompanyPage'))
 const LLDListPage = lazy(() => import('./pages/lld/LLDListPage'))
@@ -145,6 +148,7 @@ export default function App() {
                     <CommandPalette />
                     <SessionExpiredBanner />
                     <FirstRunHost />
+                    <FirstVisitPicker />
                     <RouteErrorBoundary>
                     <Suspense fallback={<RouteFallback />}>
                     <Routes>
@@ -173,6 +177,7 @@ export default function App() {
                         <Route path="/legal/guidelines" element={<GuidelinesPage />} />
                         <Route path="/subscription/success" element={<ProtectedRoute><SubscriptionSuccessPage /></ProtectedRoute>} />
                         <Route path="/dashboard" element={<Navigate to="/profile" replace />} />
+                        <Route path="/prepare" element={<PreparePage />} />
                         <Route path="/dsa" element={<DSAListPage />} />
                         <Route path="/dsa/company/:companyName" element={<DSACompanyPage />} />
                         <Route path="/lld" element={<LLDListPage />} />
@@ -200,6 +205,8 @@ export default function App() {
                     </RouteErrorBoundary>
                     {/* Global footer — appears under every route. */}
                     <Footer />
+                    {/* Phone tab bar (< 768px, CSS-hidden above). Body padding keeps content clear of it. */}
+                    <BottomNav />
                 </AuthProvider>
             </BrowserRouter>
         </QueryClientProvider>

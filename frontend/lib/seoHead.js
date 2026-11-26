@@ -216,6 +216,7 @@ export function classifyRoute(pathname) {
   }
   if (p === "/hld") return { kind: "public", key: "hldList" };
   if (p === "/interview") return { kind: "public", key: "interview" };
+  if (p === "/prepare") return { kind: "public", key: "prepare" };
   if (p === "/pricing") return { kind: "public", key: "pricing" };
   if (p === "/terms") return { kind: "public", key: "terms" };
   if (p === "/privacy") return { kind: "public", key: "privacy" };
@@ -408,6 +409,16 @@ function routeMeta({ key, base, path, post, jobsCompany }) {
       description:
         "Practice high-level system design interviews with an interactive workspace — the same round that trips up most senior candidates.",
       canonical: `${base}/hld`,
+      ogType: "website",
+      ogImage: base + SITE.defaultOgImage,
+    };
+  }
+  if (key === "prepare") {
+    return {
+      title: "Prepare for Tech Interviews: DSA, System Design & More | Vloombox",
+      description:
+        "One place to prepare for tech interviews: DSA questions by company, system design, low-level design, real interview questions and a resume check.",
+      canonical: `${base}/prepare`,
       ogType: "website",
       ogImage: base + SITE.defaultOgImage,
     };

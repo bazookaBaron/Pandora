@@ -40,6 +40,7 @@ check("dsa list is public + indexable", classifyRoute("/dsa"), { kind: "public",
 check("dsa company page resolves the slug", classifyRoute("/dsa/company/google"), { kind: "public", key: "dsaCompany", slug: "google" });
 check("lld problem page resolves the slug", classifyRoute("/lld/rate-limiter"), { kind: "public", key: "lldProblem", slug: "rate-limiter" });
 check("hld list is public + indexable", classifyRoute("/hld"), { kind: "public", key: "hldList" });
+check("prepare hub is public + indexable", classifyRoute("/prepare"), { kind: "public", key: "prepare" });
 check("hld workspace stays noindex (session state, not evergreen content)", classifyRoute("/hld/42"), { kind: "noindex" });
 check("jobs company hub resolves the slug", classifyRoute("/jobs/company/google"), { kind: "public", key: "jobsCompany", slug: "google" });
 check("auth stays noindex", classifyRoute("/auth"), { kind: "noindex" });
@@ -64,6 +65,9 @@ const thin = evaluateJobHubIndexability({
   substantiveWordCount: 80, newestAgeDays: 1, curated: true,
 });
 ok("thin evidence is ineligible even when curated", thin.eligible === false);
+
+const prepareTags = buildHeadTags({ key: "prepare", base: BASE, path: "/prepare" });
+ok("prepare hub has its own canonical", prepareTags.includes(`${BASE}/prepare`));
 
 // ── JSON-LD output ───────────────────────────────────────────────
 const faqTags = buildHeadTags({ key: "faq", base: BASE, path: "/faq" });

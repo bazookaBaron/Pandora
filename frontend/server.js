@@ -254,6 +254,11 @@ app.use("/api/run", express.json({ limit: "600kb", verify: rawBodyCapture }));
 // AutoApply profile payloads are capped at 100KB by the router itself; leave
 // headroom for the envelope so a max-size profile isn't rejected at the parser.
 app.use("/api/autoapply", express.json({ limit: "1mb", verify: rawBodyCapture }));
+// /api/events (first-party funnel events, below): small bodies only. sendBeacon may send text/plain.
+app.use("/api/events", express.json({ limit: "16kb" }), express.text({ type: "text/plain", limit: "16kb" }));
+// an oversized / malformed events body is dropped quietly (analytics must never surface errors)
+// eslint-disable-next-line no-unused-vars
+app.use("/api/events", (_err, _req, res, _next) => res.status(204).end());
 app.use(express.json({ limit: "100kb", verify: rawBodyCapture }));
 
 // ── Rate limiting ────────────────────────────────────────────────
@@ -275,6 +280,82 @@ const profileWriteLimiter = makeLimiter({ windowMs: 60 * 1000, max: 20 });
 // this request) — cheap to spam-click by design. This caps the actual writes
 // so on/off/on/off doesn't turn into an unbounded insert/delete loop.
 const subscribeLimiter = makeLimiter({ windowMs: 60 * 1000, max: 20 });
+
+// ── First-party funnel events (WS-M0) ────────────────────────────
+// POST /api/events  { anon_id, events: [{ event, path, section, props }] } -> 204, always.
+// Sent by src/lib/track.js (sendBeacon / keepalive fetch). Stored in public.ui_events
+// (sql/48_ui_events.sql, service role only, 90-day retention). No personal data: the
+// user id comes ONLY from a verified bearer token (optionalAuth), never from the body.
+// Mounted before generalLimiter so analytics never eats a user's API budget; it has
+// its own light per-IP limit. Fails quietly (204) when the table is not there yet.
+const UI_EVENT_NAMES = new Set([
+  "tab_view", "cta_click", "setup_step", "buy_view", "pay_start", "pay_success", "bridge_click", "first_visit_pick",
+]);
+const UI_SECTIONS = new Set(["jobs", "prepare", "autoapply", "referrals", "me"]);
+const UI_EVENTS_MAX_BATCH = 20;
+const UI_EVENTS_MAX_PROPS = 1024; // bytes of JSON
+const eventsLimiter = makeLimiter({ windowMs: 60 * 1000, max: 30, keyGenerator: ipKey });
+let uiEventsOffUntil = 0; // set when the table is missing; retry after 10 min
+
+function cleanUiProps(props) {
+  if (!props || typeof props !== "object" || Array.isArray(props)) return {};
+  const out = {};
+  for (const [k, v] of Object.entries(props).slice(0, 20)) {
+    if (!/^[a-z][a-z0-9_]{0,39}$/i.test(k)) continue;
+    if (typeof v === "string") out[k] = v.slice(0, 120);
+    else if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+    else if (typeof v === "boolean") out[k] = v;
+  }
+  return JSON.stringify(out).length <= UI_EVENTS_MAX_PROPS ? out : {};
+}
+
+app.post("/api/events", eventsLimiter, optionalAuth, (req, res) => {
+  res.status(204).end();
+  if (Date.now() < uiEventsOffUntil) return;
+  let body = req.body;
+  if (typeof body === "string") {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      return;
+    }
+  }
+  if (!body || typeof body !== "object" || !Array.isArray(body.events)) return;
+  const anon = typeof body.anon_id === "string" && /^[a-z0-9]{8,40}$/.test(body.anon_id) ? body.anon_id : null;
+  const userId = (req.user && req.user.id) || null;
+  const rows = [];
+  for (const e of body.events.slice(0, UI_EVENTS_MAX_BATCH)) {
+    if (!e || typeof e !== "object" || !UI_EVENT_NAMES.has(e.event)) continue;
+    const p = typeof e.path === "string" && e.path.startsWith("/") ? e.path.slice(0, 200) : null;
+    rows.push({
+      event: e.event,
+      path: p,
+      section: UI_SECTIONS.has(e.section) ? e.section : null,
+      user_id: userId,
+      anon_id: anon,
+      props: cleanUiProps(e.props),
+    });
+  }
+  if (!rows.length) return;
+  let pending;
+  try {
+    pending = supabaseAdmin.from("ui_events").insert(rows);
+  } catch {
+    return; // service client not configured (local dev without secrets)
+  }
+  pending
+    .insert(rows)
+    .then(({ error }) => {
+      if (!error) return;
+      const msg = String(error.message || "") + " " + String(error.code || "");
+      if (/relation .* does not exist|Could not find the table|schema cache|PGRST205|42P01/i.test(msg)) {
+        uiEventsOffUntil = Date.now() + 10 * 60 * 1000;
+      } else {
+        console.warn("[events] insert failed", redact(msg));
+      }
+    })
+    .catch(() => {});
+});
 
 app.use("/api", generalLimiter);
 // Cheap blanket caps on route families that had none.
@@ -4636,6 +4717,7 @@ app.get("/sitemap.xml", async (req, res) => {
   const urls = [
     { loc: `${base}/`, priority: "1.0", changefreq: "hourly" },
     { loc: `${base}/optimizer`, priority: "1.0", changefreq: "weekly" },
+    { loc: `${base}/prepare`, priority: "0.9", changefreq: "weekly" },
     { loc: `${base}/dsa`, priority: "0.9", changefreq: "weekly" },
     { loc: `${base}/lld`, priority: "0.9", changefreq: "weekly" },
     { loc: `${base}/hld`, priority: "0.8", changefreq: "weekly" },

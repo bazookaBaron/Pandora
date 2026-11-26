@@ -19,8 +19,8 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 /**
  * Post-signup quick setup: 3 steps on one small centered card. Every step is
  * skippable. Profile fields go to `profiles` via upsert (allowed columns only);
- * goals stay in localStorage and only order the tour.
- * onFinish(withTour): called when done/skipped.
+ * goals stay in localStorage (vb_goals_v1:<uid>).
+ * onFinish(): called when done/skipped.
  */
 export default function QuickSetup({ uid, onFinish }) {
     const [step, setStep] = useState(0)
@@ -47,7 +47,7 @@ export default function QuickSetup({ uid, onFinish }) {
     useEffect(() => { headRef.current?.focus() }, [step])
 
     function onKeyDown(e) {
-        if (e.key === 'Escape') { e.stopPropagation(); onFinish(true); return }
+        if (e.key === 'Escape') { e.stopPropagation(); onFinish(); return }
         if (e.key !== 'Tab' || !cardRef.current) return
         const items = [...cardRef.current.querySelectorAll(FOCUSABLE)]
         if (!items.length) return
@@ -135,7 +135,7 @@ export default function QuickSetup({ uid, onFinish }) {
                 {step === 1 && (
                     <div className="fr-body">
                         <h2 id={titleId} ref={headRef} tabIndex={-1} className="fr-title">What are you here for?</h2>
-                        <p className="fr-sub">Pick any. Those come first in the tour.</p>
+                        <p className="fr-sub">Pick any. You can change this later.</p>
                         <div className="fr-chips" role="group" aria-label="Goals">
                             {GOALS.map((g) => (
                                 <button key={g.id} type="button" className={'fr-chip' + (goals.includes(g.id) ? ' is-on' : '')}
@@ -148,14 +148,14 @@ export default function QuickSetup({ uid, onFinish }) {
                 {step === 2 && (
                     <div className="fr-body">
                         <h2 id={titleId} ref={headRef} tabIndex={-1} className="fr-title">You are all set</h2>
-                        <p className="fr-sub">Want a 30-second look around? It points at each part of the navbar.</p>
+                        <p className="fr-sub">Use the tabs to move around: Jobs, Prepare, Referrals and more.</p>
                     </div>
                 )}
 
                 <div className="fr-actions">
                     {step < 2 ? (
                         <>
-                            <button type="button" className="fr-skip" onClick={() => onFinish(true)}>Skip for now</button>
+                            <button type="button" className="fr-skip" onClick={() => onFinish()}>Skip for now</button>
                             <div className="fr-actions-r">
                                 {step > 0 && <button type="button" className="fr-btn" onClick={() => setStep(step - 1)}>Back</button>}
                                 <button type="button" className="fr-btn is-primary" onClick={next} disabled={saving}>
@@ -164,10 +164,7 @@ export default function QuickSetup({ uid, onFinish }) {
                             </div>
                         </>
                     ) : (
-                        <>
-                            <button type="button" className="fr-skip" onClick={() => onFinish(false)}>Skip for now</button>
-                            <button type="button" className="fr-btn is-primary" onClick={() => onFinish(true)}>Take the tour</button>
-                        </>
+                        <button type="button" className="fr-btn is-primary" style={{ marginLeft: 'auto' }} onClick={() => onFinish()}>Done</button>
                     )}
                 </div>
             </div>

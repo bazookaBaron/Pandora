@@ -2,11 +2,13 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { readFlag, tourKeyFor, welcomeKeyFor, writeFlag } from './storage'
+import { readFlag, welcomeKeyFor, writeFlag } from './storage'
 
-// Both pieces (and their CSS) are separate chunks, fetched only when about to show.
+// QuickSetup (and its CSS) is a separate chunk, fetched only when about to show.
+// WS-M0: the multi-step GuidedTour is retired (replaced by the first-visit picker,
+// FirstVisitPicker.jsx, plus one HelpChip per page). GuidedTour.jsx is no longer
+// imported anywhere and can be deleted together with its CSS.
 const QuickSetup = lazy(() => import('./QuickSetup'))
-const GuidedTour = lazy(() => import('./GuidedTour'))
 
 // Only accounts created recently get the automatic first run.
 const NEW_ACCOUNT_MS = 14 * 24 * 3600 * 1000
@@ -21,14 +23,14 @@ function isNewAccount(user) {
 
 /**
  * Mounted once in App (inside AuthProvider + Router). Renders nothing for
- * logged-out visitors. New account (<14d) + no setup flag -> quick setup, then
- * the guided tour (once). Both persist per-uid in localStorage.
+ * logged-out visitors. New account (<14d) + no setup flag -> quick setup (once,
+ * persisted per-uid in localStorage).
  */
 export default function FirstRunHost() {
     const { user } = useAuth() || {}
     const { pathname } = useLocation()
     const uid = user?.id || null
-    const [phase, setPhase] = useState(null) // null | 'setup' | 'tour'
+    const [phase, setPhase] = useState(null) // null | 'setup'
 
     useEffect(() => {
         if (!uid) { setPhase(null); return }
@@ -36,7 +38,7 @@ export default function FirstRunHost() {
         const setup = readFlag(welcomeKeyFor(uid))
         if (!setup) {
             // A second browser: the profile may already be filled in. Skip
-            // QuickSetup (go straight to the tour) so it can't re-ask or overwrite.
+            // QuickSetup so it can't re-ask or overwrite.
             let cancelled = false
             ;(async () => {
                 let hasPosition = false
@@ -47,33 +49,23 @@ export default function FirstRunHost() {
                 if (cancelled) return
                 if (hasPosition) {
                     writeFlag(welcomeKeyFor(uid), SETUP_DONE)
-                    setPhase(!readFlag(tourKeyFor(uid)) ? 'tour' : null)
+                    setPhase(null)
                 } else setPhase('setup')
             })()
             return () => { cancelled = true }
         }
-        // setup finished but the tour was interrupted (reload): resume it
-        else if (setup === SETUP_DONE && !readFlag(tourKeyFor(uid))) setPhase('tour')
     }, [uid, pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    const finishSetup = useCallback((withTour = true) => {
+    const finishSetup = useCallback(() => {
         if (!uid) return
         writeFlag(welcomeKeyFor(uid), SETUP_DONE)
-        if (!withTour) writeFlag(tourKeyFor(uid), 'skipped')
-        setPhase(withTour && !readFlag(tourKeyFor(uid)) ? 'tour' : null)
-    }, [uid])
-
-    const finishTour = useCallback(() => {
-        if (uid) writeFlag(tourKeyFor(uid), new Date().toISOString())
         setPhase(null)
     }, [uid])
 
-    if (!uid || !phase) return null
+    if (!uid || phase !== 'setup') return null
     return (
         <Suspense fallback={null}>
-            {phase === 'setup'
-                ? <QuickSetup uid={uid} onFinish={finishSetup} />
-                : <GuidedTour uid={uid} onClose={finishTour} />}
+            <QuickSetup uid={uid} onFinish={finishSetup} />
         </Suspense>
     )
 }
