@@ -50,13 +50,8 @@ function InstagramIcon(props) {
     )
 }
 
-const linkStyle = {
-    color: 'var(--muted)',
-    textDecoration: 'none',
-    fontSize: '0.78rem',
-    lineHeight: 1.9,
-    transition: 'color var(--transition)',
-}
+// Link + social-icon styles: .site-footer-link / .site-footer-social in styles/system.css
+// (hover via CSS, 40px tap targets on phones).
 
 export default function Footer() {
     const isMobile = useMediaQuery('(max-width: 767px)')
@@ -106,12 +101,7 @@ export default function Footer() {
                         <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                             {col.links.map(([label, to]) => (
                                 <li key={to}>
-                                    <Link
-                                        to={to}
-                                        style={linkStyle}
-                                        onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--bright)')}
-                                        onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}
-                                    >
+                                    <Link to={to} className="site-footer-link">
                                         {label}
                                     </Link>
                                 </li>
@@ -132,12 +122,7 @@ export default function Footer() {
                     </h3>
                     <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                         <li>
-                            <Link
-                                to="/faq"
-                                style={linkStyle}
-                                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--bright)')}
-                                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}
-                            >
+                            <Link to="/faq" className="site-footer-link">
                                 FAQ
                             </Link>
                         </li>
@@ -148,13 +133,7 @@ export default function Footer() {
                             target="_blank"
                             rel="noopener noreferrer"
                             aria-label="Vloombox on YouTube"
-                            style={{
-                                display: 'grid', placeItems: 'center', width: 30, height: 30,
-                                borderRadius: 6, border: '1px solid var(--subtle)', color: 'var(--muted)',
-                                transition: 'color var(--transition), border-color var(--transition)',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--pop)'; e.currentTarget.style.borderColor = 'var(--subtle-strong)' }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderColor = 'var(--subtle)' }}
+                            className="site-footer-social"
                         >
                             <YouTubeIcon />
                         </a>
@@ -163,13 +142,7 @@ export default function Footer() {
                             target="_blank"
                             rel="noopener noreferrer"
                             aria-label="Vloombox on Instagram"
-                            style={{
-                                display: 'grid', placeItems: 'center', width: 30, height: 30,
-                                borderRadius: 6, border: '1px solid var(--subtle)', color: 'var(--muted)',
-                                transition: 'color var(--transition), border-color var(--transition)',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--pop)'; e.currentTarget.style.borderColor = 'var(--subtle-strong)' }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderColor = 'var(--subtle)' }}
+                            className="site-footer-social"
                         >
                             <InstagramIcon />
                         </a>

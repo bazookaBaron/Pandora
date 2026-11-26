@@ -1,6 +1,12 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+// Shared UI system (semantic tones, .sys-* classes) - must come right after the brand tokens.
+import './styles/system.css'
+// Page styles moved verbatim out of index.css; loaded globally so the cascade is unchanged.
+import './styles/pages/jobs.css'
+import './styles/pages/practice.css'
+import './styles/pages/account.css'
 import App from './App.jsx'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { initAnalytics } from './lib/analytics'

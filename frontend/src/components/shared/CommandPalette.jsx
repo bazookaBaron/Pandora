@@ -86,7 +86,7 @@ export default function CommandPalette() {
     return (
         <div
             style={{
-                position: 'fixed', inset: 0, background: 'rgba(9,9,11,0.85)', backdropFilter: 'blur(6px)',
+                position: 'fixed', inset: 0, background: 'var(--overlay)', backdropFilter: 'blur(6px)',
                 zIndex: 500, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 120,
             }}
             onClick={e => { if (e.target === e.currentTarget) setOpen(false) }}
@@ -97,7 +97,7 @@ export default function CommandPalette() {
             }}>
                 {/* Search input */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid var(--subtle)' }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#71717a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: 'var(--muted)', flexShrink: 0 }} aria-hidden="true" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
                     </svg>
                     <input
@@ -136,16 +136,16 @@ export default function CommandPalette() {
                                 display: 'flex', alignItems: 'center', gap: 12,
                                 padding: '10px 16px', cursor: 'pointer',
                                 background: i === selected ? 'var(--subtle)' : 'transparent',
-                                borderBottom: '1px solid rgba(39,39,42,0.5)',
+                                borderBottom: '1px solid var(--subtle)',
                                 transition: 'background 0.1s',
                             }}
                         >
                             <span style={{
                                 fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em',
                                 padding: '2px 6px', borderRadius: 4,
-                                background: item.type === 'dsa' ? 'rgba(34,211,238,0.1)' : 'rgba(244,114,182,0.1)',
-                                color: item.type === 'dsa' ? '#22d3ee' : '#f472b6',
-                                border: `1px solid ${item.type === 'dsa' ? 'rgba(34,211,238,0.2)' : 'rgba(244,114,182,0.2)'}`,
+                                background: item.type === 'dsa' ? 'var(--pop-dim)' : 'var(--warm-dim)',
+                                color: item.type === 'dsa' ? 'var(--pop)' : 'var(--warm)',
+                                border: `1px solid color-mix(in srgb, ${item.type === 'dsa' ? 'var(--pop)' : 'var(--warm)'} 20%, transparent)`,
                                 flexShrink: 0,
                             }}>
                                 {item.type}
@@ -153,11 +153,11 @@ export default function CommandPalette() {
                             <span style={{ color: 'var(--bright)', fontSize: '0.88rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</span>
                             {item.difficulty && (
                                 <span style={{
-                                    fontSize: '0.65rem', fontWeight: 700, color: item.difficulty === 'Easy' ? '#4ade80' : item.difficulty === 'Medium' ? '#facc15' : '#f87171',
+                                    fontSize: '0.65rem', fontWeight: 700, color: item.difficulty === 'Easy' ? 'var(--sys-success)' : item.difficulty === 'Medium' ? 'var(--sys-waiting)' : 'var(--sys-danger)',
                                     flexShrink: 0,
                                 }}>{item.difficulty}</span>
                             )}
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#52525b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: 'var(--faint)' }} aria-hidden="true">
                                 <path d="M5 12h14M12 5l7 7-7 7" />
                             </svg>
                         </div>

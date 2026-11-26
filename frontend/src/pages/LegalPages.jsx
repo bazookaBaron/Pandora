@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
+import { PageContainer, PageHeader } from '../components/shared/Layout'
 import { VLOOMBOX_BLURB } from '../lib/brand'
 
 // Business / contact constants — keep these in one place.
@@ -16,41 +17,44 @@ export const BIZ = {
     effective: 'February 2026',
 }
 
-function LegalLayout({ title, children }) {
+/**
+ * One shell for every content page (legal, about, FAQ, blog, guidelines):
+ * Navbar + PageContainer width="sm" + PageHeader + a .prose body + a back link.
+ *   <ContentPage title="Privacy Policy" updated>…</ContentPage>
+ * `updated` shows "Last updated: BIZ.effective" under the title when no subtitle is given.
+ * `prose={false}` drops the .prose wrapper (for card lists such as the blog index).
+ */
+export function ContentPage({ title, subtitle, updated = false, prose = true, back = true, children }) {
     useEffect(() => { window.scrollTo(0, 0) }, [])
+    const sub = subtitle || (updated ? `Last updated: ${BIZ.effective}` : null)
     return (
         <>
             <Navbar />
-            <main className="wrap" style={{ maxWidth: 760, margin: '0 auto', padding: '80px 18px 40px' }}>
-                <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em' }}>{title}</h1>
-                <p style={{ color: 'var(--faint)', fontSize: '0.72rem', margin: '6px 0 22px' }}>
-                    Last updated: {BIZ.effective}
-                </p>
-                <div className="legal-body" style={{ fontSize: '0.86rem', lineHeight: 1.75, color: 'var(--accent)' }}>
-                    {children}
-                </div>
-                <p style={{ marginTop: 28 }}>
-                    <Link to="/" style={{ color: 'var(--pop)', fontSize: '0.8rem', textDecoration: 'none' }}>← Back to Vloombox</Link>
-                </p>
-            </main>
+            <PageContainer width="sm" className="content-page">
+                <PageHeader title={title} subtitle={sub} />
+                {prose ? <div className="prose content-body">{children}</div> : <div className="content-body">{children}</div>}
+                {back && (
+                    <p className="content-back">
+                        <Link to="/">← Back to Vloombox</Link>
+                    </p>
+                )}
+            </PageContainer>
         </>
     )
 }
 
-const H = ({ children }) => (
-    <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--bright)', margin: '22px 0 8px', letterSpacing: '-0.01em' }}>{children}</h2>
-)
-const P = ({ children }) => <p style={{ margin: '0 0 10px' }}>{children}</p>
-const UL = ({ children }) => <ul style={{ margin: '0 0 10px', paddingLeft: 20 }}>{children}</ul>
+const H = ({ children }) => <h2>{children}</h2>
+const P = ({ children }) => <p>{children}</p>
+const UL = ({ children }) => <ul>{children}</ul>
 
 // ── Terms & Conditions ─────────────────────────────────────────────
 export function TermsPage() {
     return (
-        <LegalLayout title="Terms & Conditions">
+        <ContentPage title="Terms & Conditions" updated>
             <P>These Terms govern your use of {BIZ.name} ({BIZ.site}), a web application for technical-interview preparation and AI-assisted résumé optimisation operated by {BIZ.legalName} (&ldquo;we&rdquo;, &ldquo;us&rdquo;). By creating an account or making a payment you agree to these Terms.</P>
 
             <H>1. The service</H>
-            <P>{BIZ.name} provides practice content and tools including data-structures & algorithms, low-level and high-level design practice, interview questions, a résumé optimiser, a referral request board and a jobs listing. Features available on each plan are described on the <Link to="/pricing" style={{ color: 'var(--pop)' }}>Pricing</Link> page. We may add, change or remove features over time.</P>
+            <P>{BIZ.name} provides practice content and tools including data-structures & algorithms, low-level and high-level design practice, interview questions, a résumé optimiser, a referral request board and a jobs listing. Features available on each plan are described on the <Link to="/pricing">Pricing</Link> page. We may add, change or remove features over time.</P>
 
             <H>2. Accounts</H>
             <P>You must provide accurate information, keep your credentials secure, and are responsible for activity under your account. You must be at least 16 years old (or the age of digital consent in your country) to use {BIZ.name}. One account per person.</P>
@@ -60,14 +64,14 @@ export function TermsPage() {
                 <li>Paid plans (Pro, Max) are sold as a <strong>one-time payment for a fixed term</strong> — monthly (30 days) or yearly (365 days). Nothing renews automatically; access ends when the term expires unless you purchase again.</li>
                 <li>Prices are shown in Indian Rupees (INR) and are processed by our payment partner, Razorpay. Applicable taxes, if any, are included or added at checkout.</li>
                 <li>Access to a paid plan begins immediately after a successful payment is verified.</li>
-                <li>Refunds and cancellations are covered by our <Link to="/refunds" style={{ color: 'var(--pop)' }}>Refund & Cancellation Policy</Link>.</li>
+                <li>Refunds and cancellations are covered by our <Link to="/refunds">Refund & Cancellation Policy</Link>.</li>
             </UL>
 
             <H>4. Acceptable use</H>
             <P>You agree not to: resell or share paid access; scrape, bulk-download or redistribute our content; attempt to bypass usage limits, authentication or payment; probe or disrupt our infrastructure; upload unlawful, infringing or malicious content; or use the service to harass others. We may suspend or terminate accounts that violate these Terms.</P>
 
             <H>5. User content</H>
-            <P>You retain ownership of files you upload (e.g. résumés) and text you submit. You grant us a limited licence to process that content solely to provide the service (for example, sending résumé text to an AI model to generate a tailored version). See our <Link to="/privacy" style={{ color: 'var(--pop)' }}>Privacy Policy</Link> for details.</P>
+            <P>You retain ownership of files you upload (e.g. résumés) and text you submit. You grant us a limited licence to process that content solely to provide the service (for example, sending résumé text to an AI model to generate a tailored version). See our <Link to="/privacy">Privacy Policy</Link> for details.</P>
 
             <H>6. AI-generated output</H>
             <P>Résumé suggestions, scores and explanations are generated by automated models and may contain errors or omissions. They are provided for your review and editing — you are responsible for the final content you submit to employers. We do not guarantee interviews, offers or any specific outcome.</P>
@@ -85,15 +89,15 @@ export function TermsPage() {
             <P>These Terms are governed by the laws of {BIZ.jurisdiction}, and any disputes are subject to the exclusive jurisdiction of the courts located there.</P>
 
             <H>11. Contact</H>
-            <P>Questions about these Terms: <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a>. See also our <Link to="/contact" style={{ color: 'var(--pop)' }}>Contact / About</Link> page.</P>
-        </LegalLayout>
+            <P>Questions about these Terms: <a href={`mailto:${BIZ.email}`}>{BIZ.email}</a>. See also our <Link to="/contact">Contact / About</Link> page.</P>
+        </ContentPage>
     )
 }
 
 // ── Privacy Policy ─────────────────────────────────────────────────
 export function PrivacyPage() {
     return (
-        <LegalLayout title="Privacy Policy">
+        <ContentPage title="Privacy Policy" updated>
             <P>This policy explains what personal data {BIZ.name} collects, why, and your choices. It applies to {BIZ.site} and is operated by {BIZ.legalName}.</P>
 
             <H>1. Data we collect</H>
@@ -122,7 +126,7 @@ export function PrivacyPage() {
             <P>Account and profile data are kept while your account is active. Uploaded résumé files are stored to provide the feature and can be deleted on request. Aggregated, non-identifying analytics may be retained longer. We delete or anonymise personal data within a reasonable period after you delete your account.</P>
 
             <H>5. Your rights</H>
-            <P>You can access, correct or delete your personal data, and request a copy or export, by emailing <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a>. You can edit most profile fields in-app. You can turn off referral notification emails in your profile.</P>
+            <P>You can access, correct or delete your personal data, and request a copy or export, by emailing <a href={`mailto:${BIZ.email}`}>{BIZ.email}</a>. You can edit most profile fields in-app. You can turn off referral notification emails in your profile.</P>
 
             <H>6. Cookies & local storage</H>
             <P>We use strictly-necessary storage for authentication and preferences (e.g. your light/dark theme), and analytics cookies from PostHog. We do not run third-party advertising trackers.</P>
@@ -137,15 +141,15 @@ export function PrivacyPage() {
             <P>We will post any changes on this page and update the date above.</P>
 
             <H>10. Contact</H>
-            <P>Privacy questions or requests: <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a>.</P>
-        </LegalLayout>
+            <P>Privacy questions or requests: <a href={`mailto:${BIZ.email}`}>{BIZ.email}</a>.</P>
+        </ContentPage>
     )
 }
 
 // ── Refund & Cancellation Policy ──────────────────────────────────
 export function RefundPage() {
     return (
-        <LegalLayout title="Refund & Cancellation Policy">
+        <ContentPage title="Refund & Cancellation Policy" updated>
             <P>This policy applies to paid {BIZ.name} plans (Pro and Max) purchased through Razorpay.</P>
 
             <H>1. How billing works</H>
@@ -163,29 +167,29 @@ export function RefundPage() {
             <P>In those cases we correct the charge. We do not otherwise refund for change of mind, non-use of the service, or dissatisfaction with AI-generated output, which is variable by nature and provided for your review.</P>
 
             <H>4. Reporting a billing problem</H>
-            <P>Email <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a> from your account email with your registered email and the Razorpay payment ID. We aim to respond within 3 business days. Approved corrections are issued to the original payment method via Razorpay and typically settle within 5–7 business days, depending on your bank or card issuer.</P>
+            <P>Email <a href={`mailto:${BIZ.email}`}>{BIZ.email}</a> from your account email with your registered email and the Razorpay payment ID. We aim to respond within 3 business days. Approved corrections are issued to the original payment method via Razorpay and typically settle within 5–7 business days, depending on your bank or card issuer.</P>
 
             <H>5. Contact</H>
-            <P>{BIZ.legalName} · <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></P>
-        </LegalLayout>
+            <P>{BIZ.legalName} · <a href={`mailto:${BIZ.email}`}>{BIZ.email}</a></P>
+        </ContentPage>
     )
 }
 
 // ── Contact / About ──────────────────────────────────────────────
 export function ContactPage() {
     return (
-        <LegalLayout title="Contact & About">
+        <ContentPage title="Contact & About" updated>
             <H>About Vloombox</H>
             <P>{VLOOMBOX_BLURB}</P>
-            <P>{BIZ.name} is an independent project. Learn more on the <Link to="/about" style={{ color: 'var(--pop)' }}>About</Link> page.</P>
+            <P>{BIZ.name} is an independent project. Learn more on the <Link to="/about">About</Link> page.</P>
 
             <H>Contact us</H>
             <P>The fastest way to reach us is email — we usually reply within 2 business days.</P>
             <UL>
-                <li><strong>Support & general enquiries:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></li>
-                <li><strong>Billing questions:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a> — include your registered email and the Razorpay payment ID.</li>
-                <li><strong>Privacy & data requests:</strong> <a href={`mailto:${BIZ.email}`} style={{ color: 'var(--pop)' }}>{BIZ.email}</a></li>
-                <li><strong>Website:</strong> <a href={BIZ.site} style={{ color: 'var(--pop)' }}>{BIZ.site}</a></li>
+                <li><strong>Support & general enquiries:</strong> <a href={`mailto:${BIZ.email}`}>{BIZ.email}</a></li>
+                <li><strong>Billing questions:</strong> <a href={`mailto:${BIZ.email}`}>{BIZ.email}</a> — include your registered email and the Razorpay payment ID.</li>
+                <li><strong>Privacy & data requests:</strong> <a href={`mailto:${BIZ.email}`}>{BIZ.email}</a></li>
+                <li><strong>Website:</strong> <a href={BIZ.site}>{BIZ.site}</a></li>
             </UL>
             <P>Registered address: {BIZ.address}</P>
 
@@ -194,11 +198,11 @@ export function ContactPage() {
 
             <H>Policies</H>
             <UL>
-                <li><Link to="/terms" style={{ color: 'var(--pop)' }}>Terms & Conditions</Link></li>
-                <li><Link to="/privacy" style={{ color: 'var(--pop)' }}>Privacy Policy</Link></li>
-                <li><Link to="/refunds" style={{ color: 'var(--pop)' }}>Refund & Cancellation Policy</Link></li>
-                <li><Link to="/pricing" style={{ color: 'var(--pop)' }}>Pricing</Link></li>
+                <li><Link to="/terms">Terms & Conditions</Link></li>
+                <li><Link to="/privacy">Privacy Policy</Link></li>
+                <li><Link to="/refunds">Refund & Cancellation Policy</Link></li>
+                <li><Link to="/pricing">Pricing</Link></li>
             </UL>
-        </LegalLayout>
+        </ContentPage>
     )
 }

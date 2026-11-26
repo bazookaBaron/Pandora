@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { TIERS, PLAN_ORDER, priceInrPaise, priceUsdCents } from '../../config/tiers.js'
 import { useEntitlements } from '../lib/useEntitlements'
@@ -11,21 +11,25 @@ import { startCheckout as startRazorpayCheckoutFlow } from '../lib/razorpay'
 import { apiFetch } from '../lib/apiClient'
 import { useAutoApplyMe } from '../lib/useAutoApply'
 import { PACK_KINDS, PACK_SIZES, packPrice } from './autoapply/ui'
+import { Check, X } from 'lucide-react'
+import { PLAN_TONE } from '../lib/brand'
+import { Segmented, Pill, Button } from '../components/ui'
 
 // ── Pricing (config-driven) ─────────────────────────────────────────
 // Renders Free / Pro / Max straight from `config/tiers.js`. The Pro/Max CTAs
 // open Razorpay Standard Checkout (one-time payment for a monthly / yearly
 // term). On a verified payment we re-poll entitlements.
 //
-// Desktop: the usual 3-card grid. Mobile: a Free/Pro/Max tab switcher
-// (defaults to Pro) shows ONE full plan card at a time instead of three
-// stacked blocks — same <PlanCard> either way.
+// Desktop: the usual 3-card grid. Mobile: a Free/Pro/Max segmented switcher
+// (defaults to Pro) shows ONE full plan card at a time — same <PlanCard> either way.
+// Plan colours come from lib/brand.js PLAN_TONE (free history, pro plan, max active).
 
 const PLAN_META = {
-    free: { name: 'Free', tagline: 'Kick the tyres', accent: '#71717a', cta: 'Start free' },
-    pro: { name: 'Pro', tagline: 'Everything, no limits', accent: '#a78bfa', featured: true, badge: 'Most popular', cta: 'Get Pro' },
-    max: { name: 'Max', tagline: 'For serious, daily prep', accent: '#22d3ee', cta: 'Get Max' },
+    free: { name: 'Free', tagline: 'Kick the tyres', cta: 'Start free' },
+    pro: { name: 'Pro', tagline: 'Everything, no limits', featured: true, badge: 'Most popular', cta: 'Get Pro' },
+    max: { name: 'Max', tagline: 'For serious, daily prep', cta: 'Get Max' },
 }
+const toneOf = (id) => (PLAN_TONE[id] || PLAN_TONE.free).tone
 
 const TRUST = ['Cancel anytime', 'No auto-renewal', 'Secure checkout by Razorpay']
 
@@ -110,22 +114,12 @@ function planFeatureRows(planId) {
 
 function FeatureChecklist({ rows }) {
     return (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 9 }}>
+        <ul className="pricing-features">
             {rows.map((r) => (
-                <li key={r.key} style={{
-                    display: 'flex', alignItems: 'flex-start', gap: 9,
-                    fontSize: '0.82rem', lineHeight: 1.4,
-                    color: r.included ? 'var(--accent)' : 'var(--faint)',
-                }}>
-                    <span aria-hidden style={{
-                        flexShrink: 0, width: 16, textAlign: 'center', fontWeight: 900,
-                        color: r.included ? 'var(--green)' : '#71717a',
-                    }}>
-                        {r.included ? '✓' : '✕'}
-                    </span>
-                    <span style={{ textDecoration: r.included ? 'none' : 'line-through', textDecorationColor: '#71717a' }}>
-                        {r.label}
-                    </span>
+                <li key={r.key} className={r.included ? 'is-on' : 'is-off'}>
+                    {r.included ? <Check size={14} aria-hidden="true" /> : <X size={14} aria-hidden="true" />}
+                    <span>{r.label}</span>
+                    {!r.included && <span className="sys-sr">(not included)</span>}
                 </li>
             ))}
         </ul>
@@ -135,7 +129,7 @@ function FeatureChecklist({ rows }) {
 // One full plan card — price block + checklist + CTA. Used for every card on
 // desktop and for the single selected plan on mobile.
 function PlanCard({ id, billing, currency, isCurrent, pending, onCheckout }) {
-    const meta = PLAN_META[id] || { name: id, accent: '#71717a' }
+    const meta = PLAN_META[id] || { name: id }
     const amount = priceOf(id, billing, currency)
     const featured = !!meta.featured
     const yearlyAmount = priceOf(id, 'yearly', currency)
@@ -146,78 +140,47 @@ function PlanCard({ id, billing, currency, isCurrent, pending, onCheckout }) {
         const m = priceOf(id, 'monthly', currency)
         return m && yearlyAmount ? Math.round((1 - yearlyAmount / (m * 12)) * 100) : 0
     })()
+    const variant = isCurrent || id === 'free' ? 'secondary' : featured ? 'upgrade' : 'primary'
 
     return (
-        <div style={{
-            position: 'relative',
-            background: 'var(--panel)',
-            border: `1px solid ${featured ? meta.accent + '66' : 'var(--subtle)'}`,
-            borderRadius: 14, padding: '24px 20px 20px',
-            display: 'flex', flexDirection: 'column', gap: 14,
-            boxShadow: featured ? `0 20px 44px -16px ${meta.accent}55` : 'none',
-        }}>
-            {featured && meta.badge && !isCurrent && (
-                <span style={{
-                    position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)',
-                    fontSize: '0.58rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.12em',
-                    color: 'var(--surface)', background: 'linear-gradient(135deg, #22d3ee, #a78bfa)',
-                    borderRadius: 999, padding: '4px 12px', whiteSpace: 'nowrap',
-                }}>
-                    {meta.badge}
-                </span>
-            )}
-            {isCurrent && (
-                <span style={{
-                    position: 'absolute', top: 14, right: 14, fontSize: '0.58rem', fontWeight: 900,
-                    textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--surface)',
-                    background: meta.accent, borderRadius: 6, padding: '3px 8px',
-                }}>
-                    Current
-                </span>
-            )}
+        <article className={`pricing-card tone-${toneOf(id)}${featured ? ' is-featured' : ''}`} aria-label={`${meta.name} plan`}>
+            {featured && meta.badge && !isCurrent && <span className="pricing-badge">{meta.badge}</span>}
 
-            <div>
-                <div style={{ fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: meta.accent }}>{meta.name}</div>
-                <div style={{ color: 'var(--muted)', fontSize: '0.76rem', marginTop: 3 }}>{meta.tagline}</div>
-                <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 5, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.02em' }}>{headline}</span>
-                    <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{id === 'free' ? 'forever' : '/mo'}</span>
-                </div>
-                {id !== 'free' && (
-                    <div style={{ fontSize: '0.68rem', color: 'var(--faint)', marginTop: 4 }}>
-                        {billing === 'yearly'
-                            ? `${money(yearlyAmount, currency)} billed once a year`
-                            : `or ${money(yearlyAmount, currency)}/yr — save ${savingsPct}%`}
-                    </div>
-                )}
+            <div className="pricing-card-head">
+                <span className="pricing-name tone-text">{meta.name}</span>
+                {isCurrent && <Pill tone={toneOf(id)}>Current</Pill>}
             </div>
+            <p className="pricing-tagline">{meta.tagline}</p>
+            <div className="pricing-price">
+                <span className="pricing-amount">{headline}</span>
+                <span className="pricing-per">{id === 'free' ? 'forever' : '/mo'}</span>
+            </div>
+            {id !== 'free' && (
+                <p className="pricing-billed">
+                    {billing === 'yearly'
+                        ? `${money(yearlyAmount, currency)} billed once a year`
+                        : `or ${money(yearlyAmount, currency)}/yr — save ${savingsPct}%`}
+                </p>
+            )}
 
             <FeatureChecklist rows={rows} />
 
-            <button
+            <Button
+                variant={variant}
+                size="lg"
+                block
+                className="pricing-cta"
                 onClick={() => {
                     if (isCurrent || id === 'free' || pending) return
                     onCheckout(id)
                 }}
                 disabled={isCurrent || id === 'free' || pending === id}
-                style={{
-                    marginTop: 'auto', padding: '11px 16px', borderRadius: 8,
-                    border: id === 'free' && !isCurrent ? '1px solid var(--subtle)' : 'none',
-                    cursor: (isCurrent || id === 'free' || pending === id) ? 'default' : 'pointer',
-                    fontWeight: 900, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em',
-                    opacity: pending === id ? 0.7 : 1,
-                    background: isCurrent ? 'var(--subtle)'
-                        : id === 'free' ? 'transparent'
-                            : featured ? 'linear-gradient(135deg, #22d3ee, #a78bfa)'
-                                : meta.accent,
-                    color: isCurrent ? 'var(--muted)'
-                        : id === 'free' ? 'var(--accent)'
-                            : 'var(--surface)',
-                }}
+                busy={pending === id}
+                busyLabel="Starting…"
             >
-                {pending === id ? 'Starting…' : isCurrent ? 'Current plan' : meta.cta}
-            </button>
-        </div>
+                {isCurrent ? 'Current plan' : meta.cta}
+            </Button>
+        </article>
     )
 }
 
@@ -228,37 +191,27 @@ function AutoApplySection({ currentPlan }) {
     const cap = config?.monthly_cap ?? 1000
     const eligible = me.data ? !!me.data.eligible : currentPlan === 'pro' || currentPlan === 'max'
     return (
-        <section aria-labelledby="pricing-autoapply" style={{ maxWidth: 860, margin: '44px auto 0' }}>
-            <div style={{ textAlign: 'center', marginBottom: 16 }}>
-                <span style={{
-                    display: 'inline-block', fontSize: '0.6rem', fontWeight: 900, letterSpacing: '0.16em',
-                    textTransform: 'uppercase', color: 'var(--warm)', border: '1px solid var(--subtle)',
-                    borderRadius: 999, padding: '4px 12px', marginBottom: 10,
-                }}>Add-on · Pro &amp; Max</span>
-                <h2 id="pricing-autoapply" style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.02em', margin: 0 }}>
-                    AutoApply packs
-                </h2>
-                <p style={{ color: 'var(--muted)', fontSize: '0.82rem', maxWidth: 560, margin: '8px auto 0', lineHeight: 1.55 }}>
-                    We submit applications on company career sites for you. Credits are used only when an application is
-                    actually submitted &mdash; up to {cap.toLocaleString('en-IN')} applications per month.
+        <section aria-labelledby="pricing-autoapply" className="pricing-block">
+            <div className="pricing-block-head">
+                <Pill tone="attention" soft>Add-on · Pro &amp; Max</Pill>
+                <h2 id="pricing-autoapply" className="pricing-h2">AutoApply packs</h2>
+                <p className="pricing-sub">
+                    We apply on company career sites for you. Credits are used only when an application is submitted
+                    &mdash; up to {cap.toLocaleString('en-IN')} a month.
                 </p>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+            <div className="pricing-packs">
                 {['service', 'product'].map((kind) => (
-                    <div key={kind} style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 14, padding: '18px 18px 14px' }}>
-                        <div style={{ fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: kind === 'service' ? 'var(--pop)' : 'var(--warm)' }}>
-                            {PACK_KINDS[kind].name}
-                        </div>
-                        <div style={{ color: 'var(--muted)', fontSize: '0.74rem', marginTop: 3 }}>{PACK_KINDS[kind].blurb}</div>
-                        <ul style={{ listStyle: 'none', padding: 0, margin: '10px 0 0' }}>
+                    <div key={kind} className={`pricing-pack tone-${kind === 'service' ? 'active' : 'attention'}`}>
+                        <div className="pricing-name tone-text">{PACK_KINDS[kind].name}</div>
+                        <div className="pricing-tagline">{PACK_KINDS[kind].blurb}</div>
+                        <ul>
                             {PACK_SIZES.map((size) => {
                                 const p = packPrice(config, kind, size)
                                 return (
-                                    <li key={size} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderTop: '1px solid var(--subtle)', fontSize: '0.8rem' }}>
-                                        <span style={{ color: 'var(--accent)' }}>{size} applications</span>
-                                        <span style={{ color: 'var(--bright)', fontWeight: 900 }}>
-                                            {p != null ? rupees(p) : (me.isLoading ? '…' : 'Coming soon')}
-                                        </span>
+                                    <li key={size}>
+                                        <span>{size} applications</span>
+                                        <strong>{p != null ? rupees(p) : (me.isLoading ? '…' : 'Coming soon')}</strong>
                                     </li>
                                 )
                             })}
@@ -266,21 +219,12 @@ function AutoApplySection({ currentPlan }) {
                     </div>
                 ))}
             </div>
-            <p style={{ textAlign: 'center', marginTop: 16 }}>
-                <Link to={eligible ? '/autoapply/buy' : '/autoapply'} style={{
-                    display: 'inline-block', padding: '10px 18px', borderRadius: 8, textDecoration: 'none',
-                    fontWeight: 900, fontSize: '0.76rem', textTransform: 'uppercase', letterSpacing: '0.06em',
-                    background: eligible ? 'var(--pop)' : 'transparent', color: eligible ? 'var(--surface)' : 'var(--accent)',
-                    border: eligible ? 'none' : '1px solid var(--subtle)',
-                }}>
+            <p className="pricing-center">
+                <Button variant={eligible ? 'primary' : 'secondary'} to={eligible ? '/autoapply/buy' : '/autoapply'}>
                     {eligible ? 'Buy an AutoApply pack' : 'Learn about AutoApply'}
-                </Link>
+                </Button>
             </p>
-            {!eligible && (
-                <p style={{ textAlign: 'center', fontSize: '0.72rem', color: 'var(--faint)', margin: 0 }}>
-                    Needs an active Pro or Max plan.
-                </p>
-            )}
+            {!eligible && <p className="pricing-fine">Needs an active Pro or Max plan.</p>}
         </section>
     )
 }
@@ -356,99 +300,35 @@ export default function PricingPage() {
         <>
             <Navbar />
             {pending && (
-                <div
-                    aria-live="polite"
-                    style={{
-                        position: 'fixed', inset: 0, zIndex: 200, display: 'grid', placeItems: 'center',
-                        background: 'var(--overlay)', backdropFilter: 'blur(2px)',
-                    }}
-                >
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, color: 'var(--bright)' }}>
+                <div className="pricing-overlay" aria-live="polite">
+                    <div>
                         <span className="spinner-lg" />
-                        <span style={{ fontSize: '0.82rem', fontWeight: 700 }}>Opening secure checkout…</span>
+                        <span>Opening secure checkout…</span>
                     </div>
                 </div>
             )}
-            <main className="wrap" style={{ maxWidth: 1040, margin: '0 auto', padding: '72px 16px 40px' }}>
-                <header style={{ textAlign: 'center', marginBottom: 26 }}>
-                    <span style={{
-                        display: 'inline-block', fontSize: '0.6rem', fontWeight: 900, letterSpacing: '0.16em',
-                        textTransform: 'uppercase', color: 'var(--pop)', border: '1px solid var(--subtle)',
-                        borderRadius: 999, padding: '4px 12px', marginBottom: 14,
-                    }}>
-                        Pricing
-                    </span>
-                    <h1 style={{ fontSize: '1.9rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.03em', lineHeight: 1.15 }}>
-                        Prep like it&rsquo;s your job.
-                    </h1>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.9rem', maxWidth: 520, margin: '10px auto 0', lineHeight: 1.55 }}>
-                        One subscription covers DSA, LLD, HLD, the jobs board, referrals, interview questions and the AI resume optimizer.
-                        Nothing auto-renews &mdash; you&rsquo;re always in control.
+            <main className="wrap pricing-wrap">
+                <header className="pricing-header">
+                    <h1 className="pricing-h1">Prep like it&rsquo;s your job.</h1>
+                    <p className="pricing-sub">
+                        One plan for DSA, LLD, HLD, jobs, referrals, interview questions and the resume optimizer.
+                        Nothing auto-renews.
                     </p>
 
-                    {/* Monthly / yearly toggle + savings pill */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-                        <div className="profile-segment" role="group" aria-label="Billing period">
-                            {['monthly', 'yearly'].map((b) => (
-                                <button
-                                    key={b}
-                                    type="button"
-                                    className={'profile-segment-btn' + (billing === b ? ' is-active' : '')}
-                                    aria-pressed={billing === b}
-                                    onClick={() => setBilling(b)}
-                                >
-                                    {b === 'monthly' ? 'Monthly' : 'Yearly'}
-                                </button>
-                            ))}
-                        </div>
-                        {bestSavings > 0 && (
-                            <span style={{
-                                fontSize: '0.68rem', fontWeight: 900, color: 'var(--green)',
-                                background: 'rgba(74,222,128,0.14)', border: '1px solid rgba(74,222,128,0.4)',
-                                borderRadius: 999, padding: '4px 10px',
-                            }}>
-                                Save up to {bestSavings}% yearly
-                            </span>
-                        )}
+                    <div className="pricing-controls">
+                        <Segmented label="Billing period" value={billing} onChange={setBilling}
+                            options={[{ value: 'monthly', label: 'Monthly' }, { value: 'yearly', label: 'Yearly', tone: 'success' }]} />
+                        {bestSavings > 0 && <Pill tone="success" soft>Save up to {bestSavings}%</Pill>}
                     </div>
 
-                    {/* Mobile: Free / Pro / Max tab switcher — replaces the 3 stacked cards. */}
+                    {/* Mobile: Free / Pro / Max switcher — replaces the 3 stacked cards. */}
                     {isMobile && (
-                        <div role="tablist" aria-label="Choose a plan" style={{
-                            display: 'flex', gap: 6, marginTop: 16, maxWidth: 420, marginLeft: 'auto', marginRight: 'auto',
-                        }}>
-                            {PLAN_ORDER.map((id) => {
-                                const meta = PLAN_META[id] || { name: id, accent: '#71717a' }
-                                const active = mobilePlan === id
-                                return (
-                                    <button
-                                        key={id}
-                                        type="button"
-                                        role="tab"
-                                        aria-selected={active}
-                                        onClick={() => setMobilePlan(id)}
-                                        style={{
-                                            flex: 1, padding: '9px 4px', borderRadius: 8, cursor: 'pointer',
-                                            border: `1px solid ${active ? meta.accent + '88' : 'var(--subtle)'}`,
-                                            background: active ? meta.accent + '1a' : 'var(--panel)',
-                                            color: active ? meta.accent : 'var(--muted)',
-                                            fontWeight: 900, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em',
-                                        }}
-                                    >
-                                        {meta.name.toUpperCase()}
-                                    </button>
-                                )
-                            })}
-                        </div>
+                        <Segmented label="Choose a plan" block value={mobilePlan} onChange={setMobilePlan} className="pricing-plan-switch"
+                            options={PLAN_ORDER.map((id) => ({ value: id, label: (PLAN_META[id] || { name: id }).name, tone: toneOf(id) }))} />
                     )}
                 </header>
 
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(258px, 1fr))',
-                    gap: 18, alignItems: 'start',
-                    maxWidth: isMobile ? 420 : undefined, marginLeft: isMobile ? 'auto' : undefined, marginRight: isMobile ? 'auto' : undefined,
-                }}>
+                <div className="pricing-grid">
                     {visiblePlans.map((id) => (
                         <PlanCard
                             key={id}
@@ -462,29 +342,24 @@ export default function PricingPage() {
                     ))}
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 18, flexWrap: 'wrap', marginTop: 20 }}>
+                <ul className="pricing-trust">
                     {TRUST.map((t) => (
-                        <span key={t} style={{ fontSize: '0.72rem', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ color: 'var(--green)' }}>✓</span>{t}
-                        </span>
+                        <li key={t}><Check size={13} aria-hidden="true" />{t}</li>
                     ))}
-                </div>
+                </ul>
 
                 {note && (
                     <ErrorState compact title="Checkout" message={note} style={{ marginTop: 18 }} />
                 )}
 
-                <form onSubmit={(e) => { e.preventDefault(); redeemPlanCoupon() }}
-                    style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 18 }}>
-                    <label htmlFor="plan-coupon" style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Have a coupon?</label>
+                <form onSubmit={(e) => { e.preventDefault(); redeemPlanCoupon() }} className="pricing-coupon">
+                    <label htmlFor="plan-coupon" className="sys-sr">Coupon code</label>
                     <input id="plan-coupon" className="input-field" placeholder="Coupon code" maxLength={40} value={couponCode}
                         onChange={(e) => { setCouponCode(e.target.value); setCouponMsg(null) }}
-                        style={{ maxWidth: 180, textTransform: 'uppercase' }} disabled={couponBusy} />
-                    <button type="submit" className="aa-btn" disabled={couponBusy || !couponCode.trim()}>
-                        {couponBusy ? 'Applying…' : 'Apply'}
-                    </button>
+                        disabled={couponBusy} />
+                    <Button type="submit" disabled={!couponCode.trim()} busy={couponBusy} busyLabel="Applying…">Apply</Button>
                     {couponMsg && (
-                        <span role="status" style={{ width: '100%', textAlign: 'center', fontSize: '0.75rem', color: couponMsg.ok ? 'var(--green)' : 'var(--danger, #f87171)' }}>
+                        <span role="status" className={`pricing-coupon-msg tone-text tone-${couponMsg.ok ? 'success' : 'danger'}`}>
                             {couponMsg.text}
                         </span>
                     )}
@@ -492,26 +367,19 @@ export default function PricingPage() {
 
                 {import.meta.env.VITE_AUTOAPPLY === '1' && <AutoApplySection currentPlan={currentPlan} />}
 
-                <section style={{ maxWidth: 680, margin: '44px auto 0' }}>
-                    <h2 style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--bright)', textAlign: 'center', marginBottom: 16, letterSpacing: '-0.02em' }}>
-                        Questions
-                    </h2>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        {[...FAQ_BASE, PAYMENT_FAQ[currency] || PAYMENT_FAQ.INR].map(([q, a]) => (
-                            <div key={q} style={{ background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '14px 16px' }}>
-                                <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--bright)' }}>{q}</div>
-                                <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: 6, lineHeight: 1.55 }}>{a}</div>
-                            </div>
-                        ))}
-                    </div>
+                <section className="pricing-block pricing-faq prose" aria-labelledby="pricing-faq-h">
+                    <h2 id="pricing-faq-h" className="pricing-h2">Questions</h2>
+                    {[...FAQ_BASE, PAYMENT_FAQ[currency] || PAYMENT_FAQ.INR].map(([q, a]) => (
+                        <details key={q}>
+                            <summary>{q}</summary>
+                            <p>{a}</p>
+                        </details>
+                    ))}
                 </section>
 
-                <p style={{ textAlign: 'center', marginTop: 28, fontSize: '0.72rem', color: 'var(--faint)' }}>
+                <p className="pricing-fine">
                     Prices in {currency === 'USD' ? 'USD' : 'INR'}, processed securely by Razorpay. Every plan is a one-time payment
-                    for the selected term — nothing auto-renews, so there is never a surprise charge.
-                </p>
-                <p style={{ textAlign: 'center', marginTop: 12 }}>
-                    <Link to="/" style={{ color: 'var(--pop)', fontSize: '0.8rem', textDecoration: 'none' }}>← Back</Link>
+                    for the selected term — nothing auto-renews.
                 </p>
             </main>
         </>

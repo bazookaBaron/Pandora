@@ -6,7 +6,14 @@ import { ssGet, ssSet } from '../../lib/sessionStore'
 import SubcategoryList from '../../components/interview/SubcategoryList'
 import QuestionList from '../../components/interview/QuestionList'
 import AnswerViewer from '../../components/interview/AnswerViewer'
-import { accentForSubcategory } from '../../components/interview/categoryTheme'
+import { toneForSubcategory } from '../../components/interview/categoryTheme'
+import { Tabs, Pill } from '../../components/ui'
+
+const MOBILE_TABS = [
+    { value: 'subcategories', label: 'Topics' },
+    { value: 'questions', label: 'Questions' },
+    { value: 'answer', label: 'Answer' },
+]
 
 // ── sessionStorage keys ────────────────────────────────────────────
 const SK_SUBCATEGORY = 'iq:subcategory'
@@ -26,9 +33,9 @@ export default function InterviewPage() {
     const [activeQText, setActiveQText] = useState(() => ssGet(SK_QUESTION_TEXT) || '')
     const [mobileTab, setMobileTab] = useState('subcategories') // 'subcategories' | 'answer' | 'questions'
 
-    // Active category hue — resolved from the selected subcategory against the
+    // Active category tone — resolved from the selected subcategory against the
     // loaded (category, subcategory) pairs. Threaded to all three panels.
-    const accent = accentForSubcategory(pairs, activeSub)
+    const tone = toneForSubcategory(pairs, activeSub)
 
     // Once subcategories load: if the restored (or empty) subcategory is not a
     // real option, fall back to the first one and drop any stale question.
@@ -66,9 +73,11 @@ export default function InterviewPage() {
     // ── Panel contents ────────────────────────────────────────────
     const LeftPanel = (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', borderRight: '1px solid var(--subtle)' }}>
-            <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid var(--subtle)', flexShrink: 0 }}>
-                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Topics</span>
-            </div>
+            {!isMobile && (
+                <div className="iq-panel-head">
+                    <span className="iq-label">Topics</span>
+                </div>
+            )}
             <SubcategoryList
                 pairs={pairs}
                 isLoading={subsLoading}
@@ -81,31 +90,25 @@ export default function InterviewPage() {
 
     const MiddlePanel = (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', borderRight: '1px solid var(--subtle)' }}>
-            {activeQId && (
-                <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--subtle)', flexShrink: 0 }}>
-                    <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Answer</span>
+            {activeQId && !isMobile && (
+                <div className="iq-panel-head">
+                    <span className="iq-label">Answer</span>
                 </div>
             )}
             <div style={{ flex: 1, overflow: 'hidden' }}>
-                <AnswerViewer questionId={activeQId} questionText={activeQText} accent={accent} />
+                <AnswerViewer questionId={activeQId} questionText={activeQText} tone={tone} />
             </div>
         </div>
     )
 
     const RightPanel = (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <div style={{ padding: '10px 12px 8px', borderBottom: '1px solid var(--subtle)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.1em', flex: 1 }}>Questions</span>
-                {activeSub && (
-                    <span style={{
-                        fontSize: '0.65rem', color: accent, fontWeight: 700,
-                        border: `1px solid ${accent}59`, borderRadius: 4, padding: '2px 7px',
-                        whiteSpace: 'nowrap',
-                    }}>{activeSub}</span>
-                )}
+            <div className="iq-panel-head">
+                <span className="iq-label">Questions</span>
+                {activeSub && <Pill tone={tone} soft title={activeSub}>{activeSub}</Pill>}
             </div>
             <div style={{ flex: 1, overflow: 'auto' }}>
-                <QuestionList subcategory={activeSub} activeId={activeQId} onSelect={handleQuestionSelect} accent={accent} />
+                <QuestionList subcategory={activeSub} activeId={activeQId} onSelect={handleQuestionSelect} tone={tone} />
             </div>
         </div>
     )
@@ -115,35 +118,13 @@ export default function InterviewPage() {
             <Navbar />
             <div className="has-tilebar" style={{ height: "100vh", paddingTop: "var(--nav-h)", display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {/* Header bar */}
-                <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
-                    <h2 style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.02em' }}>Interview Q&amp;A</h2>
-                    {!isMobile && <span style={{ color: 'var(--subtle)' }}>|</span>}
-                    {!isMobile && (
-                        <span style={{ fontSize: '0.72rem', color: 'var(--faint)' }}>
-                            {pairs.length} subcategories
-                        </span>
-                    )}
+                <div className="iq-bar">
+                    <h1>Interview Q&amp;A</h1>
+                    {!isMobile && <span className="iq-count">{pairs.length} topics</span>}
 
                     {/* Mobile tab switcher */}
                     {isMobile && (
-                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, flex: '1 1 220px', minWidth: 0 }}>
-                            {[
-                                { id: 'subcategories', label: 'Topics' },
-                                { id: 'questions', label: 'Questions' },
-                                { id: 'answer', label: 'Answer' },
-                            ].map(t => (
-                                <button key={t.id} type="button" onClick={() => setMobileTab(t.id)} style={{
-                                    flex: 1, minWidth: 0,
-                                    padding: '5px 8px', borderRadius: 4, border: 'none', cursor: 'pointer',
-                                    fontSize: '0.62rem', fontWeight: 900, textTransform: 'uppercase',
-                                    background: mobileTab === t.id ? '#22d3ee' : 'var(--subtle)',
-                                    color: mobileTab === t.id ? 'var(--surface)' : 'var(--muted)',
-                                    transition: 'background 0.12s',
-                                }}>
-                                    {t.label}
-                                </button>
-                            ))}
-                        </div>
+                        <Tabs idPrefix="iq" label="Interview panels" value={mobileTab} onChange={setMobileTab} items={MOBILE_TABS} block />
                     )}
                 </div>
 
@@ -165,9 +146,10 @@ export default function InterviewPage() {
                     </div>
                 ) : (
                     // Mobile: single pane, tab-controlled
-                    <div style={{ flex: 1, overflow: 'hidden', background: 'var(--surface-2)' }}>
+                    <div role="tabpanel" id={`iq-panel-${mobileTab}`} aria-labelledby={`iq-tab-${mobileTab}`}
+                        style={{ flex: 1, overflow: 'hidden', background: 'var(--surface-2)' }}>
                         {mobileTab === 'subcategories' && LeftPanel}
-                        {mobileTab === 'answer' && <div style={{ height: '100%', background: 'var(--surface-2)' }}>{MiddlePanel}</div>}
+                        {mobileTab === 'answer' && MiddlePanel}
                         {mobileTab === 'questions' && RightPanel}
                     </div>
                 )}

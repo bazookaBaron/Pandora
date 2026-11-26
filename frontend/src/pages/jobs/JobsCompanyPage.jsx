@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { ArrowLeft, Bell, BellRing, Briefcase } from 'lucide-react'
 import Navbar from '../../components/Navbar'
 import { useJobsCompany } from '../../lib/useJobs'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
 import { useAuth } from '../../contexts/AuthContext'
 import { useEntitlements } from '../../lib/useEntitlements'
 import { useCompanySubscriptions, useSubscribeToCompany, useUnsubscribeFromCompany } from '../../lib/useCompanySubscriptions'
-import { relTime, postedTime, isFreshJob, jobLinks, sourceLabel } from '../../lib/jobUtils'
 import { UpgradeButton } from '../../components/shared/PaywallGate'
+import { Button, SectionHead } from '../../components/ui'
+import JobCard from './JobCard'
 
 // "Subscribe to <Company>" — job-alert subscriptions are a Pro/Max feature
 // (config/tiers.js: company_subscriptions_max). Free/logged-out visitors see
@@ -22,23 +24,15 @@ function SubscribeButton({ slug, companyName }) {
     const [err, setErr] = useState('')
 
     if (!user) {
-        return (
-            <Link to="/auth" style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px',
-                borderRadius: 8, border: '1px solid var(--subtle)', color: 'var(--accent)',
-                fontSize: '0.78rem', fontWeight: 700, textDecoration: 'none', flexShrink: 0,
-            }}>
-                Log in to subscribe for alerts
-            </Link>
-        )
+        return <Button to="/auth" icon={Bell}>Log in for alerts</Button>
     }
 
     if (planLoading) return null
 
     if (plan === 'free') {
         return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                <span style={{ color: 'var(--muted)', fontSize: '0.72rem', maxWidth: 200 }}>
+            <div className="jobs-co-sub-row">
+                <span className="jobs-co-sub-hint">
                     Get emailed when {companyName || 'this company'} posts new roles
                 </span>
                 <UpgradeButton size="sm">Unlock job alerts</UpgradeButton>
@@ -68,24 +62,20 @@ function SubscribeButton({ slug, companyName }) {
     }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
-            <button
-                type="button"
+        <div className="jobs-co-sub">
+            <Button
+                variant={isSubscribed ? 'secondary' : 'primary'}
+                icon={isSubscribed ? BellRing : Bell}
                 onClick={toggle}
-                disabled={busy || (atCap && !isSubscribed)}
+                busy={busy}
+                busyLabel="Saving…"
+                disabled={atCap && !isSubscribed}
+                aria-pressed={isSubscribed}
                 title={atCap && !isSubscribed ? `Limit reached (${subscriptions.length}/${limit})` : undefined}
-                style={{
-                    padding: '8px 16px', borderRadius: 8, fontSize: '0.78rem', fontWeight: 700,
-                    cursor: busy || (atCap && !isSubscribed) ? 'not-allowed' : 'pointer',
-                    opacity: busy || (atCap && !isSubscribed) ? 0.6 : 1,
-                    border: isSubscribed ? '1px solid var(--subtle)' : 'none',
-                    background: isSubscribed ? 'transparent' : 'linear-gradient(135deg, #22d3ee, #a78bfa)',
-                    color: isSubscribed ? 'var(--accent)' : 'var(--surface)',
-                }}
             >
-                {busy ? 'Saving…' : isSubscribed ? 'Subscribed ✓' : atCap ? `Limit reached (${subscriptions.length}/${limit})` : `Subscribe for alerts`}
-            </button>
-            {err && <span style={{ color: '#f87171', fontSize: '0.68rem', maxWidth: 220, textAlign: 'right' }}>{err}</span>}
+                {isSubscribed ? 'Subscribed' : atCap ? `Limit reached (${subscriptions.length}/${limit})` : 'Subscribe for alerts'}
+            </Button>
+            {err && <span className="jobs-co-err" role="alert">{err}</span>}
         </div>
     )
 }
@@ -104,28 +94,24 @@ export default function JobsCompanyPage() {
         <>
             <Navbar />
             <div className="has-tilebar" style={{ paddingTop: 56 }}>
-                <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)' }}>
-                    <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 16px' }}>
-                        <Link to="/" style={{ fontSize: '0.72rem', color: 'var(--muted)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 12 }}>
-                            ← All Jobs
+                <div className="jobs-co-head">
+                    <div className="jobs-co-wrap">
+                        <Link to="/" className="jobs-co-back">
+                            <ArrowLeft size={13} aria-hidden="true" /> All jobs
                         </Link>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                                <div style={{
-                                    width: 48, height: 48, borderRadius: 10, background: 'var(--panel)',
-                                    border: '2px solid var(--subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: '1.2rem', fontWeight: 900, color: '#22d3ee', flexShrink: 0,
-                                }}>
+                        <div className="jobs-co-row">
+                            <div className="jobs-co-id">
+                                <div className="jobs-co-logo" aria-hidden="true">
                                     {(company?.name || slug || '?').charAt(0).toUpperCase()}
                                 </div>
-                                <div>
+                                <div style={{ minWidth: 0 }}>
                                     <h1 className="pg-title">
                                         {company?.name || slug} Jobs
                                     </h1>
                                     <p className="pg-subtitle">
                                         {postings.length > 0
-                                            ? `${postings.length} open position${postings.length === 1 ? '' : 's'}, crawled directly from their careers page and refreshed through the day.`
-                                            : 'Crawled directly from their careers page and refreshed through the day.'}
+                                            ? `${postings.length} open position${postings.length === 1 ? '' : 's'}, crawled from their careers page.`
+                                            : 'Crawled from their careers page through the day.'}
                                     </p>
                                 </div>
                             </div>
@@ -134,14 +120,14 @@ export default function JobsCompanyPage() {
                             )}
                         </div>
                         {!isLoading && !error && !eligible && (
-                            <p style={{ color: 'var(--faint)', fontSize: '0.7rem', marginTop: 10 }}>
+                            <p className="jobs-co-note">
                                 This page isn't submitted for search indexing yet — it's still real and linkable, just not part of the curated launch set.
                             </p>
                         )}
                     </div>
                 </div>
 
-                <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 16px' }}>
+                <div className="jobs-co-wrap">
                     {isLoading && <LoadingState label="Loading open roles…" />}
                     {error && (
                         <ErrorState
@@ -153,60 +139,22 @@ export default function JobsCompanyPage() {
                     )}
                     {!isLoading && !error && postings.length === 0 && (
                         <EmptyState
-                            icon="🗂️"
+                            art="jobs"
                             title="No open roles right now"
                             message="This company doesn't have any postings in the last 24 hours — check back soon."
                         />
                     )}
                     {!isLoading && !error && postings.length > 0 && (
-                        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {postings.map((job) => {
-                                const { primary, alts } = jobLinks(job)
-                                const when = relTime(postedTime(job))
-                                const src = sourceLabel(job.source)
-                                const meta = [job.location, job.locationType, job.seniority, when, src].filter(Boolean).join(' · ')
-                                return (
-                                    <li key={job.id} style={{
-                                        border: '1px solid var(--subtle)', borderRadius: 10, padding: '14px 16px',
-                                        background: 'var(--panel)', display: 'flex', flexWrap: 'wrap',
-                                        alignItems: 'center', justifyContent: 'space-between', gap: 10,
-                                    }}>
-                                        <div style={{ minWidth: 0 }}>
-                                            <div style={{ fontWeight: 800, color: 'var(--bright)', fontSize: '0.92rem' }}>
-                                                {job.title}
-                                                {isFreshJob(job) && <span style={{ marginLeft: 8, fontSize: '0.58rem', fontWeight: 900, letterSpacing: '0.09em', color: '#fbbf24' }}>NEW</span>}
-                                                {job.isReposted && <span style={{ marginLeft: 8, fontSize: '0.58rem', fontWeight: 900, letterSpacing: '0.09em', color: '#a78bfa' }}>REPOSTED</span>}
-                                            </div>
-                                            <div style={{ color: 'var(--muted)', fontSize: '0.76rem', marginTop: 2 }}>
-                                                {meta}
-                                            </div>
-                                        </div>
-                                        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                                            {primary && (
-                                                <a
-                                                    href={primary}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer nofollow"
-                                                    style={{
-                                                        padding: '6px 14px', borderRadius: 6,
-                                                        border: '1px solid var(--subtle)', color: '#22d3ee',
-                                                        fontSize: '0.78rem', fontWeight: 700, textDecoration: 'none',
-                                                    }}
-                                                >
-                                                    View & Apply →
-                                                </a>
-                                            )}
-                                            {alts.slice(0, 1).map((a) => (
-                                                <a key={a.href} href={a.href} target="_blank" rel="noopener noreferrer nofollow"
-                                                    style={{ fontSize: '0.68rem', color: 'var(--muted)', textDecoration: 'none' }}>
-                                                    also on {a.label}
-                                                </a>
-                                            ))}
-                                        </div>
+                        <section aria-labelledby="jobs-co-h">
+                            <SectionHead id="jobs-co-h" icon={Briefcase} tone="active" title="Open roles" count={postings.length} />
+                            <ul className="job-list" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                                {postings.map((job) => (
+                                    <li key={job.id} style={{ minWidth: 0 }}>
+                                        <JobCard j={job} showCompany={false} showBell={false} rel="noopener noreferrer nofollow" />
                                     </li>
-                                )
-                            })}
-                        </ul>
+                                ))}
+                            </ul>
+                        </section>
                     )}
                 </div>
             </div>

@@ -1,32 +1,43 @@
-// ── Category-keyed accent colours ─────────────────────────────────────
-// Editorial hue accents layered over the dark-mono UI. Backgrounds and
-// body text are untouched elsewhere — these are used only for borders,
-// small pills, active-row tints and heading rules.
+// ── Category-keyed tones ───────────────────────────────────────────────
+// Each interview category gets one brand colour, used only for borders,
+// small pills, active-row tints and heading rules. Brand tokens only:
+// pop (tone-active), warm (tone-attention), green (tone-success), via the
+// .tone-* classes in styles/system.css, so light and dark both stay on brand.
 
-// Explicit map for the known categories, drawn from the app palette
-// (same hues HLD uses for its node types).
-const CATEGORY_COLORS = {
-    'Databases': '#4ade80',              // green
-    'DevOps & Cloud': '#fb923c',         // orange
-    'Frameworks': '#a78bfa',             // purple
-    'Programming Languages': '#22d3ee',  // cyan / --pop
-    'Tools': '#f472b6',                  // pink / --warm
+const TONES = ['active', 'attention', 'success']
+
+// Fixed tones for the known categories, so neighbours in the sorted list differ.
+const CATEGORY_TONES = {
+    'Databases': 'success',
+    'DevOps & Cloud': 'attention',
+    'Frameworks': 'active',
+    'Programming Languages': 'success',
+    'Tools': 'attention',
 }
 
-// Deterministic fallback for data-driven categories not in the map.
-// Same hash + palette the rest of the app uses (Navbar, ProfilePage, HLD).
-const FALLBACK_PALETTE = ['#22d3ee', '#f472b6', '#4ade80', '#facc15', '#fb923c', '#a78bfa', '#60a5fa', '#34d399']
-
-export function categoryColor(category = '') {
-    if (CATEGORY_COLORS[category]) return CATEGORY_COLORS[category]
+// tone name ('active' | 'attention' | 'success') for a category
+export function categoryTone(category = '') {
+    if (CATEGORY_TONES[category]) return CATEGORY_TONES[category]
     let hash = 0
     for (let i = 0; i < category.length; i++) hash = category.charCodeAt(i) + ((hash << 5) - hash)
-    return FALLBACK_PALETTE[Math.abs(hash) % FALLBACK_PALETTE.length]
+    return TONES[Math.abs(hash) % TONES.length]
 }
 
-// Resolve the hue for a subcategory given the (category, subcategory) pairs.
-export function accentForSubcategory(pairs = [], subcategory = null) {
-    if (!subcategory) return '#22d3ee'
+const TONE_VAR = { active: 'var(--sys-active)', attention: 'var(--sys-attention)', success: 'var(--sys-success)' }
+
+// CSS colour (a token) for a category, for callers that need a raw colour.
+export function categoryColor(category = '') {
+    return TONE_VAR[categoryTone(category)]
+}
+
+// Tone for a subcategory, given the (category, subcategory) pairs.
+export function toneForSubcategory(pairs = [], subcategory = null) {
+    if (!subcategory) return 'active'
     const pair = pairs.find(p => p.subcategory === subcategory)
-    return categoryColor(pair ? pair.category : '')
+    return categoryTone(pair ? pair.category : '')
+}
+
+// Colour (token) for a subcategory. Kept for compatibility.
+export function accentForSubcategory(pairs = [], subcategory = null) {
+    return TONE_VAR[toneForSubcategory(pairs, subcategory)]
 }

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { METERED_FEATURES } from '../../../config/tiers.js'
 import { useEntitlements } from '../../lib/useEntitlements'
 import { isUsageLimit } from '../../lib/apiClient'
+import { resetText } from '../../lib/format'
 
 // ── Paywall primitives ──────────────────────────────────────────────
 // Compose these on any list/page to gate content for free-tier users.
@@ -30,17 +31,8 @@ const FEATURE_NOUN = {
     ai_explanation: 'AI explanations',
 }
 
-// "Resets in 12 days." / "Resets tomorrow." / "Resets on Sep 1."
-function formatResetDate(iso) {
-    if (!iso) return ''
-    const then = new Date(iso).getTime()
-    if (Number.isNaN(then)) return ''
-    const days = Math.round((then - Date.now()) / 86400000)
-    if (days <= 0) return 'soon'
-    if (days === 1) return 'tomorrow'
-    if (days < 30) return `in ${days} days`
-    return `on ${new Date(then).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-}
+// "Resets in 12 days." / "Resets tomorrow." / "Resets on Sep 1."  (shared: lib/format.resetText)
+const formatResetDate = resetText
 
 function isMeteredFinite(feature, limit) {
     return (
@@ -70,10 +62,10 @@ export function UpgradeButton({ children = 'Unlock Pro', size = 'md' }) {
             style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8, padding: pad,
                 borderRadius: 8, textDecoration: 'none',
-                background: 'linear-gradient(135deg, #22d3ee, #a78bfa)',
+                background: 'var(--sys-gradient)',
                 color: 'var(--surface)', fontWeight: 900, fontSize: fs,
                 textTransform: 'uppercase', letterSpacing: '0.06em',
-                boxShadow: '0 4px 20px rgba(34,211,238,0.25)',
+                boxShadow: '0 4px 20px color-mix(in srgb, var(--pop) 25%, transparent)',
             }}
         >
             <LockIcon size={14} />
@@ -118,7 +110,7 @@ function SkeletonRow({ i = 0 }) {
         <div style={{
             display: 'grid', gridTemplateColumns: '28px 1fr 90px 1fr',
             gap: 8, padding: '12px', alignItems: 'center',
-            borderBottom: '1px solid rgba(39,39,42,0.5)',
+            borderBottom: '1px solid var(--subtle)',
         }}>
             <Bar w={20} h={20} r={4} />
             <Bar w={BAR_WIDTHS[i % BAR_WIDTHS.length]} h={13} />
@@ -158,7 +150,7 @@ export function LockedSlice({ count, noun = 'items', rows = 4, variant = 'row', 
                 position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', gap: 10, textAlign: 'center', padding: 20,
             }}>
-                <div style={{ color: '#a78bfa' }}><LockIcon /></div>
+                <div style={{ color: 'var(--sys-plan)' }}><LockIcon /></div>
                 <p style={{ margin: 0, color: 'var(--bright)', fontWeight: 900, fontSize: '0.95rem' }}>
                     {count > 0 ? `${count} more ${noun} locked` : `More ${noun} locked`}
                 </p>
@@ -211,7 +203,7 @@ export function LockedPanel({
                 <div style={{
                     width: 56, height: 56, borderRadius: 14, display: 'flex', alignItems: 'center',
                     justifyContent: 'center', color: 'var(--surface)',
-                    background: 'linear-gradient(135deg, #22d3ee, #a78bfa)',
+                    background: 'var(--sys-gradient)',
                 }}>
                     <LockIcon size={26} />
                 </div>
@@ -222,7 +214,7 @@ export function LockedPanel({
                     {subtitle}
                 </p>
                 {showUsage && (
-                    <p style={{ margin: 0, color: '#facc15', fontSize: '0.8rem', fontWeight: 700 }}>
+                    <p style={{ margin: 0, color: 'var(--sys-waiting)', fontSize: '0.8rem', fontWeight: 700 }}>
                         You&apos;ve used {used}/{limit} this month. Resets {formatResetDate(resetsAt)}.
                     </p>
                 )}
@@ -254,7 +246,7 @@ export function UsageMeter({ feature }) {
             padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6,
         }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: '0.76rem', fontWeight: 700, color: spent ? '#f87171' : 'var(--accent)' }}>
+                <span style={{ fontSize: '0.76rem', fontWeight: 700, color: spent ? 'var(--sys-danger)' : 'var(--accent)' }}>
                     {used} / {limit} {noun} this month
                 </span>
                 {u.resetsAt && (
@@ -263,11 +255,15 @@ export function UsageMeter({ feature }) {
                     </span>
                 )}
             </div>
-            <div style={{ height: 6, background: 'var(--subtle)', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{
-                    width: `${pct}%`, height: '100%', borderRadius: 3,
-                    background: spent ? '#f87171' : '#22d3ee', transition: 'width 0.4s ease',
-                }} />
+            <div
+                className={`sys-progress is-thin is-toned ${spent ? 'tone-danger' : 'tone-active'}`}
+                role="progressbar"
+                aria-label={`${noun} used this month`}
+                aria-valuemin={0}
+                aria-valuemax={limit}
+                aria-valuenow={Math.min(used, limit)}
+            >
+                <span style={{ width: `${pct}%` }} />
             </div>
         </div>
     )

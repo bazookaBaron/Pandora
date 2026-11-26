@@ -5,9 +5,11 @@ import MarkdownRenderer from './MarkdownRenderer'
 import ChartBlock from './ChartBlock'
 import StatusBadge from './StatusBadge'
 import { LoadingState, ErrorState, EmptyState } from '../shared/states'
+import { EmptyArt } from '../ui'
 
 // ── Answer viewer (middle panel) ─────────────────────────────────────
-export default function AnswerViewer({ questionId, questionText, accent = '#22d3ee' }) {
+// tone = the active category tone ('active' | 'attention' | 'success').
+export default function AnswerViewer({ questionId, questionText, tone = 'active' }) {
     const { data, isLoading, error } = useInterviewAnswer(questionId)
     const scrollRef = useRef(null)
 
@@ -30,14 +32,7 @@ export default function AnswerViewer({ questionId, questionText, accent = '#22d3
 
     if (!questionId) return (
         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <EmptyState
-                icon={(
-                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#52525b" strokeWidth="1.2" style={{ opacity: 0.4 }}>
-                        <circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" />
-                    </svg>
-                )}
-                title="Select a question from the right panel to view its answer"
-            />
+            <EmptyState art="questions" tone={tone} title="Pick a question to see its answer" />
         </div>
     )
 
@@ -52,39 +47,30 @@ export default function AnswerViewer({ questionId, questionText, accent = '#22d3
     // maybeSingle() returns null when the stored question id no longer exists
     if (data === null) return (
         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <EmptyState icon="🔍" title="This question is no longer available. Pick another from the list." />
+            <EmptyState art="search" title="This question is no longer available." message="Pick another from the list." />
         </div>
     )
 
     if (data?.answer_status && data.answer_status !== 'completed') return (
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 }}>
-            <div style={{ fontSize: '2rem' }}>🔄</div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--accent)', textAlign: 'center', maxWidth: 320 }}>
-                Answer is being generated for:<br />
-                <strong style={{ color: 'var(--bright)' }}>{questionText}</strong>
-            </div>
+        <div className="iq-state" aria-live="polite">
+            <EmptyArt kind="doc" tone="waiting" size={48} />
+            <p>Answer is being generated for:<br /><strong>{questionText}</strong></p>
             <StatusBadge status={data.answer_status} />
         </div>
     )
 
     const answer = data?.answer
     if (!answer) return (
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24 }}>
-            <div style={{ fontSize: '2rem' }}>⏳</div>
-            <p style={{ color: 'var(--muted)', fontSize: '0.82rem', textAlign: 'center' }}>Answer not yet generated for this question.</p>
+        <div className="iq-state">
+            <EmptyArt kind="doc" tone="history" size={48} />
+            <p>No answer yet for this question.</p>
         </div>
     )
 
     return (
-        <div ref={scrollRef} style={{ height: '100%', overflowY: 'auto', padding: '20px 24px' }}>
+        <div ref={scrollRef} className={`iq-answer tone-${tone}`}>
             {/* Question title */}
-            <h2 style={{
-                fontSize: '0.95rem', fontWeight: 900, color: 'var(--bright)', marginBottom: 20,
-                paddingBottom: 12, borderBottom: `2px solid ${accent}`,
-                lineHeight: 1.4, letterSpacing: '-0.01em',
-            }}>
-                {questionText}
-            </h2>
+            <h2 className="iq-answer-title">{questionText}</h2>
 
             {data.chart_config && <ChartBlock config={data.chart_config} />}
 

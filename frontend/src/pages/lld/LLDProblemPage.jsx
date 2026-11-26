@@ -17,6 +17,8 @@ import { track, EVENTS } from '../../lib/analytics'
 import Navbar from '../../components/Navbar'
 import FluidCheckbox from '../../components/shared/FluidCheckbox'
 import DifficultyBadge from '../../components/shared/DifficultyBadge'
+import { Button, Tabs } from '../../components/ui'
+import { ChevronLeft, Copy, Check, Download, Play } from 'lucide-react'
 
 // Feature flag: the sandboxed code runner (▶ Run → /api/run → Piston) is not
 // deployed yet. Flip to true once the isolated Piston service is live. The whole
@@ -92,11 +94,11 @@ function FileTree({ node, depth = 0, onOpen, openFiles, activeFile }) {
                                 display: 'flex', alignItems: 'center', gap: 6,
                                 padding: `4px 8px 4px ${12 + depth * 14}px`,
                                 cursor: 'pointer', borderRadius: 4, margin: '1px 0',
-                                background: isActive ? 'rgba(244,114,182,0.12)' : 'transparent',
-                                color: isActive ? '#f472b6' : 'var(--accent)',
+                                background: isActive ? 'var(--warm-dim)' : 'transparent',
+                                color: isActive ? 'var(--warm)' : 'var(--accent)',
                                 fontSize: '0.78rem',
                                 transition: 'background 0.1s, color 0.1s',
-                                borderLeft: isActive ? '2px solid #f472b6' : '2px solid transparent',
+                                borderLeft: isActive ? '2px solid var(--warm)' : '2px solid transparent',
                             }}
                             onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = 'var(--subtle)'; e.currentTarget.style.color = 'var(--bright)' } }}
                             onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--accent)' } }}
@@ -144,36 +146,36 @@ function ConsolePanel({ run, compile, apiError, status, onClose }) {
 
     return (
         <div style={{
-            borderTop: '1px solid var(--subtle)', background: '#0a0a0c', flexShrink: 0,
+            borderTop: '1px solid var(--subtle)', background: 'var(--surface)', flexShrink: 0,
             display: 'flex', flexDirection: 'column', maxHeight: 260, minHeight: 120,
         }}>
             <div style={{
                 display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px',
                 borderBottom: '1px solid var(--panel)', background: 'var(--surface-2)', flexShrink: 0,
             }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: status === 'running' ? '#facc15' : status === 'done' ? '#4ade80' : 'var(--faint)', flexShrink: 0, transition: 'background 0.3s' }} />
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: status === 'running' ? 'var(--sys-waiting)' : status === 'done' ? 'var(--green)' : 'var(--faint)', flexShrink: 0, transition: 'background 0.3s' }} />
                 <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>Console</span>
                 {run?.code !== undefined && run.code !== 0 && (
-                    <span style={{ fontSize: '0.58rem', color: '#f87171', fontFamily: 'monospace' }}>exit {run.code}</span>
+                    <span style={{ fontSize: '0.58rem', color: 'var(--red)', fontFamily: 'monospace' }}>exit {run.code}</span>
                 )}
-                <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 4px' }}>×</button>
+                <button type="button" onClick={onClose} aria-label="Close console" style={{ background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 4px' }}>×</button>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px', fontFamily: 'monospace', fontSize: '0.75rem', lineHeight: 1.6 }}>
                 {status === 'running' && (
                     <div style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#facc15', animation: 'pulse 1s infinite' }} />
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--sys-waiting)', animation: 'pulse 1s infinite' }} />
                         Running…
                     </div>
                 )}
 
                 {/* Piston API-level error (e.g. unsupported language) */}
                 {apiError && (
-                    <pre style={{ color: '#f87171', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[API Error]{`\n`}{apiError}</pre>
+                    <pre style={{ color: 'var(--red)', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[API Error]{`\n`}{apiError}</pre>
                 )}
 
                 {/* Compile stage errors */}
                 {compile?.stderr && (
-                    <pre style={{ color: '#fb923c', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[Compile Error]{`\n`}{compile.stderr}</pre>
+                    <pre style={{ color: 'var(--sys-waiting)', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[Compile Error]{`\n`}{compile.stderr}</pre>
                 )}
                 {compile?.stdout && (
                     <pre style={{ color: 'var(--muted)', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[Compile Output]{`\n`}{compile.stdout}</pre>
@@ -181,10 +183,10 @@ function ConsolePanel({ run, compile, apiError, status, onClose }) {
 
                 {/* Runtime stage */}
                 {run?.stderr && (
-                    <pre style={{ color: '#f87171', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[Runtime Error]{`\n`}{run.stderr}</pre>
+                    <pre style={{ color: 'var(--red)', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>[Runtime Error]{`\n`}{run.stderr}</pre>
                 )}
                 {run?.stdout && (
-                    <pre style={{ color: '#4ade80', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{run.stdout}</pre>
+                    <pre style={{ color: 'var(--green)', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{run.stdout}</pre>
                 )}
 
                 {status === 'done' && !hasOutput && (
@@ -359,7 +361,7 @@ export default function LLDProblemPage() {
                 <div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}>
                     <ErrorState err={error} />
                     <p style={{ textAlign: 'center', marginTop: 12 }}>
-                        <Link to="/lld" style={{ color: '#f472b6', fontSize: '0.82rem' }}>← Back to LLD</Link>
+                        <Button to="/lld" icon={ChevronLeft}>Back to LLD</Button>
                     </p>
                 </div>
             </>
@@ -373,7 +375,7 @@ export default function LLDProblemPage() {
                 <div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}>
                     <ErrorState title="Could not load this LLD problem." err={error} />
                     <p style={{ textAlign: 'center', marginTop: 12 }}>
-                        <Link to="/lld" style={{ color: '#f472b6', fontSize: '0.82rem' }}>← Back to LLD</Link>
+                        <Button to="/lld" icon={ChevronLeft}>Back to LLD</Button>
                     </p>
                 </div>
             </>
@@ -388,8 +390,7 @@ export default function LLDProblemPage() {
                 <Navbar />
                 <div style={{ height: '100vh', paddingTop: "var(--nav-h)", display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-                        <Link to="/lld" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← LLD</Link>
-                        <span style={{ color: 'var(--subtle)', flexShrink: 0 }}>|</span>
+                        <Link to="/lld" className="pr-crumb"><ChevronLeft size={14} aria-hidden="true" />LLD</Link>
                         <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--bright)' }}>Locked problem</h2>
                     </div>
                     <div style={{ flex: 1, overflow: 'auto' }}>
@@ -409,9 +410,10 @@ export default function LLDProblemPage() {
                 <Navbar />
                 <div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}>
                     <EmptyState
-                        icon="🔍"
+                        art="code"
+                        tone="attention"
                         title="Problem not found."
-                        action={<Link to="/lld" style={{ color: '#f472b6', fontSize: '0.82rem' }}>← Back to LLD</Link>}
+                        action={<Button to="/lld" icon={ChevronLeft}>Back to LLD</Button>}
                     />
                 </div>
             </>
@@ -435,21 +437,22 @@ export default function LLDProblemPage() {
                     <span style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Approach Notes</span>
                     {notesOpen ? (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                            {notesSave === 'error' && <span role="alert" style={{ fontSize: '0.66rem', color: '#f87171' }}>Save failed</span>}
-                            <button
-                                disabled={notesSave === 'saving'}
+                            {notesSave === 'error' && <span role="alert" style={{ fontSize: '0.66rem', color: 'var(--red)' }}>Save failed</span>}
+                            <Button
+                                variant="warm"
+                                busy={notesSave === 'saving'}
+                                busyLabel="Saving…"
                                 onClick={() => {
                                     setNotesSave('saving')
                                     saveNotes(problem.id, notesText)
                                         .then(() => { setNotesSave('saved'); setNotesOpen(false) })
                                         .catch(() => setNotesSave('error'))
-                                }}
-                                style={{ fontSize: '0.68rem', padding: '3px 10px', background: '#f472b6', color: 'var(--surface)', border: 'none', borderRadius: 4, cursor: notesSave === 'saving' ? 'wait' : 'pointer', fontWeight: 900, opacity: notesSave === 'saving' ? 0.7 : 1 }}>
-                                {notesSave === 'saving' ? 'Saving…' : notesSave === 'error' ? 'Retry' : 'Save'}
-                            </button>
+                                }}>
+                                {notesSave === 'error' ? 'Retry' : 'Save'}
+                            </Button>
                         </span>
                     ) : notesSave === 'saved' ? (
-                        <span role="status" style={{ fontSize: '0.66rem', color: '#4ade80' }}>Saved</span>
+                        <span role="status" style={{ fontSize: '0.66rem', color: 'var(--green)' }}>Saved</span>
                     ) : null}
                 </div>
                 {notesOpen ? (
@@ -461,12 +464,13 @@ export default function LLDProblemPage() {
                         style={{
                             width: '100%', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6,
                             color: 'var(--bright)', font: 'inherit', fontSize: '0.8rem', padding: '8px 10px',
-                            resize: 'vertical', outline: 'none',
+                            resize: 'vertical',
                         }}
+                        aria-label="Approach notes"
                         autoFocus
                     />
                 ) : (
-                    <button onClick={() => { setNotesSave('idle'); setNotesOpen(true) }} style={{
+                    <button type="button" onClick={() => { setNotesSave('idle'); setNotesOpen(true) }} style={{
                         width: '100%', padding: '8px 12px', background: 'var(--panel)', border: '1px dashed var(--subtle)',
                         borderRadius: 6, color: 'var(--faint)', cursor: 'pointer', fontSize: '0.78rem', textAlign: 'left',
                     }}>
@@ -514,17 +518,19 @@ export default function LLDProblemPage() {
                     {codeFiles.length} files
                 </span>
                 <div style={{ flex: 1 }} />
-                <button onClick={copyFile} disabled={!activeFile} style={{
-                    padding: '3px 10px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 4, color: copyMsg === 'Copy failed' ? '#f87171' : copyMsg ? '#4ade80' : 'var(--muted)', cursor: 'pointer', fontSize: '0.68rem',
-                }}>
-                    {copyMsg || 'Copy File'}
-                </button>
-                <button onClick={downloadZip} disabled={!codeFiles.length} style={{
-                    padding: '3px 10px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 4, color: 'var(--muted)', cursor: 'pointer', fontSize: '0.68rem',
-                }}>
-                    ⬇ ZIP
-                </button>
-                {LLD_RUNNER_ENABLED && <button
+                <Button onClick={copyFile} disabled={!activeFile}
+                    variant={copyMsg === 'Copy failed' ? 'danger' : 'secondary'}
+                    icon={copyMsg && copyMsg !== 'Copy failed' ? Check : Copy}>
+                    <span aria-live="polite">{copyMsg || 'Copy'}</span>
+                </Button>
+                <Button onClick={downloadZip} disabled={!codeFiles.length} icon={Download} aria-label="Download ZIP">
+                    ZIP
+                </Button>
+                {LLD_RUNNER_ENABLED && <Button
+                    variant="primary"
+                    icon={Play}
+                    busy={runStatus === 'running'}
+                    busyLabel="Running…"
                     onClick={async () => {
                         if (!codeFiles.length || runStatus === 'running') return
                         setRunStatus('running')
@@ -614,17 +620,10 @@ export default function LLDProblemPage() {
                             setRunStatus('done')
                         }
                     }}
-                    disabled={!codeFiles.length || runStatus === 'running'}
-                    style={{
-                        padding: '3px 12px', background: runStatus === 'running' ? 'rgba(74,222,128,0.08)' : 'rgba(74,222,128,0.15)',
-                        border: '1px solid rgba(74,222,128,0.4)', borderRadius: 4,
-                        color: runStatus === 'running' ? '#86efac' : '#4ade80',
-                        cursor: runStatus === 'running' ? 'wait' : 'pointer', fontSize: '0.68rem', fontWeight: 900,
-                        transition: 'all 0.15s',
-                    }}
+                    disabled={!codeFiles.length}
                 >
-                    {runStatus === 'running' ? '⏳ Running…' : '▶ Run'}
-                </button>}
+                    Run
+                </Button>}
             </div>
 
             {/* File tabs */}
@@ -637,14 +636,14 @@ export default function LLDProblemPage() {
                             <div key={f.id} onClick={() => setActiveFile(f)} style={{
                                 display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
                                 cursor: 'pointer', flexShrink: 0, borderRight: '1px solid var(--subtle)',
-                                background: isActive ? '#1e1e1e' : 'transparent',
-                                borderBottom: isActive ? '2px solid #f472b6' : '2px solid transparent',
+                                background: isActive ? 'var(--panel)' : 'transparent',
+                                borderBottom: isActive ? '2px solid var(--warm)' : '2px solid transparent',
                                 color: isActive ? 'var(--bright)' : 'var(--muted)', fontSize: '0.75rem',
                                 transition: 'color 0.15s',
                             }}>
                                 <span style={{ flexShrink: 0 }}>{iconOf(fname)}</span>
                                 <span style={{ whiteSpace: 'nowrap' }}>{fname}</span>
-                                <button onClick={(e) => { e.stopPropagation(); closeFile(f.id) }}
+                                <button type="button" aria-label={`Close ${fname}`} onClick={(e) => { e.stopPropagation(); closeFile(f.id) }}
                                     style={{ background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1, marginLeft: 2 }}>
                                     ×
                                 </button>
@@ -666,19 +665,16 @@ export default function LLDProblemPage() {
                     background: 'var(--surface-2)', flexShrink: 0,
                 }}>
                     {isMobile && (
-                        <button onClick={() => setTreeOpen(o => !o)} style={{
-                            width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px',
+                        <button type="button" aria-expanded={treeOpen} onClick={() => setTreeOpen(o => !o)} style={{
+                            width: '100%', minHeight: 40, display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px',
                             border: 'none', color: 'var(--accent)', cursor: 'pointer',
                             fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em',
                             position: 'sticky', top: 0, background: 'var(--surface-2)',
                         }}>
                             <span style={{ fontSize: '0.6rem' }}>{treeOpen ? '▼' : '▶'}</span>
                             <span style={{ flexShrink: 0 }}>📁 Files ({codeFiles.length})</span>
-                            {!treeOpen && (
-                                <span style={{ flexShrink: 0, color: 'var(--faint)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· tap to browse</span>
-                            )}
                             {activeFile && (
-                                <span style={{ marginLeft: 'auto', minWidth: 0, color: '#f472b6', fontWeight: 700, textTransform: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '42%' }}>
+                                <span style={{ marginLeft: 'auto', minWidth: 0, color: 'var(--warm)', fontWeight: 700, textTransform: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '42%' }}>
                                     {(activeFile.filepath || activeFile.filename || '').split('/').pop()}
                                 </span>
                             )}
@@ -769,8 +765,7 @@ export default function LLDProblemPage() {
             <div style={{ height: '100vh', paddingTop: "var(--nav-h)", display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {/* Problem header bar */}
                 <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexWrap: 'wrap', flexShrink: 0 }}>
-                    <Link to="/lld" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← LLD</Link>
-                    <span style={{ color: 'var(--subtle)', flexShrink: 0 }}>|</span>
+                    <Link to="/lld" className="pr-crumb"><ChevronLeft size={14} aria-hidden="true" />LLD</Link>
                     <h2 style={{ fontSize: isMobile ? '0.85rem' : '0.95rem', fontWeight: 900, color: 'var(--bright)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{problem.title}</h2>
                     {problem.difficulty && <DifficultyBadge difficulty={problem.difficulty} />}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -783,24 +778,16 @@ export default function LLDProblemPage() {
                                 toggleStatus(problem.id, prog?.status ?? 'unsolved')
                             }}
                         />
-                        <span style={{ fontSize: '0.68rem', color: isSolved ? '#f472b6' : 'var(--muted)', fontWeight: 700 }}>
+                        <span style={{ fontSize: '0.68rem', color: isSolved ? 'var(--warm)' : 'var(--muted)', fontWeight: 700 }}>
                             {isSolved ? 'Practiced' : (isMobile ? 'Mark' : 'Mark practiced')}
                         </span>
                     </div>
 
                     {/* Mobile tabs — own full-width row */}
                     {isMobile && (
-                        <div style={{ display: 'flex', gap: 4, width: '100%', marginTop: 2 }}>
-                            {mobileTabs.map(t => (
-                                <button key={t} onClick={() => setMobileTab(t)} style={{
-                                    flex: 1, padding: '5px 6px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: '0.62rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.02em', whiteSpace: 'nowrap',
-                                    background: activeMobileTab === t ? '#f472b6' : 'var(--subtle)',
-                                    color: activeMobileTab === t ? 'var(--surface)' : 'var(--muted)',
-                                }}>
-                                    {MOBILE_TAB_LABEL[t] || t}
-                                </button>
-                            ))}
-                        </div>
+                        <Tabs idPrefix="lld" label="Problem panes" value={activeMobileTab} onChange={setMobileTab} block
+                            items={mobileTabs.map(t => ({ value: t, label: MOBILE_TAB_LABEL[t] || t }))}
+                            style={{ width: '100%' }} />
                     )}
                 </div>
 
@@ -837,7 +824,7 @@ export default function LLDProblemPage() {
                     </Group>
                 ) : (
                     // Mobile: tab view
-                    <div style={{ flex: 1, overflow: 'hidden' }}>
+                    <div role="tabpanel" id={`lld-panel-${activeMobileTab}`} aria-labelledby={`lld-tab-${activeMobileTab}`} style={{ flex: 1, overflow: 'hidden' }}>
                         {activeMobileTab === 'requirements' && <div style={{ height: '100%', overflow: 'auto', background: 'var(--surface-2)' }}>{RequirementsPane}</div>}
                         {activeMobileTab === 'diagram' && hasDiagram && <div style={{ height: '100%', overflow: 'hidden', background: 'var(--surface-2)' }}>{DiagramPane}</div>}
                         {activeMobileTab === 'code' && <div style={{ height: '100%', overflow: 'hidden' }}>{CodePane}</div>}

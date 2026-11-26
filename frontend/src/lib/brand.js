@@ -35,3 +35,19 @@ export const VLOOMBOX_FEATURES = [
     ['Jobs board', 'Fresh tech openings aggregated from ~500 companies, refreshed through the day.'],
     ['Referral board', 'Request a referral for a target company, or give one when people target yours.'],
 ]
+
+// ── Plan colours ────────────────────────────────────────────────────
+// ONE plan colour map for Pricing, Profile and PaywallGate. Values are CSS
+// variables from styles/system.css, so they re-theme in light mode.
+//   tone  -> a .tone-* class name suffix (className={`tone-${PLAN_TONE.pro.tone}`})
+//   color / dim -> for inline styles (style={{ color: PLAN_TONE.pro.color }})
+export const PLAN_TONE = {
+    free: { tone: 'history', color: 'var(--sys-history)', dim: 'var(--sys-history-dim)' },
+    pro: { tone: 'plan', color: 'var(--sys-plan)', dim: 'var(--sys-plan-dim)' },
+    max: { tone: 'active', color: 'var(--sys-active)', dim: 'var(--sys-active-dim)' },
+}
+/** PLAN_TONE entry for a plan id; unknown ids get the free (muted) tone. */
+export const planTone = (id) => PLAN_TONE[String(id || '').toLowerCase()] || PLAN_TONE.free
+
+// The brand gradient (pop -> plan violet) used by upgrade CTAs and lock badges.
+export const BRAND_GRADIENT = 'var(--sys-gradient)'

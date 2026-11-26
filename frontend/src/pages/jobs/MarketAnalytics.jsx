@@ -1,67 +1,64 @@
 import { useState } from 'react'
+import { BarChart3, Briefcase, Building2, Layers, Sparkles, TrendingUp, Trophy, Users } from 'lucide-react'
 import { useMarketAnalytics } from '../../lib/useJobs'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
+import { SectionHead, Segmented, StackBar, StatTile, StatTiles } from '../../components/ui'
+import { num } from '../../lib/format'
 
 // Jobs -> Analytics: every number comes from our own crawler pool
-// (server: /api/market/analytics). Plain CSS/SVG, light-first via theme vars.
-const COUNTRIES = [['IN', 'India'], ['US', 'USA']]
+// (server: /api/market/analytics). Plain CSS/SVG, theme tokens only.
+const COUNTRIES = [{ value: 'IN', label: 'India' }, { value: 'US', label: 'USA' }]
 const SEN_LABEL = { intern: 'Intern', junior: 'Junior', mid: 'Mid', senior: 'Senior', staff: 'Staff', principal: 'Principal', unknown: 'Not stated' }
 const SEN_ORDER = ['intern', 'junior', 'mid', 'senior', 'staff', 'principal', 'unknown']
 const TYPE_LABEL = { product: 'Product', service: 'Service', startup: 'Startup', unknown: 'Other' }
 
-const fmt = (n) => (Number.isFinite(n) ? n.toLocaleString() : '—')
-const card = { background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 10, padding: '14px 16px', minWidth: 0 }
-const h2 = { fontSize: '0.86rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.01em', margin: '0 0 10px' }
+const fmt = (n) => (Number.isFinite(n) ? num(n) : '—')
 
-function Stat({ label, value }) {
+function Card({ icon, title, tone = 'history', children }) {
     return (
-        <div style={{ ...card, padding: '12px 14px' }}>
-            <div style={{ fontSize: '1.45rem', fontWeight: 900, color: 'var(--bright)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-            <div style={{ fontSize: '0.66rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>{label}</div>
+        <div className="sys-card mkt-card">
+            <SectionHead as="h3" icon={icon} title={title} tone={tone} />
+            {children}
         </div>
     )
 }
 
-function Bars({ title, rows }) {
+function Bars({ icon, title, rows, tone }) {
     const max = Math.max(1, ...rows.map((r) => r.value))
     return (
-        <div style={card}>
-            <h2 style={h2}>{title}</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+        <Card icon={icon} title={title} tone={tone}>
+            <div className={`mkt-bars tone-${tone}`}>
                 {rows.map((r) => (
-                    <div key={r.label} style={{ display: 'grid', gridTemplateColumns: 'minmax(80px, 36%) 1fr auto', alignItems: 'center', gap: 8, fontSize: '0.72rem' }}>
-                        <span style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.label}>{r.label}</span>
-                        <span style={{ background: 'var(--subtle)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
-                            <span style={{ display: 'block', height: '100%', width: `${Math.max(2, (r.value / max) * 100)}%`, background: 'var(--accent)', borderRadius: 4 }} />
+                    <div key={r.label} className="mkt-bar-row">
+                        <span className="mkt-bar-label" title={r.label}>{r.label}</span>
+                        <span className="mkt-bar-track">
+                            <span style={{ width: `${Math.max(2, (r.value / max) * 100)}%` }} />
                         </span>
-                        <span style={{ color: 'var(--bright)', fontWeight: 700, fontVariantNumeric: 'tabular-nums', minWidth: 40, textAlign: 'right' }}>{fmt(r.value)}</span>
+                        <span className="mkt-bar-value">{fmt(r.value)}</span>
                     </div>
                 ))}
             </div>
-        </div>
+        </Card>
     )
 }
 
-// Two-segment split bar (tech vs product, India vs USA).
-function Split({ title, parts, note }) {
+// Two-part split bar (tech vs product, India vs USA).
+function Split({ icon, title, parts, note }) {
     const total = parts.reduce((a, p) => a + p.value, 0)
     if (!total) return null
     return (
-        <div style={card}>
-            <h2 style={h2}>{title}</h2>
-            <div style={{ display: 'flex', height: 12, borderRadius: 6, overflow: 'hidden', background: 'var(--subtle)' }} role="img"
-                aria-label={parts.map((p) => `${p.label} ${Math.round((p.value / total) * 100)}%`).join(', ')}>
+        <Card icon={icon} title={title} tone="active">
+            <StackBar total={total} segments={parts.map((p, i) => ({ key: p.label, label: p.label, value: p.value, tone: i === 0 ? 'active' : 'plan' }))}
+                label={parts.map((p) => `${p.label} ${Math.round((p.value / total) * 100)}%`).join(', ')} />
+            <div className="mkt-split-legend">
                 {parts.map((p, i) => (
-                    <span key={p.label} style={{ width: `${(p.value / total) * 100}%`, background: i === 0 ? 'var(--accent)' : 'var(--muted)' }} />
+                    <span key={p.label} className={`tone-${i === 0 ? 'active' : 'plan'}`}>
+                        <b className="tone-text">{Math.round((p.value / total) * 100)}%</b> {p.label} · {fmt(p.value)}
+                    </span>
                 ))}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: '0.72rem', marginTop: 8, color: 'var(--muted)' }}>
-                {parts.map((p) => (
-                    <span key={p.label}><b style={{ color: 'var(--bright)' }}>{Math.round((p.value / total) * 100)}%</b> {p.label} · {fmt(p.value)}</span>
-                ))}
-            </div>
-            {note && <div style={{ fontSize: '0.66rem', color: 'var(--faint)', marginTop: 6 }}>{note}</div>}
-        </div>
+            {note && <div className="mkt-note">{note}</div>}
+        </Card>
     )
 }
 
@@ -73,17 +70,16 @@ function Trend({ points }) {
     const y = (v) => H - P - ((v - lo) / span) * (H - 2 * P)
     const d = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.open).toFixed(1)}`).join(' ')
     return (
-        <div style={card}>
-            <h2 style={h2}>Open jobs, last {points.length} days</h2>
+        <Card icon={TrendingUp} title={`Open jobs, last ${points.length} days`} tone="active">
             <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="90" preserveAspectRatio="none" role="img"
                 aria-label={`Open jobs from ${fmt(vals[0])} to ${fmt(vals[vals.length - 1])}`}>
-                <path d={d} fill="none" stroke="var(--accent)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+                <path d={d} fill="none" stroke="var(--sys-active)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
             </svg>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.66rem', color: 'var(--faint)', marginTop: 4 }}>
+            <div className="mkt-trend-foot">
                 <span>{points[0].date} · {fmt(vals[0])}</span>
                 <span>{points[points.length - 1].date} · {fmt(vals[vals.length - 1])}</span>
             </div>
-        </div>
+        </Card>
     )
 }
 
@@ -91,14 +87,7 @@ export default function MarketAnalytics() {
     const [country, setCountry] = useState('IN')
     const { data, isLoading, error, refetch } = useMarketAnalytics(country)
 
-    const toggle = (
-        <div className="profile-segment" role="group" aria-label="Country" style={{ maxWidth: 220 }}>
-            {COUNTRIES.map(([k, label]) => (
-                <button key={k} type="button" className={'profile-segment-btn' + (country === k ? ' is-active' : '')}
-                    aria-pressed={country === k} onClick={() => setCountry(k)}>{label}</button>
-            ))}
-        </div>
-    )
+    const toggle = <Segmented label="Country" value={country} onChange={setCountry} options={COUNTRIES} />
 
     if (isLoading) return <LoadingState label="Loading market data…" />
     if (error) return <ErrorState err={error} onRetry={refetch} />
@@ -106,7 +95,7 @@ export default function MarketAnalytics() {
         return (
             <>
                 {toggle}
-                <EmptyState title="Analytics are warming up" message="Market numbers appear after the next crawler pass." />
+                <EmptyState art="stats" title="Analytics are warming up" message="Market numbers appear after the next crawler pass." />
             </>
         )
     }
@@ -124,48 +113,48 @@ export default function MarketAnalytics() {
     const types = (data.companyTypes || []).filter((t) => t.count > 0)
     const typeTotal = types.reduce((a, t) => a + t.count, 0)
     const trend = (data.trend || []).filter((p) => Number.isFinite(p.open))
+    const countryLabel = COUNTRIES.find((c) => c.value === country).label
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="mkt">
             {toggle}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-                <Stat label="Open jobs now" value={fmt(data.openNow)} />
-                <Stat label="New in last 24h" value={fmt(data.new24h)} />
-                <Stat label="Companies hiring" value={fmt(data.companies)} />
-            </div>
+            <StatTiles cols={3}>
+                <StatTile icon={Briefcase} label="Open jobs" value={data.openNow} tone="active" />
+                <StatTile icon={Sparkles} label="New 24h" value={data.new24h} tone="success" />
+                <StatTile icon={Building2} label="Companies" value={data.companies} tone="plan" />
+            </StatTiles>
 
             {trend.length >= 2 && <Trend points={trend} />}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-                <Split title={`Tech vs product (${COUNTRIES.find(([k]) => k === country)[1]})`} parts={roleParts} />
-                <Split title="India vs USA (whole pool)" parts={countryParts} />
+            <div className="mkt-grid">
+                <Split icon={Layers} title={`Tech vs product (${countryLabel})`} parts={roleParts} />
+                <Split icon={Users} title="India vs USA (whole pool)" parts={countryParts} />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-                <Bars title="Role categories" rows={fam} />
-                <Bars title="Experience level" rows={sen} />
+            <div className="mkt-grid">
+                <Bars icon={BarChart3} title="Role categories" rows={fam} tone="active" />
+                <Bars icon={Users} title="Experience level" rows={sen} tone="plan" />
             </div>
 
-            <div style={card}>
-                <h2 style={h2}>Top hiring companies</h2>
-                <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '6px 20px' }}>
+            <Card icon={Trophy} title="Top hiring companies" tone="attention">
+                <ol className="mkt-top">
                     {(data.topCompanies || []).map((c, i) => (
-                        <li key={c.name} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: '0.74rem', minWidth: 0 }}>
-                            <span style={{ color: 'var(--faint)', width: 16, textAlign: 'right' }}>{i + 1}</span>
-                            <span style={{ color: 'var(--bright)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{c.name}</span>
-                            <span style={{ color: 'var(--faint)', fontSize: '0.66rem' }}>{TYPE_LABEL[c.type] || ''}</span>
-                            <span style={{ color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{fmt(c.count)}</span>
+                        <li key={c.name}>
+                            <span className="mkt-top-rank">{i + 1}</span>
+                            <span className="mkt-top-name">{c.name}</span>
+                            <span className="mkt-top-type">{TYPE_LABEL[c.type] || ''}</span>
+                            <span className="mkt-top-count">{fmt(c.count)}</span>
                         </li>
                     ))}
                 </ol>
                 {typeTotal > 0 && (
-                    <div style={{ marginTop: 12, fontSize: '0.7rem', color: 'var(--muted)' }}>
+                    <div className="mkt-types">
                         {types.map((t) => `${TYPE_LABEL[t.label] || t.label} ${Math.round((t.count / typeTotal) * 100)}%`).join(' · ')}
                     </div>
                 )}
-            </div>
+            </Card>
 
-            <p style={{ fontSize: '0.66rem', color: 'var(--faint)', margin: 0 }}>
+            <p className="mkt-foot">
                 Based on {fmt(data.openNow)} tech and product jobs posted in the last {days} days from {fmt(data.companies)} company career sites + LinkedIn.
             </p>
         </div>

@@ -55,7 +55,7 @@ function CompanyAutocomplete({ value, onChange, placeholder = 'Start typing a co
                             onMouseDown={(e) => { e.preventDefault(); onChange(c); setOpen(false) }}
                             style={{
                                 padding: '7px 12px', cursor: 'pointer', fontSize: '0.82rem',
-                                color: 'var(--accent)', borderBottom: '1px solid rgba(39,39,42,0.5)',
+                                color: 'var(--accent)', borderBottom: '1px solid var(--subtle)',
                             }}
                             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--subtle)'; e.currentTarget.style.color = 'var(--bright)' }}
                             onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--accent)' }}
@@ -78,10 +78,10 @@ function PwStrengthBar({ password }) {
 
     const levels = [
         { pct: '0%', color: 'transparent', text: '' },
-        { pct: '25%', color: '#f87171', text: 'Weak' },
-        { pct: '50%', color: '#fb923c', text: 'Fair' },
-        { pct: '75%', color: '#facc15', text: 'Good' },
-        { pct: '100%', color: '#4ade80', text: 'Strong' },
+        { pct: '25%', color: 'var(--sys-danger)', text: 'Weak' },
+        { pct: '50%', color: 'var(--sys-attention)', text: 'Fair' },
+        { pct: '75%', color: 'var(--sys-waiting)', text: 'Good' },
+        { pct: '100%', color: 'var(--sys-success)', text: 'Strong' },
     ]
     const level = levels[score]
 

@@ -50,7 +50,7 @@ export default function MermaidBlock({ code }) {
     }, [code, renderId])
 
     if (error) return (
-        <pre style={{ color: '#f87171', fontSize: '0.75rem', padding: 8, background: '#1a0a0a', borderRadius: 4, overflow: 'auto' }}>
+        <pre style={{ color: 'var(--red)', fontSize: '0.75rem', padding: 8, background: 'var(--red-bg)', borderRadius: 4, overflow: 'auto' }}>
             [Mermaid error] {error}
         </pre>
     )

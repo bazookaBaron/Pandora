@@ -1,0 +1,194 @@
+/* ── Jobs + Referrals pages (WS-A). Tokens only; colour comes from .tone-* (styles/system.css). ── */
+
+/* ── Job rows (pages/jobs/JobCard.jsx) ──
+   One compact row: title (+ NEW / REPOSTED tag), one faint meta line, bell + Apply on the right.
+   Left border = work type tone (remote success, hybrid active, onsite history). */
+.job-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; transition: opacity .15s; }
+.job-list.is-fetching { opacity: 0.6; }
+.job-card {
+    display: flex; align-items: center; gap: 10px; min-height: 40px; min-width: 0; max-width: 100%; overflow: hidden;
+    padding: 7px 10px 7px 12px; background: var(--panel); border: 1px solid var(--subtle);
+    border-left: 3px solid var(--tone, var(--subtle)); border-radius: 8px;
+    transition: border-color var(--transition), background var(--transition);
+}
+.job-card:hover {
+    border-color: var(--subtle-strong);
+    border-left-color: var(--tone, var(--subtle-strong));
+    background: var(--surface-2);
+}
+.job-main { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+.job-line { display: flex; align-items: baseline; gap: 7px; min-width: 0; overflow: hidden; }
+.job-title {
+    flex: 0 1 auto; min-width: 0; display: block; font-weight: 750; font-size: 0.85rem; color: var(--bright);
+    letter-spacing: -0.01em; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.job-title:hover { color: var(--pop); }
+.job-title:focus-visible { outline: 2px solid var(--pop); outline-offset: 2px; border-radius: 2px; }
+.job-tag { flex-shrink: 0; font-size: 0.55rem; font-weight: 900; letter-spacing: 0.09em; color: var(--tone); }
+.job-co-inline { display: none; }
+.job-meta {
+    margin-top: 2px; font-size: 0.72rem; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.job-meta .job-co { color: var(--accent); font-weight: 600; }
+.job-meta .job-sep { opacity: 0.4; }
+.job-actions { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.job-card .job-apply {
+    transition: color var(--transition), border-color var(--transition), background var(--transition);
+    color: var(--pop);
+}
+.job-card:hover .job-apply {
+    border-color: var(--pop);
+    background: var(--pop-dim);
+}
+.job-alt { font-size: 0.62rem; color: var(--muted); text-decoration: none; white-space: nowrap; }
+.job-alt:hover { color: var(--accent); }
+
+/* Subscribe bell (pages/jobs/SubscribeBell.jsx): an icon button, plan tone once subscribed */
+.job-bell { flex-shrink: 0; color: var(--muted); }
+.job-bell.is-on { color: var(--sys-plan); background: var(--sys-plan-dim); border-color: color-mix(in srgb, var(--sys-plan) 40%, transparent); }
+.job-bell-slot { flex-shrink: 0; width: 32px; height: 32px; }
+
+/* Phones: ONE line per row: title (ellipsis) + company, icon-only actions. */
+@media (max-width: 480px) {
+    .job-card { padding: 4px 4px 4px 10px; gap: 4px; }
+    .job-meta, .job-alt, .job-tag.is-reposted { display: none; }
+    .job-co-inline {
+        display: block; flex: 0 1 auto; min-width: 0; max-width: 40%; font-size: 0.72rem; color: var(--muted);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .job-tag.is-new { width: 6px; height: 6px; border-radius: 50%; background: var(--tone); font-size: 0; align-self: center; }
+    .job-apply .job-apply-word { display: none; }
+    .job-card .job-apply { width: 40px; height: 40px; min-height: 40px; padding: 0; justify-content: center; }
+    .job-bell-slot { width: 40px; height: 40px; }
+}
+@media (max-width: 640px) {
+    .job-bell { width: 40px; height: 40px; }
+}
+
+/* ── Jobs filter bar (pages/jobs/JobsPage.jsx) ── */
+.jobs-filters { flex-direction: column; align-items: stretch; gap: 10px; margin-bottom: 16px; }
+.jobs-filters-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; min-width: 0; }
+.jobs-filters-more { padding-top: 10px; border-top: 1px solid var(--border); }
+.jobs-filters .sys-select { flex: 0 1 150px; min-width: 0; }
+.jobs-filters-toggle { display: none; }
+.jobs-fc { position: relative; min-width: 0; }
+.jobs-fc-q { flex: 1 1 220px; }
+.jobs-fc-company { flex: 0 1 160px; }
+.jobs-fc-loc { flex: 1 1 200px; }
+.jobs-fc .input-field { width: 100%; min-width: 0; min-height: 40px; padding-top: 8px; padding-bottom: 8px; }
+.jobs-fc.has-text .input-field { padding-right: 34px; }
+.jobs-fc-clear {
+    position: absolute; right: 4px; bottom: 4px; width: 32px; height: 32px; display: inline-grid; place-items: center;
+    background: none; border: 0; border-radius: var(--radius); color: var(--muted); cursor: pointer;
+}
+.jobs-fc-clear:hover { color: var(--bright); background: var(--surface-2); }
+.jobs-fc .sys-chips { margin-bottom: 4px; gap: 4px; }
+.jobs-fc .sys-ac-list { max-height: 240px; }
+.jobs-more { margin-top: 14px; font-size: 0.74rem; color: var(--muted); }
+.jobs-updating { font-size: 0.7rem; color: var(--faint); font-weight: 400; }
+
+@media (max-width: 640px) {
+    .jobs-fc-q, .jobs-fc-company, .jobs-fc-loc { flex: 1 1 100%; }
+    .jobs-filters-toggle { display: inline-flex; align-self: flex-start; }
+    .jobs-filters-more { display: none; }
+    .jobs-filters.is-open .jobs-filters-more { display: flex; }
+    .jobs-filters-more .sys-segmented { width: 100%; display: flex; }
+    .jobs-filters-more .sys-segmented button { flex: 1 1 0; min-width: 0; padding: 0 6px; }
+    .jobs-filters .sys-select { flex: 1 1 calc(50% - 5px); }
+}
+
+/* ── Market analytics (pages/jobs/MarketAnalytics.jsx) ── */
+.mkt { display: flex; flex-direction: column; gap: 12px; }
+.mkt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.mkt-card { padding: 14px 16px; border-radius: 10px; }
+.mkt-card .sys-sec-head { margin-bottom: 10px; }
+.mkt-bars { display: flex; flex-direction: column; gap: 7px; }
+.mkt-bar-row { display: grid; grid-template-columns: minmax(80px, 36%) 1fr auto; align-items: center; gap: 8px; font-size: 0.72rem; }
+.mkt-bar-label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mkt-bar-track { background: var(--subtle); border-radius: 4px; height: 8px; overflow: hidden; }
+.mkt-bar-track > span { display: block; height: 100%; background: var(--tone, var(--accent)); border-radius: 4px; }
+.mkt-bar-value { color: var(--bright); font-weight: 700; font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+.mkt-trend-foot { display: flex; justify-content: space-between; font-size: 0.66rem; color: var(--faint); margin-top: 4px; }
+.mkt-note { font-size: 0.66rem; color: var(--faint); margin-top: 6px; }
+.mkt-types { margin-top: 12px; font-size: 0.7rem; color: var(--muted); }
+.mkt-top { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 20px; }
+.mkt-top li { display: flex; align-items: baseline; gap: 8px; font-size: 0.74rem; min-width: 0; }
+.mkt-top-rank { color: var(--faint); width: 16px; text-align: right; flex: none; }
+.mkt-top-name { color: var(--bright); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.mkt-top-type { color: var(--faint); font-size: 0.66rem; }
+.mkt-top-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.mkt-foot { font-size: 0.66rem; color: var(--faint); margin: 0; }
+@media (max-width: 480px) { .mkt-top-type { display: none; } }
+
+/* ── Company jobs hub (pages/jobs/JobsCompanyPage.jsx) ── */
+.jobs-co-head { border-bottom: 1px solid var(--subtle); background: var(--surface-2); }
+.jobs-co-wrap { max-width: 1200px; margin: 0 auto; padding: 20px 16px; }
+.jobs-co-back { font-size: 0.72rem; color: var(--muted); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; margin-bottom: 8px; min-height: 32px; }
+.jobs-co-back:hover { color: var(--bright); }
+.jobs-co-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: space-between; }
+.jobs-co-id { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.jobs-co-logo {
+    width: 44px; height: 44px; border-radius: 10px; background: var(--pop-dim); border: 1px solid color-mix(in srgb, var(--pop) 30%, transparent);
+    display: flex; align-items: center; justify-content: center; font-size: 1.1rem; font-weight: 900; color: var(--pop); flex-shrink: 0;
+}
+.jobs-co-sub { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.jobs-co-sub-row { display: flex; align-items: center; gap: 10px; }
+.jobs-co-sub-hint { color: var(--muted); font-size: 0.72rem; max-width: 200px; }
+.jobs-co-err { color: var(--sys-danger); font-size: 0.68rem; max-width: 220px; text-align: right; }
+.jobs-co-note { color: var(--faint); font-size: 0.7rem; margin: 10px 0 0; }
+@media (max-width: 480px) {
+    .jobs-co-sub { align-items: stretch; width: 100%; }
+    .jobs-co-sub-hint { display: none; }
+}
+
+/* ── Referrals (pages/referrals/*) ── */
+.ref-list { display: grid; gap: 8px; }
+.ref-stack { display: flex; flex-direction: column; gap: 14px; }
+.ref-card {
+    background: var(--panel); border: 1px solid var(--subtle); border-left: 3px solid var(--tone, var(--subtle));
+    border-radius: 10px; padding: 9px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0;
+}
+.ref-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ref-title {
+    flex: 0 1 auto; min-width: 0; font-weight: 900; font-size: 0.86rem; color: var(--bright); letter-spacing: -0.01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ref-head .sys-chips { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+.ref-head-end { margin-left: auto; flex-shrink: 0; display: flex; gap: 6px; align-items: center; }
+.ref-chip-label { color: var(--muted); font-weight: 600; }
+.ref-time { font-size: 0.66rem; color: var(--faint); }
+.ref-err { font-size: 0.72rem; color: var(--sys-danger); }
+.ref-contact a { color: var(--pop); overflow-wrap: anywhere; }
+.ref-contact strong { color: var(--bright); }
+.ref-quota { background: var(--panel); border: 1px solid var(--subtle); border-radius: 8px; padding: 10px 14px; }
+.ref-quota-text { font-size: 0.76rem; color: var(--accent); font-weight: 700; }
+.ref-quota-text span { color: var(--muted); font-weight: 400; }
+.ref-drop {
+    border: 2px dashed var(--subtle); border-radius: 8px; padding: 18px 16px; text-align: center; cursor: pointer;
+    transition: border-color var(--transition), background var(--transition); background: transparent; width: 100%;
+    font: inherit; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.ref-drop:hover { border-color: var(--subtle-strong); }
+.ref-drop:focus-visible { outline: 2px solid var(--pop); outline-offset: 2px; }
+.ref-drop-hint { color: var(--faint); font-size: 0.72rem; }
+.ref-file { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 4px 4px 12px; border: 1px solid color-mix(in srgb, var(--pop) 40%, transparent); background: var(--pop-dim); border-radius: 8px; color: var(--pop); font-size: 0.82rem; font-weight: 700; }
+.ref-file > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref-verify { margin-bottom: 14px; display: flex; flex-direction: column; gap: 8px; }
+.ref-verify-row { display: flex; gap: 8px; align-items: flex-start; }
+.ref-verify-row > span { flex: 1; min-width: 0; }
+.ref-verify-row strong { color: var(--bright); }
+.ref-verify form { display: flex; gap: 8px; flex-wrap: wrap; }
+.ref-verify form .input-field { flex: 1; min-width: 160px; }
+.ref-signedout { max-width: 460px; margin: 8px auto 0; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.ref-signedout p { margin: 0; }
+.ref-signedout .lead { color: var(--accent); font-size: 0.85rem; line-height: 1.6; }
+.ref-signedout .note { color: var(--muted); font-size: 0.78rem; }
+.ref-optional { color: var(--faint); font-weight: 400; }
+
+/* Phones: one line per card head: title + at most one chip; time line stays. */
+@media (max-width: 480px) {
+    .ref-card { padding: 8px 10px; }
+    .ref-head .sys-chips > :not(:first-child) { display: none; }
+    .ref-head .sys-chips { flex: 0 1 auto; max-width: 45%; }
+}

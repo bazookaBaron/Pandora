@@ -17,6 +17,9 @@ import { LockedPanel } from '../../components/shared/PaywallGate'
 import { LoadingState, ErrorState, EmptyState, LimitReached } from '../../components/shared/states'
 import { track, EVENTS } from '../../lib/analytics'
 import Navbar from '../../components/Navbar'
+import DifficultyBadge from '../../components/shared/DifficultyBadge'
+import { Button, Tabs, EmptyArt } from '../../components/ui'
+import { ChevronLeft, Scale, RotateCcw, Plus, X, Trash2, ThumbsUp, Wrench } from 'lucide-react'
 
 // ── Node palette config ──────────────────────────────────────────────
 const NODE_TYPES_CONFIG = [
@@ -182,14 +185,14 @@ const nextId = () => `n${++nodeId}`
 function ScoreRing({ score }) {
     const r = 38, circ = 2 * Math.PI * r
     const offset = circ * (1 - score / 100)
-    const color = score >= 70 ? '#4ade80' : score >= 40 ? '#facc15' : '#f87171'
+    const color = score >= 70 ? 'var(--sys-success)' : score >= 40 ? 'var(--sys-waiting)' : 'var(--sys-danger)'
     return (
         <div style={{ position: 'relative', width: 90, height: 90, flexShrink: 0 }}>
             <svg width="90" height="90" viewBox="0 0 90 90" style={{ transform: 'rotate(-90deg)' }}>
-                <circle cx="45" cy="45" r={r} fill="none" stroke="#27272a" strokeWidth="6" />
-                <circle cx="45" cy="45" r={r} fill="none" stroke={color} strokeWidth="6"
+                <circle cx="45" cy="45" r={r} fill="none" style={{ stroke: 'var(--subtle)' }} strokeWidth="6" />
+                <circle cx="45" cy="45" r={r} fill="none" strokeWidth="6"
                     strokeDasharray={circ} strokeDashoffset={offset}
-                    style={{ transition: 'stroke-dashoffset 1s ease' }} />
+                    style={{ stroke: color, transition: 'stroke-dashoffset 1s ease' }} />
             </svg>
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                 <span style={{ fontSize: '1.1rem', fontWeight: 900, color }}>{score}</span>
@@ -202,7 +205,7 @@ function ScoreRing({ score }) {
 // ── API Endpoint Designer ─────────────────────────────────────────────
 function ApiEndpointDesigner({ endpoints, onChange }) {
     const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
-    const METHOD_COLORS = { GET: '#4ade80', POST: '#22d3ee', PUT: '#facc15', PATCH: '#fb923c', DELETE: '#f87171' }
+    const METHOD_COLORS = { GET: 'var(--sys-success)', POST: 'var(--sys-active)', PUT: 'var(--sys-waiting)', PATCH: 'var(--sys-attention)', DELETE: 'var(--sys-danger)' }
     const addRow = () => onChange([...endpoints, { method: 'GET', path: '', description: '' }])
     const update = (i, field, value) => { const next = [...endpoints]; next[i] = { ...next[i], [field]: value }; onChange(next) }
     const remove = (i) => onChange(endpoints.filter((_, idx) => idx !== i))
@@ -210,17 +213,17 @@ function ApiEndpointDesigner({ endpoints, onChange }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {endpoints.map((ep, i) => (
                 <div key={i} style={{ display: 'grid', gridTemplateColumns: '76px 1fr auto', gap: 5, alignItems: 'center' }}>
-                    <select value={ep.method} onChange={e => update(i, 'method', e.target.value)}
-                        style={{ padding: '3px 4px', background: 'var(--panel)', border: `1px solid ${METHOD_COLORS[ep.method]}44`, borderRadius: 4, color: METHOD_COLORS[ep.method], font: 'inherit', fontSize: '0.65rem', fontWeight: 900, outline: 'none', cursor: 'pointer' }}>
+                    <select aria-label="HTTP method" value={ep.method} onChange={e => update(i, 'method', e.target.value)}
+                        style={{ padding: '3px 4px', background: 'var(--panel)', border: `1px solid color-mix(in srgb, ${METHOD_COLORS[ep.method]} 30%, transparent)`, borderRadius: 4, color: METHOD_COLORS[ep.method], font: 'inherit', fontSize: '0.65rem', fontWeight: 900, outline: 'none', cursor: 'pointer' }}>
                         {METHODS.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
-                    <input value={ep.path} onChange={e => update(i, 'path', e.target.value)}
+                    <input aria-label="Endpoint path" value={ep.path} onChange={e => update(i, 'path', e.target.value)}
                         placeholder="/api/resource"
                         style={{ padding: '3px 6px', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 4, color: 'var(--bright)', font: 'inherit', fontSize: '0.72rem', outline: 'none' }} />
-                    <button onClick={() => remove(i)} style={{ background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1, padding: '0 2px' }}>×</button>
+                    <Button variant="ghost" iconOnly icon={X} aria-label="Remove endpoint" onClick={() => remove(i)} />
                 </div>
             ))}
-            <button onClick={addRow} style={{ padding: '5px 10px', background: 'none', border: '1px dashed var(--subtle)', borderRadius: 5, color: 'var(--faint)', fontSize: '0.7rem', cursor: 'pointer', textAlign: 'left', marginTop: 2 }}>+ Add endpoint</button>
+            <Button icon={Plus} onClick={addRow} style={{ alignSelf: 'flex-start', marginTop: 2 }}>Endpoint</Button>
         </div>
     )
 }
@@ -253,15 +256,15 @@ function CapacityEstimator({ value, onChange }) {
                 <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Estimates</span>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem' }}>
                     <span style={{ color: 'var(--muted)' }}>Yearly storage (with replication)</span>
-                    <span style={{ color: '#4ade80', fontWeight: 700 }}>{totalStorageGB.toFixed(0)} GB</span>
+                    <span style={{ color: 'var(--sys-success)', fontWeight: 700 }}>{totalStorageGB.toFixed(0)} GB</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem' }}>
                     <span style={{ color: 'var(--muted)' }}>Monthly infra cost</span>
-                    <span style={{ color: '#facc15', fontWeight: 700 }}>${totalCost.toFixed(0)}</span>
+                    <span style={{ color: 'var(--sys-waiting)', fontWeight: 700 }}>${totalCost.toFixed(0)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem' }}>
                     <span style={{ color: 'var(--muted)' }}>Peak QPS burst (10×)</span>
-                    <span style={{ color: '#f87171', fontWeight: 700 }}>{(v.qps * 10).toLocaleString()}</span>
+                    <span style={{ color: 'var(--sys-danger)', fontWeight: 700 }}>{(v.qps * 10).toLocaleString()}</span>
                 </div>
             </div>
 
@@ -281,23 +284,24 @@ function EdgeToolbar({ edge, onUpdate, onDelete }) {
         <div style={{
             position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 20,
             display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
-            background: 'rgba(13,13,15,0.96)', border: '1px solid var(--subtle-strong)', borderRadius: 8,
-            backdropFilter: 'blur(8px)', boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+            background: 'var(--nav-bg)', border: '1px solid var(--subtle-strong)', borderRadius: 8,
+            backdropFilter: 'blur(8px)', boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
         }}>
             <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Edge:</span>
             <input
                 value={edge.data?.label || ''}
                 onChange={e => onUpdate(edge.id, { label: e.target.value })}
                 placeholder="Label…"
+                aria-label="Edge label"
                 style={{ padding: '3px 7px', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 4, color: 'var(--bright)', font: 'inherit', fontSize: '0.72rem', outline: 'none', width: 120 }}
             />
             <button
                 onClick={() => onUpdate(edge.id, { style: edge.data?.style === 'dashed' ? 'solid' : 'dashed' })}
-                style={{ padding: '3px 9px', borderRadius: 4, border: '1px solid var(--subtle-strong)', background: 'none', cursor: 'pointer', fontSize: '0.68rem', fontWeight: 700, color: edge.data?.style === 'dashed' ? '#fb923c' : '#a78bfa' }}
+                style={{ padding: '3px 9px', borderRadius: 4, border: '1px solid var(--subtle-strong)', background: 'none', cursor: 'pointer', fontSize: '0.68rem', fontWeight: 700, color: edge.data?.style === 'dashed' ? 'var(--sys-attention)' : 'var(--sys-plan)' }}
             >
                 {edge.data?.style === 'dashed' ? '- - Async' : '— Sync'}
             </button>
-            <button onClick={() => onDelete(edge.id)} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '0.78rem', padding: '0 2px' }}>🗑</button>
+            <Button variant="danger" iconOnly icon={Trash2} aria-label="Delete edge" onClick={() => onDelete(edge.id)} />
         </div>
     )
 }
@@ -571,11 +575,11 @@ function HLDWorkspaceInner() {
     }
 
     if (isLoading) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><LoadingState label="Loading…" /></div></>
-    if (isError && error?.status === 401) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><ErrorState err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Link to="/hld" style={{ color: '#a78bfa', fontSize: '0.82rem' }}>← Back to HLD</Link></p></div></>
+    if (isError && error?.status === 401) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><ErrorState err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Button to="/hld" icon={ChevronLeft}>Back to HLD</Button></p></div></>
     // tierLocked (403 upgrade_required) keeps the header bar + a LockedPanel body,
     // handled in the main return below — so don't fall into "not found"/error here.
-    if (isError && !tierLocked) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><ErrorState title="Could not load this HLD question." err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Link to="/hld" style={{ color: '#a78bfa', fontSize: '0.82rem' }}>← Back to HLD</Link></p></div></>
-    if (!problem && !tierLocked) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><EmptyState icon="🔍" title="Question not found." action={<Link to="/hld" style={{ color: '#a78bfa', fontSize: '0.82rem' }}>← Back to HLD</Link>} /></div></>
+    if (isError && !tierLocked) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><ErrorState title="Could not load this HLD question." err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Button to="/hld" icon={ChevronLeft}>Back to HLD</Button></p></div></>
+    if (!problem && !tierLocked) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><EmptyState art="diagram" tone="plan" title="Question not found." action={<Button to="/hld" icon={ChevronLeft}>Back to HLD</Button>} /></div></>
 
     // Inline "monthly HLD-practice limit reached" note — shown near the FR/NFR
     // block and the Judge button when /api/hld/generate or /api/hld/judge 402s.
@@ -589,14 +593,7 @@ function HLDWorkspaceInner() {
         />
     ) : null
 
-    const ACCENT = '#a78bfa'
-    const tabStyle = (t) => ({
-        padding: '4px 10px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: '0.65rem',
-        fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em',
-        background: activeLeftTab === t ? ACCENT : 'transparent',
-        color: activeLeftTab === t ? 'var(--surface)' : 'var(--muted)',
-        transition: 'background 0.15s',
-    })
+    const ACCENT = 'var(--sys-plan)'
 
     // Add a node at the canvas centre — used by the mobile palette (HTML5 drag
     // isn't available on touch, so tapping a chip drops the node instead).
@@ -641,13 +638,13 @@ function HLDWorkspaceInner() {
             overflow: 'hidden', background: 'var(--surface-2)', ...(isMobile ? { flex: 1, minHeight: 0 } : null),
         }}>
             {/* Tab bar: Requirements | API | Capacity */}
-                        <div style={{ display: 'flex', gap: 4, padding: '8px 12px', borderBottom: '1px solid var(--subtle)', flexShrink: 0, background: 'var(--surface-2)' }}>
-                            <button style={tabStyle('req')} onClick={() => setActiveLeftTab('req')}>Requirements</button>
-                            <button style={tabStyle('api')} onClick={() => setActiveLeftTab('api')}>API</button>
-                            <button style={tabStyle('capacity')} onClick={() => setActiveLeftTab('capacity')}>Capacity</button>
+                        <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--subtle)', flexShrink: 0, background: 'var(--surface-2)' }}>
+                            <Tabs idPrefix="hld-brief" label="Brief sections" value={activeLeftTab} onChange={setActiveLeftTab} block
+                                items={[{ value: 'req', label: 'Brief' }, { value: 'api', label: 'API' }, { value: 'capacity', label: 'Capacity' }]} />
                         </div>
 
-                        <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+                        <div role="tabpanel" id={`hld-brief-panel-${activeLeftTab}`} aria-labelledby={`hld-brief-tab-${activeLeftTab}`}
+                            style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
                             {/* ── Requirements tab (Notes + FR + NFR merged) ── */}
                             {activeLeftTab === 'req' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -679,10 +676,8 @@ function HLDWorkspaceInner() {
                                                 Functional Requirements
                                                 {frNfrLoading && <span style={{ color: ACCENT, marginLeft: 8, fontWeight: 400 }}>generating…</span>}
                                             </label>
-                                            <button onClick={regenerateFrNfr} disabled={frNfrLoading}
-                                                style={{ padding: '2px 8px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 4, color: ACCENT, cursor: 'pointer', fontSize: '0.62rem', fontWeight: 700 }}>
-                                                ↺
-                                            </button>
+                                            <Button variant="ghost" iconOnly icon={RotateCcw} onClick={regenerateFrNfr} disabled={frNfrLoading}
+                                                aria-label="Regenerate requirements" title="Regenerate" />
                                         </div>
                                         <textarea value={frNfr.fr} onChange={e => setFrNfr(p => ({ ...p, fr: e.target.value }))}
                                             placeholder="FR will auto-generate…" rows={6}
@@ -727,18 +722,14 @@ function HLDWorkspaceInner() {
                         {/* Node palette */}
                         {isMobile ? (
                             <div style={{ position: 'absolute', top: 8, left: 8, right: 8, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
-                                <button onClick={() => setPaletteOpen(o => !o)} style={{
-                                    padding: '5px 12px', borderRadius: 6, border: '1px solid var(--subtle)',
-                                    background: 'rgba(13,13,15,0.92)', backdropFilter: 'blur(8px)',
-                                    color: ACCENT, fontSize: '0.7rem', fontWeight: 900, cursor: 'pointer',
-                                    textTransform: 'uppercase', letterSpacing: '0.05em',
-                                }}>
-                                    {paletteOpen ? '× Close palette' : '+ Add node'}
-                                </button>
+                                <Button icon={paletteOpen ? X : Plus} aria-expanded={paletteOpen} onClick={() => setPaletteOpen(o => !o)}
+                                    style={{ color: ACCENT, background: 'var(--nav-bg)', backdropFilter: 'blur(8px)' }}>
+                                    {paletteOpen ? 'Close' : 'Add node'}
+                                </Button>
                                 {paletteOpen && (
                                     <div style={{
                                         display: 'flex', gap: 4, padding: '6px 8px', maxWidth: '100%', overflowX: 'auto',
-                                        background: 'rgba(13,13,15,0.96)', border: '1px solid var(--subtle)', borderRadius: 8,
+                                        background: 'var(--nav-bg)', border: '1px solid var(--subtle)', borderRadius: 8,
                                         backdropFilter: 'blur(8px)', WebkitOverflowScrolling: 'touch',
                                     }}>
                                         {NODE_TYPES_CONFIG.map(paletteChip)}
@@ -748,7 +739,7 @@ function HLDWorkspaceInner() {
                         ) : (
                             <div style={{
                                 position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 10,
-                                display: 'flex', gap: 4, padding: '6px 10px', background: 'rgba(13,13,15,0.92)',
+                                display: 'flex', gap: 4, padding: '6px 10px', background: 'var(--nav-bg)',
                                 border: '1px solid var(--subtle)', borderRadius: 8, backdropFilter: 'blur(8px)',
                                 flexWrap: 'wrap', maxWidth: 'calc(100% - 20px)', justifyContent: 'center',
                             }}>
@@ -778,16 +769,16 @@ function HLDWorkspaceInner() {
 
                         {nodes.length === 0 && !(user && !hydrated) && (
                             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', gap: 8 }}>
-                                <span style={{ fontSize: '2.5rem' }}>🏗️</span>
-                                <p style={{ color: 'var(--subtle-strong)', fontSize: '0.82rem' }}>{isMobile ? 'Tap “+ Add node” to place components' : 'Drag nodes from the palette above'}</p>
-                                <p style={{ color: 'var(--subtle)', fontSize: '0.72rem' }}>Connect nodes by dragging from the right handle (→) to the left handle (←) of another node</p>
+                                <EmptyArt kind="diagram" tone="plan" size={48} />
+                                <p style={{ color: 'var(--muted)', fontSize: '0.82rem', margin: 0 }}>{isMobile ? 'Tap Add node to start' : 'Drag nodes from the palette'}</p>
+                                <p style={{ color: 'var(--faint)', fontSize: '0.72rem', margin: 0 }}>Drag from a right handle to a left handle to connect</p>
                             </div>
                         )}
 
                         {/* Restoring hint — a signed-in user whose saved state hasn't hydrated yet */}
                         {user && !hydrated && (
                             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', gap: 8 }}>
-                                <div style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid var(--subtle)', borderTopColor: '#a78bfa', animation: 'spin 0.7s linear infinite' }} />
+                                <div style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid var(--subtle)', borderTopColor: 'var(--sys-plan)', animation: 'spin 0.7s linear infinite' }} />
                                 <span style={{ fontSize: 12, color: 'var(--faint)' }}>Restoring workspace…</span>
                             </div>
                         )}
@@ -802,15 +793,9 @@ function HLDWorkspaceInner() {
         }}>
                         <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--subtle)', flexShrink: 0 }}>
                             <p style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px' }}>Evaluate Design</p>
-                            <button onClick={handleJudge} disabled={judging} style={{
-                                width: '100%', padding: '9px', borderRadius: 6,
-                                background: judging ? 'rgba(167,139,250,0.08)' : 'rgba(167,139,250,0.15)',
-                                border: '1px solid rgba(167,139,250,0.4)',
-                                color: judging ? '#c4b5fd' : ACCENT, cursor: judging ? 'wait' : 'pointer',
-                                fontSize: '0.78rem', fontWeight: 900, transition: 'all 0.15s',
-                            }}>
-                                {judging ? '⏳ Judging…' : '⚖️ Judge My Design'}
-                            </button>
+                            <Button variant="upgrade" block icon={Scale} busy={judging} busyLabel="Judging…" onClick={handleJudge}>
+                                Judge my design
+                            </Button>
                             {usageLimitNote && <div style={{ marginTop: 10 }}>{usageLimitNote}</div>}
                         </div>
 
@@ -834,7 +819,7 @@ function HLDWorkspaceInner() {
                                                 <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
                                                     <span style={{ fontSize: '0.7rem', color: 'var(--muted)', flex: 1, textTransform: 'capitalize' }}>{k}</span>
                                                     <div style={{ width: 60, height: 4, background: 'var(--subtle)', borderRadius: 2 }}>
-                                                        <div style={{ width: `${v}%`, height: '100%', background: v >= 70 ? '#4ade80' : v >= 40 ? '#facc15' : '#f87171', borderRadius: 2 }} />
+                                                        <div style={{ width: `${v}%`, height: '100%', background: v >= 70 ? 'var(--sys-success)' : v >= 40 ? 'var(--sys-waiting)' : 'var(--sys-danger)', borderRadius: 2 }} />
                                                     </div>
                                                     <span style={{ fontSize: '0.65rem', color: 'var(--accent)', width: 28, textAlign: 'right' }}>{v}</span>
                                                 </div>
@@ -843,7 +828,7 @@ function HLDWorkspaceInner() {
                                     )}
                                     {judgeResult.pros?.length > 0 && (
                                         <div>
-                                            <p style={{ fontSize: '0.6rem', fontWeight: 900, color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>✓ Strengths</p>
+                                            <p style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--sys-success)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}><ThumbsUp size={12} aria-hidden="true" />Strengths</p>
                                             <ul style={{ margin: 0, paddingLeft: 16 }}>
                                                 {judgeResult.pros.map((p, i) => <li key={i} style={{ fontSize: '0.73rem', color: 'var(--accent)', marginBottom: 4, lineHeight: 1.4 }}>{p}</li>)}
                                             </ul>
@@ -851,7 +836,7 @@ function HLDWorkspaceInner() {
                                     )}
                                     {judgeResult.cons?.length > 0 && (
                                         <div>
-                                            <p style={{ fontSize: '0.6rem', fontWeight: 900, color: '#f87171', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>✗ Improvements</p>
+                                            <p style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--sys-danger)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}><Wrench size={12} aria-hidden="true" />Improvements</p>
                                             <ul style={{ margin: 0, paddingLeft: 16 }}>
                                                 {judgeResult.cons.map((c, i) => <li key={i} style={{ fontSize: '0.73rem', color: 'var(--accent)', marginBottom: 4, lineHeight: 1.4 }}>{c}</li>)}
                                             </ul>
@@ -860,9 +845,9 @@ function HLDWorkspaceInner() {
                                 </div>
                             )}
                             {!judgeResult && !judging && (
-                                <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--subtle-strong)' }}>
-                                    <div style={{ fontSize: '2rem', marginBottom: 8 }}>⚖️</div>
-                                    <p style={{ fontSize: '0.75rem' }}>Build your design, then click<br />Judge My Design</p>
+                                <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--muted)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                                    <EmptyArt kind="stats" tone="plan" size={44} />
+                                    <p style={{ fontSize: '0.75rem', margin: 0 }}>Build your design, then judge it</p>
                                 </div>
                             )}
                         </div>
@@ -875,42 +860,28 @@ function HLDWorkspaceInner() {
             <div style={{ height: '100vh', paddingTop: "var(--nav-h)", display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {/* Header bar */}
                 <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
-                    <Link to="/hld" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: '0.75rem', flexShrink: 0 }}>← HLD</Link>
-                    <span style={{ color: 'var(--subtle)', flexShrink: 0 }}>|</span>
+                    <Link to="/hld" className="pr-crumb"><ChevronLeft size={14} aria-hidden="true" />HLD</Link>
                     <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--bright)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{problem ? (problem.question || problem.title) : 'HLD question'}</h2>
-                    {problem?.difficulty && (
-                        <span style={{
-                            fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 4, flexShrink: 0,
-                            color: problem.difficulty === 'Easy' ? '#4ade80' : problem.difficulty === 'Hard' ? '#f87171' : '#facc15',
-                            border: `1px solid ${problem.difficulty === 'Easy' ? '#4ade80' : problem.difficulty === 'Hard' ? '#f87171' : '#facc15'}44`,
-                        }}>{problem.difficulty}</span>
-                    )}
+                    {problem?.difficulty && <DifficultyBadge difficulty={problem.difficulty} />}
                     {!tierLocked && saveState !== 'idle' && (
                         saveState === 'error' ? (
                             <button type="button" onClick={retrySave} role="alert" style={{
                                 fontSize: '0.65rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4, flexShrink: 0, cursor: 'pointer',
-                                color: '#f87171', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.35)',
+                                color: 'var(--red)', background: 'var(--red-bg)', border: '1px solid color-mix(in srgb, var(--red) 35%, transparent)',
                             }}>Save failed – retry</button>
                         ) : (
                             <span role="status" style={{
                                 fontSize: '0.65rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4, flexShrink: 0,
-                                color: saveState === 'saved' ? '#4ade80' : 'var(--muted)', border: '1px solid var(--subtle)',
+                                color: saveState === 'saved' ? 'var(--green)' : 'var(--muted)', border: '1px solid var(--subtle)',
                             }}>{saveState === 'saving' ? 'Saving…' : 'Saved'}</span>
                         )
                     )}
 
                     {/* Mobile pane switcher */}
                     {isMobile && !tierLocked && (
-                        <div style={{ display: 'flex', gap: 4, flexBasis: '100%' }}>
-                            {[['brief', 'Brief'], ['canvas', 'Canvas'], ['judge', 'Judge']].map(([pid, label]) => (
-                                <button key={pid} onClick={() => setMobilePane(pid)} style={{
-                                    flex: 1, padding: '6px 8px', borderRadius: 4, border: 'none', cursor: 'pointer',
-                                    fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em',
-                                    background: mobilePane === pid ? ACCENT : 'var(--subtle)',
-                                    color: mobilePane === pid ? 'var(--surface)' : 'var(--muted)',
-                                }}>{label}</button>
-                            ))}
-                        </div>
+                        <Tabs idPrefix="hld" label="Workspace panes" value={mobilePane} onChange={setMobilePane} block
+                            items={[{ value: 'brief', label: 'Brief' }, { value: 'canvas', label: 'Canvas' }, { value: 'judge', label: 'Judge' }]}
+                            style={{ flexBasis: '100%' }} />
                     )}
                 </div>
 
@@ -934,9 +905,9 @@ function HLDWorkspaceInner() {
                     </div>
                 ) : (
                     <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
-                        <div style={{ position: 'absolute', inset: 0, display: mobilePane === 'brief' ? 'flex' : 'none', flexDirection: 'column' }}>{leftPanel}</div>
-                        <div style={{ position: 'absolute', inset: 0, display: mobilePane === 'canvas' ? 'flex' : 'none', flexDirection: 'column' }}>{centerPanel}</div>
-                        <div style={{ position: 'absolute', inset: 0, display: mobilePane === 'judge' ? 'flex' : 'none', flexDirection: 'column' }}>{rightPanel}</div>
+                        <div role="tabpanel" id="hld-panel-brief" aria-labelledby="hld-tab-brief" style={{ position: 'absolute', inset: 0, display: mobilePane === 'brief' ? 'flex' : 'none', flexDirection: 'column' }}>{leftPanel}</div>
+                        <div role="tabpanel" id="hld-panel-canvas" aria-labelledby="hld-tab-canvas" style={{ position: 'absolute', inset: 0, display: mobilePane === 'canvas' ? 'flex' : 'none', flexDirection: 'column' }}>{centerPanel}</div>
+                        <div role="tabpanel" id="hld-panel-judge" aria-labelledby="hld-tab-judge" style={{ position: 'absolute', inset: 0, display: mobilePane === 'judge' ? 'flex' : 'none', flexDirection: 'column' }}>{rightPanel}</div>
                     </div>
                 )}
             </div>

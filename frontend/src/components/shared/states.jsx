@@ -1,15 +1,18 @@
 import { Link } from 'react-router-dom'
+import { AlertTriangle } from 'lucide-react'
 import { UsageMeter, UpgradeButton } from './PaywallGate'
 import { errorText as libErrorText } from '../../lib/errorText'
+import { resetText } from '../../lib/format'
+import EmptyArt from '../ui/EmptyArt'
 
-// ── Reusable UX states (dark-mono) ─────────────────────────────────
+// ── Reusable UX states ─────────────────────────────────────────────
 // One place for loading / error / empty / usage-limit presentation so every
 // list + workspace page reads the same. All components take `style` /
 // `className` passthrough and a `compact` flag (smaller, for inline use next
 // to a control) vs the default full-panel treatment.
 //
-// Tokens: --surface var(--surface) · --panel var(--panel) · --subtle var(--subtle)
-//         --pop #22d3ee · --warm #f472b6 · --muted var(--muted) · --bright var(--bright)
+// Colours are tokens only (index.css brand tokens + styles/system.css semantic
+// group), so light and dark themes both stay on brand.
 
 // ── errorText(err) ────────────────────────────────────────────────
 // Map an ApiError (or any thrown value) to one short, human sentence. Never
@@ -32,27 +35,15 @@ function isAuthErr(err) {
     return !!err && (err.status === 401 || err.code === 'auth required')
 }
 
-// Relative "Resets …" copy — mirrors PaywallGate.formatResetDate.
-function formatResetDate(iso) {
-    if (!iso) return ''
-    const then = new Date(iso).getTime()
-    if (Number.isNaN(then)) return ''
-    const days = Math.round((then - Date.now()) / 86400000)
-    if (days <= 0) return 'soon'
-    if (days === 1) return 'tomorrow'
-    if (days < 30) return `in ${days} days`
-    return `on ${new Date(then).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-}
-
 // ── LoadingState ─────────────────────────────────────────────────
 export function LoadingState({ label = 'Loading…', compact = false, style, className }) {
     const spinner = (
-        <div style={{
+        <div aria-hidden="true" style={{
             width: compact ? 13 : 22,
             height: compact ? 13 : 22,
             borderRadius: '50%',
             border: '2px solid var(--subtle)',
-            borderTopColor: '#22d3ee',
+            borderTopColor: 'var(--pop)',
             animation: 'spin 0.7s linear infinite',
             flexShrink: 0,
         }} />
@@ -60,20 +51,20 @@ export function LoadingState({ label = 'Loading…', compact = false, style, cla
 
     if (compact) {
         return (
-            <div className={className} style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: '0.78rem', ...style }}>
+            <div className={className} role="status" aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: '0.78rem', ...style }}>
                 {spinner}
-                {label && <span>{label}</span>}
+                {label ? <span>{label}</span> : <span className="sys-sr">Loading</span>}
             </div>
         )
     }
 
     return (
-        <div className={className} style={{
+        <div className={className} role="status" aria-live="polite" style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             gap: 12, padding: '60px 20px', textAlign: 'center', ...style,
         }}>
             {spinner}
-            {label && <span style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>{label}</span>}
+            {label ? <span style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>{label}</span> : <span className="sys-sr">Loading</span>}
         </div>
     )
 }
@@ -95,41 +86,22 @@ export function ErrorState({
     const text = message != null ? message : (err ? errorText(err) : null)
 
     const retryBtn = onRetry && !auth && (
-        <button
-            onClick={onRetry}
-            style={{
-                padding: compact ? '5px 14px' : '7px 18px', background: 'none',
-                border: '1px solid var(--subtle)', borderRadius: 6, color: '#22d3ee',
-                cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700,
-            }}
-        >
-            Retry
-        </button>
+        <button type="button" onClick={onRetry} className="sys-btn">Retry</button>
     )
 
     const signInBtn = auth && (
-        <Link
-            to="/auth"
-            style={{
-                display: 'inline-block', padding: compact ? '5px 14px' : '7px 18px',
-                background: 'none', border: '1px solid var(--subtle)', borderRadius: 6,
-                color: '#f472b6', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700,
-                textDecoration: 'none',
-            }}
-        >
-            Sign in
-        </Link>
+        <Link to="/auth" className="sys-btn is-warm">Sign in</Link>
     )
 
     if (compact) {
         return (
-            <div className={className} style={{
+            <div className={`tone-danger ${className || ''}`.trim()} role="alert" style={{
                 display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-                padding: '10px 12px', background: 'rgba(248,113,113,0.08)',
-                border: '1px solid rgba(248,113,113,0.35)', borderRadius: 6, ...style,
+                padding: '10px 12px', background: 'var(--tone-dim)',
+                border: '1px solid color-mix(in srgb, var(--tone) 35%, transparent)', borderRadius: 6, ...style,
             }}>
-                <span aria-hidden style={{ flexShrink: 0 }}>⚠️</span>
-                <span style={{ fontSize: '0.76rem', color: '#f87171', flex: 1, minWidth: 140 }}>
+                <AlertTriangle size={15} aria-hidden="true" style={{ flexShrink: 0, color: 'var(--tone)' }} />
+                <span style={{ fontSize: '0.76rem', color: 'var(--tone)', flex: 1, minWidth: 140 }}>
                     {text || title}
                 </span>
                 {retryBtn}
@@ -139,11 +111,16 @@ export function ErrorState({
     }
 
     return (
-        <div className={className} style={{
+        <div className={`tone-danger ${className || ''}`.trim()} role="alert" style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             gap: 10, padding: '60px 20px', textAlign: 'center', ...style,
         }}>
-            <div aria-hidden style={{ fontSize: '2rem' }}>⚠️</div>
+            <span aria-hidden="true" style={{
+                display: 'inline-grid', placeItems: 'center', width: 44, height: 44, borderRadius: 12,
+                color: 'var(--tone)', background: 'var(--tone-dim)', border: '1px solid color-mix(in srgb, var(--tone) 35%, transparent)',
+            }}>
+                <AlertTriangle size={22} />
+            </span>
             <p style={{ margin: 0, color: 'var(--bright)', fontWeight: 900, fontSize: '0.95rem' }}>{title}</p>
             {text && (
                 <p style={{ margin: 0, color: 'var(--accent)', fontSize: '0.8rem', maxWidth: 380, lineHeight: 1.6 }}>
@@ -161,15 +138,32 @@ export function ErrorState({
 }
 
 // ── EmptyState ───────────────────────────────────────────────────
-// "no results" / "nothing here yet". `icon` + `action` are arbitrary nodes.
-export function EmptyState({ icon, title, message, action, compact = false, style, className }) {
+// "no results" / "nothing here yet".
+//   art  = an EmptyArt kind ('search', 'jobs', 'doc', 'questions', 'lock', 'people', 'code', 'diagram', …)
+//   tone = colour of the illustration (default 'history')
+//   icon = legacy: a React node renders as-is; an emoji string is mapped to an EmptyArt kind (no emoji is shown)
+//   action = any node (usually a <Button>)
+//
+//   <EmptyState art="search" title="No problems match" message="Try a different filter." action={<Button onClick={reset}>Clear filters</Button>} />
+const EMOJI_ART = {
+    '🔍': 'search', '🔎': 'search', '📄': 'doc', '📝': 'doc', '📃': 'doc', '💬': 'questions', '❓': 'questions',
+    '💼': 'jobs', '📭': 'inbox', '📬': 'inbox', '🔒': 'lock', '👥': 'people', '🤝': 'referrals', '📊': 'stats',
+    '📈': 'stats', '💻': 'code', '🧩': 'diagram', '🔔': 'bell', '⚠️': 'error',
+}
+
+export function EmptyState({ icon, art, tone = 'history', title, message, action, compact = false, style, className }) {
+    let visual = null
+    if (art) visual = <EmptyArt kind={art} tone={tone} size={compact ? 40 : 56} />
+    else if (typeof icon === 'string') visual = <EmptyArt kind={EMOJI_ART[icon.trim()] || 'search'} tone={tone} size={compact ? 40 : 56} />
+    else if (icon != null) visual = icon
+
     return (
         <div className={className} style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             gap: 8, padding: compact ? '28px 16px' : '60px 20px', textAlign: 'center', ...style,
         }}>
-            {icon != null && (
-                <div aria-hidden style={{ fontSize: compact ? '1.5rem' : '2rem', marginBottom: 4 }}>{icon}</div>
+            {visual != null && (
+                <div aria-hidden="true" style={{ fontSize: compact ? '1.5rem' : '2rem', marginBottom: 4 }}>{visual}</div>
             )}
             {title && (
                 <p style={{ margin: 0, color: 'var(--muted)', fontSize: compact ? '0.85rem' : '0.9rem' }}>{title}</p>
@@ -199,16 +193,16 @@ export function LimitReached({ feature, used, limit, resetsAt, compact = false, 
     const headline = finite
         ? `You've used all ${limit} ${noun} this month`
         : `You've hit this month's ${noun} limit`
-    const resetLine = resetsAt ? `Resets ${formatResetDate(resetsAt)}` : ''
+    const resetLine = resetsAt ? `Resets ${resetText(resetsAt)}` : ''
 
     if (compact) {
         return (
-            <div className={className} style={{
+            <div className={`tone-danger ${className || ''}`.trim()} role="status" style={{
                 display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start',
-                padding: '10px 12px', background: 'rgba(248,113,113,0.08)',
-                border: '1px solid rgba(248,113,113,0.35)', borderRadius: 6, ...style,
+                padding: '10px 12px', background: 'var(--tone-dim)',
+                border: '1px solid color-mix(in srgb, var(--tone) 35%, transparent)', borderRadius: 6, ...style,
             }}>
-                <span style={{ fontSize: '0.72rem', color: '#f87171', fontWeight: 700 }}>{headline}.</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--tone)', fontWeight: 700 }}>{headline}.</span>
                 {resetLine && <span style={{ fontSize: '0.66rem', color: 'var(--muted)' }}>{resetLine}.</span>}
                 <UpgradeButton size="sm">Upgrade to Pro</UpgradeButton>
             </div>

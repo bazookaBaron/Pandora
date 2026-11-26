@@ -6,37 +6,23 @@ import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
 import { apiFetch } from '../../lib/apiClient'
 import { consumeInitialData } from '../../lib/initialData'
-import { useMediaQuery } from '../../lib/useMediaQuery'
 import { UpgradeButton } from '../../components/shared/PaywallGate'
 import { ErrorState, EmptyState } from '../../components/shared/states'
 import Navbar from '../../components/Navbar'
 import FluidCheckbox from '../../components/shared/FluidCheckbox'
-import DifficultyBadge from '../../components/shared/DifficultyBadge'
+import DifficultyBadge, { DIFFICULTY_TONE } from '../../components/shared/DifficultyBadge'
 import CompanySelector from '../../components/shared/CompanySelector'
 import CompanyLogo from '../../components/shared/CompanyLogo'
+import { Pill, SearchInput, Button } from '../../components/ui'
+import { ArrowRight, Check, CheckCircle2, Lock } from 'lucide-react'
 
 function HLDSkeleton() {
-    return Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} style={{
-            background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8, padding: 16, height: 140,
-            animation: 'pulse 1.5s ease-in-out infinite',
-        }} />
-    ))
-}
-
-function LockIcon({ size = 13 }) {
-    return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <rect x="3" y="11" width="18" height="11" rx="2" />
-            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-        </svg>
-    )
+    return Array.from({ length: 6 }).map((_, i) => <div key={i} className="pr-card-skel" />)
 }
 
 export default function HLDListPage() {
     const [searchParams, setSearchParams] = useSearchParams()
     const [search, setSearch] = useState(searchParams.get('q') || '')
-    const isMobile = useMediaQuery('(max-width: 767px)')
     const { user } = useAuth()
     const companies = searchParams.get('company') ? searchParams.get('company').split(',') : []
     const difficulties = searchParams.get('difficulty') ? searchParams.get('difficulty').split(',') : []
@@ -89,39 +75,24 @@ export default function HLDListPage() {
     const pageItems = filtered.slice((safePage - 1) * HLD_PAGE_SIZE, safePage * HLD_PAGE_SIZE)
 
     const attempted = Object.values(progressMap).filter(r => r.status === 'solved').length
-    const gridCols = isMobile ? '1fr' : 'repeat(auto-fill, minmax(280px, 1fr))'
-    const DIFF_COLORS = { Easy: '#4ade80', Medium: '#facc15', Hard: '#f87171' }
+    const logos = (cos = []) => cos.length > 0 && (
+        <div className="pr-card-logos">
+            {cos.slice(0, 4).map(c => <CompanyLogo key={c} company={c} />)}
+            {cos.length > 4 && <span className="pr-plus">+{cos.length - 4}</span>}
+        </div>
+    )
 
-    // Locked card (free / list_only) — muted, non-interactive target is /pricing.
+    // Locked card (free / list_only) — the whole card links to /pricing.
     const renderLockedCard = (p) => (
-        <Link key={p.id} to="/pricing" style={{
-            textDecoration: 'none', background: '#141416', border: '1px solid var(--subtle)',
-            borderRadius: 8, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10,
-            opacity: 0.72, transition: 'opacity 0.15s, border-color 0.15s',
-        }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.borderColor = 'var(--subtle-strong)' }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = 0.72; e.currentTarget.style.borderColor = 'var(--subtle)' }}
-        >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Link key={p.id} to="/pricing" className="pr-card sys-locked" role="listitem" aria-label={`${p.title} (locked, upgrade to practice)`}>
+            <div className="pr-card-top">
                 {p.difficulty && <DifficultyBadge difficulty={p.difficulty} />}
-                <span style={{ marginLeft: 'auto', color: '#a78bfa', display: 'flex', alignItems: 'center' }}><LockIcon /></span>
+                <span className="pr-lock-ic"><Lock size={14} aria-hidden="true" /></span>
             </div>
-            <h3 style={{ fontSize: '0.92rem', fontWeight: 900, color: 'var(--accent)', letterSpacing: '-0.02em', lineHeight: 1.3 }}>
-                {p.title}
-            </h3>
-            {(p.companies || []).length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {(p.companies || []).slice(0, 4).map(c => <CompanyLogo key={c} company={c} />)}
-                    {(p.companies || []).length > 4 && (
-                        <span style={{ fontSize: '0.62rem', color: 'var(--faint)', alignSelf: 'center' }}>+{p.companies.length - 4}</span>
-                    )}
-                </div>
-            )}
-            <span style={{
-                marginTop: 4, fontSize: '0.72rem', fontWeight: 900, color: '#a78bfa',
-                textTransform: 'uppercase', letterSpacing: '0.06em', display: 'inline-flex', alignItems: 'center', gap: 6,
-            }}>
-                <LockIcon size={12} /> Unlock to practice
+            <h3 className="pr-card-title">{p.title}</h3>
+            {logos(p.companies)}
+            <span className="pr-card-cta sys-locked-cta pr-hide-phone">
+                <Lock size={12} aria-hidden="true" /><span className="pr-cta-word">Unlock to practice</span>
             </span>
         </Link>
     )
@@ -130,64 +101,30 @@ export default function HLDListPage() {
     const renderCard = (p) => {
         const prog = progressMap[p.id]
         const isAttempted = prog?.status === 'solved'
+        const to = `/hld/${p.slug || p.id}`
         return (
-            <div key={p.id} style={{
-                background: 'var(--panel)', border: `1px solid ${isAttempted ? 'rgba(167,139,250,0.3)' : 'var(--subtle)'}`,
-                borderRadius: 8, padding: '14px 16px', position: 'relative',
-                transition: 'border-color 0.15s, transform 0.15s',
-                display: 'flex', flexDirection: 'column', gap: 10,
-            }}
-                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = isAttempted ? 'rgba(167,139,250,0.5)' : 'var(--subtle-strong)' }}
-                onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = isAttempted ? 'rgba(167,139,250,0.3)' : 'var(--subtle)' }}
-            >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div key={p.id} className={`pr-card tone-plan${isAttempted ? ' is-done' : ''}`} role="listitem">
+                <div className="pr-card-top">
                     <FluidCheckbox
                         checked={isAttempted}
                         onChange={() => toggleStatus(p.id, prog?.status ?? 'unsolved')}
                     />
                     {p.difficulty && <DifficultyBadge difficulty={p.difficulty} />}
-                    {isAttempted && (
-                        <span style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', color: '#a78bfa', letterSpacing: '0.08em', marginLeft: 'auto' }}>
-                            ✓ Attempted
-                        </span>
-                    )}
+                    {isAttempted && <Pill tone="plan" icon={Check}>Attempted</Pill>}
                 </div>
 
-                <Link to={`/hld/${p.slug || p.id}`} style={{ textDecoration: 'none' }}>
-                    <h3 style={{
-                        fontSize: '0.92rem', fontWeight: 900, color: isAttempted ? 'var(--muted)' : 'var(--bright)',
-                        letterSpacing: '-0.02em', lineHeight: 1.3,
-                    }}>
-                        {p.title}
-                    </h3>
+                <Link to={to} className="pr-card-link">
+                    <h3 className="pr-card-title">{p.title}</h3>
                 </Link>
 
                 {p.description && (
-                    <p style={{
-                        fontSize: '0.73rem', color: 'var(--muted)', lineHeight: 1.5,
-                        overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-                    }}>
-                        {p.description.replace(/[#*`]/g, '').slice(0, 130)}…
-                    </p>
+                    <p className="pr-card-desc">{p.description.replace(/[#*`]/g, '').slice(0, 130)}…</p>
                 )}
 
-                {(p.companies || []).length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                        {(p.companies || []).slice(0, 4).map(c => (
-                            <CompanyLogo key={c} company={c} />
-                        ))}
-                        {(p.companies || []).length > 4 && (
-                            <span style={{ fontSize: '0.62rem', color: 'var(--faint)', alignSelf: 'center' }}>+{p.companies.length - 4}</span>
-                        )}
-                    </div>
-                )}
+                {logos(p.companies)}
 
-                <Link to={`/hld/${p.slug || p.id}`} style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4,
-                    fontSize: '0.72rem', fontWeight: 900, color: '#a78bfa', textDecoration: 'none',
-                    textTransform: 'uppercase', letterSpacing: '0.06em',
-                }}>
-                    Design →
+                <Link to={to} className="pr-card-cta" aria-label={`Design: ${p.title}`}>
+                    <span className="pr-cta-word">Design</span><ArrowRight size={13} aria-hidden="true" />
                 </Link>
             </div>
         )
@@ -196,113 +133,97 @@ export default function HLDListPage() {
     return (
         <>
             <Navbar />
-            <div className="has-tilebar" style={{ paddingTop: 56, minHeight: '100vh', maxWidth: 1100, margin: '0 auto', padding: '80px 16px 40px' }}>
-                {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16, marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-                    <div>
-                        <h1 className="pg-title">HLD Questions</h1>
-                        <p className="pg-subtitle">High-level system design — architecture, scalability, trade-offs</p>
+            <div className="has-tilebar" style={{ minHeight: '100vh' }}>
+                <div className="pr-page is-narrow">
+                    {/* Header */}
+                    <div className="pr-head">
+                        <div>
+                            <h1 className="pg-title">HLD Questions</h1>
+                            <p className="pg-subtitle">System design: architecture, scale, trade-offs</p>
+                        </div>
+                        {!listOnly && (
+                            <div className="pg-stat tone-plan" aria-label={`${attempted} of ${total} attempted`}>
+                                <CheckCircle2 size={14} className="tone-text" aria-hidden="true" />
+                                <span className="pg-stat-label">Attempted</span>
+                                <span className="pg-stat-value tone-text">{attempted}</span>
+                                <span className="pg-stat-sep">/</span>
+                                <span className="pg-stat-total">{total}</span>
+                            </div>
+                        )}
                     </div>
-                    {!listOnly && (
-                        <div className="pg-stat">
-                            <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attempted</span>
-                            <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#a78bfa' }}>{attempted}</span>
-                            <span style={{ color: 'var(--subtle-strong)' }}>/</span>
-                            <span style={{ fontSize: '0.82rem', color: 'var(--accent)' }}>{total}</span>
+
+                    {/* Free-tier banner */}
+                    {listOnly && !isLoading && !isError && (
+                        <div className="sys-locked pr-banner">
+                            <Lock size={16} className="sys-locked-icon" aria-hidden="true" />
+                            <span className="sys-locked-title">HLD practice is a Pro feature.</span>
+                            <UpgradeButton size="sm" />
                         </div>
                     )}
-                </div>
 
-                {/* Free-tier banner */}
-                {listOnly && !isLoading && !isError && (
-                    <div style={{
-                        display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-                        background: '#141416', border: '1px solid var(--subtle)', borderRadius: 8,
-                        padding: '12px 16px', marginBottom: 20,
-                    }}>
-                        <span style={{ color: '#a78bfa', display: 'flex', alignItems: 'center' }}><LockIcon size={16} /></span>
-                        <span style={{ fontSize: '0.8rem', color: 'var(--accent)', flex: 1, minWidth: 180 }}>
-                            HLD practice is a Pro feature — you can browse the list.
-                        </span>
-                        <UpgradeButton size="sm" />
-                    </div>
-                )}
-
-                {/* Filters */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20, alignItems: 'center' }}>
-                    <div style={{ position: 'relative', flex: '1 1 220px' }}>
-                        <svg style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" strokeWidth="2">
-                            <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
-                        </svg>
-                        <input
+                    {/* Filters */}
+                    <div className="pr-filters">
+                        <SearchInput
+                            label="Search HLD questions"
+                            tone="plan"
                             value={search}
-                            onChange={e => { setSearch(e.target.value); updateParam('q', e.target.value) }}
-                            placeholder="Search by title or description…"
-                            style={{
-                                width: '100%', padding: '8px 10px 8px 32px', background: 'var(--panel)', border: '1px solid var(--subtle)',
-                                borderRadius: 6, color: 'var(--bright)', font: 'inherit', fontSize: '0.82rem', outline: 'none',
-                            }}
-                            onFocus={e => e.target.style.borderColor = '#a78bfa'}
-                            onBlur={e => e.target.style.borderColor = 'var(--subtle)'}
+                            onChange={v => { setSearch(v); updateParam('q', v) }}
+                            placeholder="Search HLD questions…"
                         />
+
+                        <div className="pr-toggles" role="group" aria-label="Difficulty">
+                            {['Easy', 'Medium', 'Hard'].map(d => {
+                                const active = difficulties.includes(d)
+                                return (
+                                    <button key={d} type="button" aria-pressed={active}
+                                        className={`pr-toggle tone-${DIFFICULTY_TONE[d]}`}
+                                        onClick={() => {
+                                            const next = active ? difficulties.filter(x => x !== d) : [...difficulties, d]
+                                            updateParam('difficulty', next)
+                                        }}>{d}</button>
+                                )
+                            })}
+                        </div>
+
+                        <CompanySelector selected={companies} onChange={v => updateParam('company', v)} />
                     </div>
 
-                    <div style={{ display: 'flex', gap: 4 }}>
-                        {['Easy', 'Medium', 'Hard'].map(d => {
-                            const active = difficulties.includes(d)
-                            return (
-                                <button key={d} onClick={() => {
-                                    const next = active ? difficulties.filter(x => x !== d) : [...difficulties, d]
-                                    updateParam('difficulty', next)
-                                }} style={{
-                                    padding: '5px 10px', borderRadius: 6, border: `1px solid ${active ? DIFF_COLORS[d] : 'var(--subtle)'}`,
-                                    background: active ? `${DIFF_COLORS[d]}1F` : 'transparent',
-                                    color: active ? DIFF_COLORS[d] : 'var(--muted)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 900,
-                                    textTransform: 'uppercase', letterSpacing: '0.06em',
-                                }}>{d}</button>
-                            )
-                        })}
-                    </div>
-
-                    <CompanySelector selected={companies} onChange={v => updateParam('company', v)} />
+                    {/* Card Grid */}
+                    {isLoading ? (
+                        <div className="pr-cards" role="status" aria-label="Loading HLD questions">
+                            <HLDSkeleton />
+                        </div>
+                    ) : isError ? (
+                        <ErrorState
+                            title="Could not load HLD questions."
+                            err={error}
+                            onRetry={() => refetch()}
+                        />
+                    ) : filtered.length === 0 ? (
+                        <EmptyState
+                            art="diagram"
+                            tone="plan"
+                            title="No HLD questions match your filters."
+                            action={<Button onClick={() => { setSearch(''); setSearchParams({}) }}>Clear filters</Button>}
+                        />
+                    ) : (
+                        <>
+                            <div className="pr-cards" role="list" aria-label="HLD questions">
+                                {pageItems.map(listOnly ? renderLockedCard : renderCard)}
+                            </div>
+                            <Pagination
+                                page={safePage}
+                                totalPages={pageCount}
+                                accent="var(--sys-plan)"
+                                label="HLD pages"
+                                onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                            />
+                            <div className="pr-foot" aria-live="polite">
+                                {pageItems.length} of {filtered.length}{pageCount > 1 ? ` · page ${safePage} of ${pageCount}` : ''}
+                            </div>
+                        </>
+                    )}
                 </div>
-
-                {/* Card Grid */}
-                {isLoading ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 12 }}>
-                        <HLDSkeleton />
-                    </div>
-                ) : isError ? (
-                    <ErrorState
-                        title="Could not load HLD questions."
-                        err={error}
-                        onRetry={() => refetch()}
-                    />
-                ) : filtered.length === 0 ? (
-                    <EmptyState
-                        icon="🏗️"
-                        title="No HLD questions match your filters."
-                        action={(
-                            <button onClick={() => { setSearch(''); setSearchParams({}) }} style={{ padding: '6px 16px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 6, color: '#a78bfa', cursor: 'pointer', fontSize: '0.78rem' }}>
-                                Clear filters
-                            </button>
-                        )}
-                    />
-                ) : (
-                    <>
-                        <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 12 }}>
-                            {pageItems.map(listOnly ? renderLockedCard : renderCard)}
-                        </div>
-                        <Pagination
-                            page={safePage}
-                            totalPages={pageCount}
-                            onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
-                        />
-                        <div style={{ textAlign: 'center', marginTop: 12, color: 'var(--faint)', fontSize: '0.72rem' }}>
-                            {pageItems.length} of {filtered.length}{pageCount > 1 ? ` · page ${safePage} of ${pageCount}` : ''} · {total} total
-                        </div>
-                    </>
-                )}
             </div>
         </>
     )

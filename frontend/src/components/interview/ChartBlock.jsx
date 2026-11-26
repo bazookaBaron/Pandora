@@ -70,10 +70,10 @@ export default function ChartBlock({ config }) {
             )}
             <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={title || `${type} chart`}
                 style={{ background: 'var(--surface-2)', border: '1px solid var(--subtle)', borderRadius: 6 }}>
-                <line x1={padL} y1={y(0)} x2={W - padR} y2={y(0)} stroke="#27272a" strokeWidth="1" />
+                <line x1={padL} y1={y(0)} x2={W - padR} y2={y(0)} style={{ stroke: 'var(--subtle)' }} strokeWidth="1" />
 
                 {isLine ? (
-                    <polyline fill="none" stroke="#22d3ee" strokeWidth="2"
+                    <polyline fill="none" style={{ stroke: 'var(--pop)' }} strokeWidth="2"
                         points={series.map((d, i) => `${padL + step * i + step / 2},${y(d.value)}`).join(' ')} />
                 ) : (
                     series.map((d, i) => {
@@ -81,22 +81,22 @@ export default function ChartBlock({ config }) {
                         const bx = padL + step * i + (step - bw) / 2
                         const by = Math.min(y(d.value), y(0))
                         const bh = Math.abs(y(d.value) - y(0))
-                        return <rect key={i} x={bx} y={by} width={bw} height={bh} fill="#22d3ee" rx="1" />
+                        return <rect key={i} x={bx} y={by} width={bw} height={bh} style={{ fill: 'var(--pop)' }} rx="1" />
                     })
                 )}
 
                 {isLine && series.map((d, i) => (
-                    <circle key={i} cx={padL + step * i + step / 2} cy={y(d.value)} r="3" fill="#22d3ee" />
+                    <circle key={i} cx={padL + step * i + step / 2} cy={y(d.value)} r="3" style={{ fill: 'var(--pop)' }} />
                 ))}
 
                 {series.map((d, i) => (
-                    <text key={i} x={padL + step * i + step / 2} y={H - padB + 14} textAnchor="middle" fontSize="9" fill="#71717a">
+                    <text key={i} x={padL + step * i + step / 2} y={H - padB + 14} textAnchor="middle" fontSize="9" style={{ fill: 'var(--muted)' }}>
                         {d.label.length > 8 ? `${d.label.slice(0, 7)}…` : d.label}
                     </text>
                 ))}
 
-                <text x={padL - 6} y={y(max)} textAnchor="end" fontSize="9" fill="#71717a" dominantBaseline="middle">{max}</text>
-                <text x={padL - 6} y={y(min)} textAnchor="end" fontSize="9" fill="#71717a" dominantBaseline="middle">{min}</text>
+                <text x={padL - 6} y={y(max)} textAnchor="end" fontSize="9" style={{ fill: 'var(--muted)' }} dominantBaseline="middle">{max}</text>
+                <text x={padL - 6} y={y(min)} textAnchor="end" fontSize="9" style={{ fill: 'var(--muted)' }} dominantBaseline="middle">{min}</text>
             </svg>
         </figure>
     )

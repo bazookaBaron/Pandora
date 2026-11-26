@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAvatarUrl } from '../lib/useAvatar'
 import { useMediaQuery } from '../lib/useMediaQuery'
+import { getInitials, stringToColor } from '../lib/avatar'
 
 function ThemeToggle({ full = false }) {
     const { theme, toggleTheme } = useTheme()
@@ -19,35 +20,17 @@ function ThemeToggle({ full = false }) {
             style={full ? { width: '100%', justifyContent: 'flex-start' } : { padding: '6px 9px' }}
         >
             {isDark ? (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
                 </svg>
             ) : (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                 </svg>
             )}
             {full && <span>{isDark ? 'Light theme' : 'Dark theme'}</span>}
         </button>
     )
-}
-
-function getInitials(user) {
-    const name =
-        user?.user_metadata?.full_name ||
-        user?.user_metadata?.name ||
-        user?.email?.split('@')[0] ||
-        'U'
-    const parts = name.split(' ').filter(Boolean)
-    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
-    return name.slice(0, 2).toUpperCase()
-}
-
-function stringToColor(str = '') {
-    let hash = 0
-    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash)
-    const colors = ['#22d3ee', '#f472b6', '#4ade80', '#facc15', '#a78bfa', '#fb923c', '#60a5fa']
-    return colors[Math.abs(hash) % colors.length]
 }
 
 // Shown once VITE_AUTOAPPLY=1 at build time; the /autoapply pages still work by direct link for testing.
@@ -115,6 +98,7 @@ function PrepMenu({ isActive, pathname }) {
                             to={link.to}
                             role="menuitem"
                             data-tour={tourId(link.to)}
+                            aria-current={isActive(link.to) ? 'page' : undefined}
                             onClick={() => setOpen(false)}
                             className={'prep-menu-item' + (isActive(link.to) ? ' active' : '')}
                         >
@@ -234,13 +218,14 @@ export default function Navbar() {
                     <button
                         type="button"
                         className="nav-pill"
-                        aria-label="Menu"
+                        aria-label={menuOpen ? 'Close menu' : 'Menu'}
                         data-tour="prep"
                         aria-expanded={menuOpen}
+                        aria-controls="mobile-nav-menu"
                         onClick={() => setMenuOpen(v => !v)}
                         style={{ padding: '6px 10px' }}
                     >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
                             {menuOpen ? (
                                 <>
                                     <line x1="6" y1="6" x2="18" y2="18" />
@@ -259,6 +244,7 @@ export default function Navbar() {
 
                     {menuOpen && (
                         <div
+                            id="mobile-nav-menu"
                             style={{
                                 position: 'absolute', top: '100%', left: 0, right: 0,
                                 background: 'var(--panel)',
@@ -275,6 +261,7 @@ export default function Navbar() {
                                     <Link
                                         key={link.to}
                                         to={link.to}
+                                        aria-current={isActive(link.to) ? 'page' : undefined}
                                         onClick={() => setMenuOpen(false)}
                                         className={`nav-pill${isActive(link.to) ? ' active' : ''}`}
                                         style={{ width: '100%', justifyContent: 'flex-start' }}
@@ -289,6 +276,7 @@ export default function Navbar() {
                                     <Link
                                         to="/profile"
                                         data-tour="profile"
+                                        aria-current={isActive('/profile') ? 'page' : undefined}
                                         onClick={() => setMenuOpen(false)}
                                         className={`nav-pill${isActive('/profile') ? ' active' : ''}`}
                                         style={{ width: '100%', justifyContent: 'flex-start' }}
@@ -328,7 +316,7 @@ export default function Navbar() {
                     <ThemeToggle />
 
                     {user ? (
-                        <Link to="/profile" data-tour="profile" className={`nav-pill${isActive('/profile') ? ' active' : ''}`}>
+                        <Link to="/profile" data-tour="profile" aria-current={isActive('/profile') ? 'page' : undefined} className={`nav-pill${isActive('/profile') ? ' active' : ''}`}>
                             {avatar}
                             {profileLabel}
                         </Link>

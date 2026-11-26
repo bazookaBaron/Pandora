@@ -1,7 +1,14 @@
-// Shared list pagination — extracted from the LLD panel so LLD and HLD render
-// the exact same control (page-size, page-number UI, prev/next, styling).
-// `accent` defaults to the LLD pink; pass another token/hex to re-tint.
-export default function Pagination({ page, totalPages, onChange, accent = '#f472b6' }) {
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+
+// Shared list pagination (LLD, HLD, DSA, Jobs, …). Styles: .sys-pager* in styles/system.css
+// (32px buttons on desktop, 40px on phones; Prev/Next collapse to arrows on phones).
+//
+//   <Pagination page={page} totalPages={pages} onChange={setPage} />
+//   <Pagination page={page} totalPages={pages} onChange={setPage} accent="var(--sys-plan)" label="HLD pages" />
+//
+// `accent` tints the current page; any CSS colour or token. The default is the LLD
+// pink token (var(--warm)), the same colour the old hard-coded default rendered in dark mode.
+export default function Pagination({ page, totalPages, onChange, accent = 'var(--warm)', label = 'Pagination' }) {
     if (totalPages <= 1) return null
     const pages = []
     for (let i = 1; i <= totalPages; i++) {
@@ -12,40 +19,39 @@ export default function Pagination({ page, totalPages, onChange, accent = '#f472
         }
     }
     return (
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'center', marginTop: 24 }}>
+        <nav className="sys-pager" aria-label={label} style={{ '--pager-accent': accent }}>
             <button
+                type="button"
+                className="sys-pager-btn is-step"
                 onClick={() => onChange(page - 1)}
                 disabled={page === 1}
-                style={{
-                    padding: '5px 12px', borderRadius: 6, border: '1px solid var(--subtle)',
-                    background: 'none', color: page === 1 ? 'var(--subtle-strong)' : 'var(--accent)', cursor: page === 1 ? 'default' : 'pointer',
-                    fontSize: '0.78rem',
-                }}
-            >← Prev</button>
+                aria-label="Previous page"
+            >
+                <ChevronLeft size={14} aria-hidden="true" /><span className="sys-pager-word">Prev</span>
+            </button>
             {pages.map((p, idx) => (
                 p === '…' ? (
-                    <span key={`e${idx}`} style={{ color: 'var(--faint)', fontSize: '0.78rem', padding: '0 4px' }}>…</span>
+                    <span key={`e${idx}`} className="sys-pager-gap" aria-hidden="true">…</span>
                 ) : (
                     <button
                         key={p}
+                        type="button"
+                        className="sys-pager-btn"
                         onClick={() => onChange(p)}
-                        style={{
-                            width: 32, height: 32, borderRadius: 6, border: `1px solid ${p === page ? accent : 'var(--subtle)'}`,
-                            background: p === page ? `${accent}1f` : 'none',
-                            color: p === page ? accent : 'var(--muted)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: p === page ? 900 : 400,
-                        }}
+                        aria-current={p === page ? 'page' : undefined}
+                        aria-label={`Page ${p}`}
                     >{p}</button>
                 )
             ))}
             <button
+                type="button"
+                className="sys-pager-btn is-step"
                 onClick={() => onChange(page + 1)}
                 disabled={page === totalPages}
-                style={{
-                    padding: '5px 12px', borderRadius: 6, border: '1px solid var(--subtle)',
-                    background: 'none', color: page === totalPages ? 'var(--subtle-strong)' : 'var(--accent)', cursor: page === totalPages ? 'default' : 'pointer',
-                    fontSize: '0.78rem',
-                }}
-            >Next →</button>
-        </div>
+                aria-label="Next page"
+            >
+                <span className="sys-pager-word">Next</span><ChevronRight size={14} aria-hidden="true" />
+            </button>
+        </nav>
     )
 }

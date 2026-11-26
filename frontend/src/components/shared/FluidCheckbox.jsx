@@ -15,17 +15,19 @@ export default function FluidCheckbox({ checked, onChange, size = 20 }) {
                 width: size,
                 height: size,
                 borderRadius: 5,
-                border: `2px solid ${checked ? '#22d3ee' : 'var(--subtle-strong)'}`,
-                background: checked ? '#22d3ee' : 'transparent',
+                border: `2px solid ${checked ? 'var(--pop)' : 'var(--subtle-strong)'}`,
+                background: checked ? 'var(--pop)' : 'transparent',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
                 padding: 0,
-                overflow: 'hidden',
+                position: 'relative',
             }}
             title={checked ? 'Mark as unsolved' : 'Mark as solved'}
+            aria-label={checked ? 'Mark as unsolved' : 'Mark as solved'}
+            aria-pressed={!!checked}
         >
             {checked && (
                 <svg
@@ -38,7 +40,8 @@ export default function FluidCheckbox({ checked, onChange, size = 20 }) {
                     <path
                         className="fluid-checkbox-path"
                         d="M1 5L4.5 8.5L11 1"
-                        stroke="#09090b"
+                        stroke="currentColor"
+                        style={{ color: 'var(--surface)' }}
                         strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"

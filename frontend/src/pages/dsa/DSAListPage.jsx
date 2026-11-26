@@ -1,6 +1,6 @@
 import { memo, useState, useEffect, useCallback, useRef, createContext, useContext } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { Lock } from 'lucide-react'
+import { Lock, Bookmark, CheckCircle2, CircleDot, Shuffle, SlidersHorizontal } from 'lucide-react'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
@@ -8,12 +8,14 @@ import { apiFetch } from '../../lib/apiClient'
 import { consumeInitialData } from '../../lib/initialData'
 import Navbar from '../../components/Navbar'
 import FluidCheckbox from '../../components/shared/FluidCheckbox'
-import DifficultyBadge from '../../components/shared/DifficultyBadge'
+import DifficultyBadge, { DIFFICULTY_TONE } from '../../components/shared/DifficultyBadge'
 import CompanySelector from '../../components/shared/CompanySelector'
 import CompanyLogo from '../../components/shared/CompanyLogo'
+import Pagination from '../../components/shared/Pagination'
 import { useMediaQuery } from '../../lib/useMediaQuery'
 import { LockedSlice } from '../../components/shared/PaywallGate'
 import { ErrorState, EmptyState } from '../../components/shared/states'
+import { StatTile, StatTiles, Segmented, SearchInput, Button } from '../../components/ui'
 import { track, EVENTS } from '../../lib/analytics'
 
 const DIFFICULTIES = ['Easy', 'Medium', 'Hard']
@@ -24,35 +26,13 @@ const SORT_OPTIONS = [
     { value: 'alpha', label: 'A–Z' },
     { value: 'difficulty', label: 'Difficulty' },
 ]
-
-function Pagination({ page, totalPages, onChange }) {
-    if (totalPages <= 1) return null
-    const pages = []
-    for (let i = 1; i <= totalPages; i++) {
-        if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) pages.push(i)
-        else if (pages[pages.length - 1] !== '…') pages.push('…')
-    }
-    return (
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'center', marginTop: 16 }}>
-            <button onClick={() => onChange(page - 1)} disabled={page === 1} style={{
-                padding: '5px 12px', borderRadius: 6, border: '1px solid var(--subtle)',
-                background: 'none', color: page === 1 ? 'var(--subtle-strong)' : 'var(--accent)', cursor: page === 1 ? 'default' : 'pointer', fontSize: '0.78rem',
-            }}>← Prev</button>
-            {pages.map((p, idx) => p === '…'
-                ? <span key={`e${idx}`} style={{ color: 'var(--faint)', fontSize: '0.78rem', padding: '0 4px' }}>…</span>
-                : <button key={p} onClick={() => onChange(p)} style={{
-                    width: 32, height: 32, borderRadius: 6, border: `1px solid ${p === page ? '#22d3ee' : 'var(--subtle)'}`,
-                    background: p === page ? 'rgba(34,211,238,0.12)' : 'none',
-                    color: p === page ? '#22d3ee' : 'var(--muted)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: p === page ? 900 : 400,
-                }}>{p}</button>
-            )}
-            <button onClick={() => onChange(page + 1)} disabled={page === totalPages} style={{
-                padding: '5px 12px', borderRadius: 6, border: '1px solid var(--subtle)',
-                background: 'none', color: page === totalPages ? 'var(--subtle-strong)' : 'var(--accent)', cursor: page === totalPages ? 'default' : 'pointer', fontSize: '0.78rem',
-            }}>Next →</button>
-        </div>
-    )
-}
+const STATUS_OPTIONS = [
+    { value: '', label: 'All' },
+    { value: 'solved', label: 'Solved', tone: 'success' },
+    { value: 'attempted', label: 'Attempted', tone: 'waiting' },
+    { value: 'unsolved', label: 'To do' },
+    { value: 'bookmarked', label: 'Saved', tone: 'waiting' },
+]
 
 // Clicking a company logo on a row toggles that company in the current filter (no navigation)
 const CompanyPickContext = createContext(null)
@@ -60,36 +40,32 @@ const CompanyPickContext = createContext(null)
 function CompanyBadges({ companies = [], isMobile = false }) {
     const pick = useContext(CompanyPickContext)
     const [expanded, setExpanded] = useState(false)
-    if (!companies.length) return null
+    if (!companies.length) return <span className="pr-logos" />
 
     const limit = isMobile ? 3 : 6
     const overflow = companies.length - limit
     const shown = expanded ? companies : companies.slice(0, limit)
 
     return (
-        <div style={{
-            display: 'flex', gap: 3, alignItems: 'center', minWidth: 0,
-            flexWrap: expanded ? 'wrap' : 'nowrap',
-            overflow: expanded ? 'visible' : 'hidden',
-        }}>
-            {shown.map(c => (
-                <button key={c} type="button" title={pick?.selected.includes(c) ? `Remove ${c} from filter` : `Filter by ${c}`}
-                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', flexShrink: 0,
-                             opacity: pick && pick.selected.length && !pick.selected.includes(c) ? 0.55 : 1 }}
-                    onClick={e => { e.preventDefault(); e.stopPropagation(); pick?.toggle(c) }}>
-                    <CompanyLogo company={c} />
-                </button>
-            ))}
+        <div className={`pr-logos${expanded ? ' is-open' : ''}`}>
+            {shown.map(c => {
+                const on = pick?.selected.includes(c)
+                return (
+                    <button key={c} type="button" title={on ? `Remove ${c} from filter` : `Filter by ${c}`}
+                        aria-label={on ? `Remove ${c} from filter` : `Filter by ${c}`}
+                        className={`pr-logo-btn${pick && pick.selected.length && !on ? ' is-dim' : ''}`}
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); pick?.toggle(c) }}>
+                        <CompanyLogo company={c} />
+                    </button>
+                )
+            })}
             {overflow > 0 && (
                 <button
+                    type="button"
+                    className="pr-more-btn"
                     onClick={e => { e.stopPropagation(); setExpanded(v => !v) }}
                     title={expanded ? 'Show fewer' : `Show ${overflow} more`}
-                    style={{
-                        flexShrink: 0, padding: '2px 8px', borderRadius: 4,
-                        border: '1px solid var(--subtle-strong)', background: 'var(--panel)',
-                        color: '#22d3ee', cursor: 'pointer', fontSize: '0.62rem',
-                        fontWeight: 900, lineHeight: 1.4, whiteSpace: 'nowrap',
-                    }}
+                    aria-expanded={expanded}
                 >
                     {expanded ? '− less' : `+${overflow}`}
                 </button>
@@ -100,25 +76,12 @@ function CompanyBadges({ companies = [], isMobile = false }) {
 
 // Placeholder for a company-matched question hidden behind Premium (task 2).
 // No title / tags / metadata — only a lock. Roughly matches ProblemRow size.
-function LockedQuestionCard({ isMobile, onClick }) {
+function LockedQuestionCard({ onClick }) {
     return (
-        <div
-            role="button"
-            tabIndex={0}
-            onClick={onClick}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
-            title="Upgrade to unlock this question"
-            style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                padding: isMobile ? '14px 12px' : '13px 12px',
-                borderBottom: '1px solid rgba(39,39,42,0.5)',
-                color: 'var(--faint)', cursor: 'pointer',
-                background: 'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255,255,255,0.02) 8px, rgba(255,255,255,0.02) 16px)',
-            }}
-        >
-            <Lock size={15} />
-            <span style={{ fontSize: '0.74rem', fontWeight: 700, letterSpacing: '0.02em' }}>Premium question</span>
-        </div>
+        <button type="button" className="pr-lock-row" onClick={onClick} title="Upgrade to unlock this question">
+            <Lock size={14} aria-hidden="true" />
+            <span>Premium question</span>
+        </button>
     )
 }
 
@@ -127,7 +90,7 @@ function LockedQuestionCard({ isMobile, onClick }) {
 // re-renders only the row that changed.
 const ProblemRow = memo(function ProblemRow({ p, prog, isMobile, onToggleStatus, onToggleBookmark }) {
     const isSolved = prog?.status === 'solved'
-    const isBookmarked = prog?.is_bookmarked
+    const isBookmarked = !!prog?.is_bookmarked
 
     const handleToggleStatus = () => {
         // Fire completion only on the unsolved → solved transition.
@@ -137,58 +100,24 @@ const ProblemRow = memo(function ProblemRow({ p, prog, isMobile, onToggleStatus,
         onToggleStatus(p.id, prog?.status ?? 'unsolved')
     }
 
-    const titleBlock = (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden', minWidth: 0, flex: 1 }}>
-            <a href={p.link} target="_blank" rel="noopener noreferrer"
-                onClick={() => track(EVENTS.QUESTION_STARTED, { type: 'dsa', problem_id: p.id, difficulty: p.difficulty })}
-                style={{
-                    color: isSolved ? 'var(--muted)' : 'var(--bright)', textDecoration: 'none',
-                    fontSize: '0.85rem', fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    textDecorationLine: isSolved ? 'line-through' : 'none',
-                }}>
-                {p.title}
-            </a>
-            <button onClick={() => onToggleBookmark(p.id)}
-                title="Bookmark"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: isBookmarked ? '#facc15' : 'var(--subtle-strong)', padding: 0, flexShrink: 0 }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill={isBookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
-            </button>
-        </div>
-    )
-
-    if (isMobile) {
-        return (
-            <div style={{
-                padding: '12px', borderBottom: '1px solid rgba(39,39,42,0.5)',
-                background: isSolved ? 'rgba(34,211,238,0.03)' : 'transparent',
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <FluidCheckbox checked={isSolved} onChange={handleToggleStatus} />
-                    {titleBlock}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                    <DifficultyBadge difficulty={p.difficulty} />
-                    <CompanyBadges companies={p.company || []} isMobile />
-                </div>
-            </div>
-        )
-    }
-
+    // Left border = difficulty tone (the only difficulty cue on phones).
+    const tone = DIFFICULTY_TONE[p.difficulty]
     return (
-        <div style={{
-            display: 'grid', gridTemplateColumns: '28px 1fr 90px 1fr',
-            gap: 8, padding: '10px 12px', alignItems: 'center',
-            borderBottom: '1px solid rgba(39,39,42,0.5)',
-            background: isSolved ? 'rgba(34,211,238,0.03)' : 'transparent',
-            transition: 'background 0.15s',
-        }}
-            onMouseEnter={e => { if (!isSolved) e.currentTarget.style.background = 'var(--panel)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = isSolved ? 'rgba(34,211,238,0.03)' : 'transparent' }}
-        >
+        <div className={`pr-row pr-grid${tone ? ` tone-${tone}` : ''}${isSolved ? ' is-done' : ''}`} role="listitem">
             <FluidCheckbox checked={isSolved} onChange={handleToggleStatus} />
-            {titleBlock}
+            <div className="pr-row-title">
+                <a href={p.link} target="_blank" rel="noopener noreferrer" className="pr-title"
+                    onClick={() => track(EVENTS.QUESTION_STARTED, { type: 'dsa', problem_id: p.id, difficulty: p.difficulty })}>
+                    {p.title}
+                </a>
+                <button type="button" className="pr-bookmark" onClick={() => onToggleBookmark(p.id)}
+                    aria-pressed={isBookmarked} aria-label={isBookmarked ? `Remove bookmark: ${p.title}` : `Bookmark ${p.title}`}
+                    title="Bookmark">
+                    <Bookmark size={12} fill={isBookmarked ? 'currentColor' : 'none'} aria-hidden="true" />
+                </button>
+            </div>
             <DifficultyBadge difficulty={p.difficulty} />
-            <CompanyBadges companies={p.company || []} />
+            <CompanyBadges companies={p.company || []} isMobile={isMobile} />
         </div>
     )
 })
@@ -369,94 +298,74 @@ export default function DSAListPage({ filterCompany }) {
         toggle: (c) => updateParam('company', companies.includes(c) ? companies.filter(x => x !== c) : [...companies, c]),
     }
 
+
+    const progRows = Object.values(progressMap)
+    const attemptedCount = progRows.filter(r => r.status === 'attempted').length
+    const bookmarkedCount = progRows.filter(r => r.is_bookmarked).length
+    const toggleStatusFilter = (s) => updateParam('status', statusFilter === s ? '' : s)
+
     return (
         <CompanyPickContext.Provider value={companyPick}>
-            <Navbar />
-            <div className="has-tilebar" style={{ paddingTop: 56, minHeight: '100vh' }}>
-                <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 16px' }}>
+            {/* the company wrapper (DSACompanyPage) renders its own Navbar */}
+            {!filterCompany && <Navbar />}
+            <div className="has-tilebar" style={{ minHeight: '100vh' }}>
+                <div className="pr-page">
 
-                    {/* Header + progress */}
-                    <div style={{ marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-                        <div style={{
-                            display: 'flex', gap: 16,
-                            alignItems: isMobile ? 'stretch' : 'baseline',
-                            justifyContent: 'space-between',
-                            flexWrap: 'wrap',
-                            flexDirection: isMobile ? 'column' : 'row',
-                        }}>
-                            <div>
-                                <h1 className="pg-title">DSA Problems</h1>
-                                <p className="pg-subtitle">LeetCode company-wise — {total} problems</p>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <div className="pg-stat">
-                                    <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Solved</span>
-                                    <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#22d3ee' }}>{solved}</span>
-                                    <span style={{ color: 'var(--subtle-strong)', fontSize: '0.8rem' }}>/</span>
-                                    <span style={{ fontSize: '0.82rem', color: 'var(--accent)' }}>{total}</span>
-                                </div>
-                                <button onClick={pickRandom} style={{
-                                    fontSize: '0.72rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em',
-                                    padding: '7px 12px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 6,
-                                    color: '#f472b6', cursor: 'pointer', whiteSpace: 'nowrap',
-                                }}>
-                                    🎲 Random
-                                </button>
-                            </div>
+                    {/* Header */}
+                    <div className="pr-head">
+                        <div>
+                            <h1 className="pg-title">DSA Problems</h1>
+                            <p className="pg-subtitle">LeetCode, company-wise · {total} problems</p>
                         </div>
-
-                        {/* Difficulty breakdown — over the rows currently in view */}
-                        {items.length > 0 && (
-                            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-                                {DIFFICULTIES.map(d => {
-                                    const dTotal = items.filter(p => p.difficulty === d).length
-                                    const done = items.filter(p => p.difficulty === d && progressMap[p.id]?.status === 'solved').length
-                                    return (
-                                        <div key={d} style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                            <DifficultyBadge difficulty={d} />
-                                            <span>{done}/{dTotal}</span>
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        )}
+                        <div className="pr-head-actions">
+                            <Button variant="ghost" icon={Shuffle} onClick={pickRandom} title="Open a random unsolved problem">Random</Button>
+                        </div>
                     </div>
 
-                    {/* --- Filter bar --- */}
-                    <div data-tour="dsa-list" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
-                        <div style={{ position: 'relative', flex: isMobile ? '1 1 100%' : '1 1 220px' }}>
-                            <svg style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" strokeWidth="2">
-                                <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
-                            </svg>
-                            <input
-                                id="dsa-search"
-                                value={searchInput}
-                                onChange={e => updateSearch(e.target.value)}
-                                placeholder="Search title or topics… ( / )"
-                                style={{
-                                    width: '100%', padding: '8px 10px 8px 32px', background: 'var(--panel)', border: '1px solid var(--subtle)',
-                                    borderRadius: 6, color: 'var(--bright)', font: 'inherit', fontSize: '0.82rem', outline: 'none',
-                                }}
-                                onFocus={e => e.target.style.borderColor = '#22d3ee'}
-                                onBlur={e => e.target.style.borderColor = 'var(--subtle)'}
-                            />
-                        </div>
+                    {/* Progress: tiles double as status filters */}
+                    <StatTiles cols={3} className="pr-tiles">
+                        <StatTile icon={CheckCircle2} label="Solved" value={solved} total={total} tone="success" onClick={() => toggleStatusFilter('solved')} />
+                        <StatTile icon={CircleDot} label="Attempted" value={attemptedCount} tone="waiting" onClick={() => toggleStatusFilter('attempted')} />
+                        <StatTile icon={Bookmark} label="Saved" value={bookmarkedCount} tone="active" onClick={() => toggleStatusFilter('bookmarked')} />
+                    </StatTiles>
 
-                        {/* Difficulty chips */}
-                        <div style={{ display: 'flex', gap: 4 }}>
+                    {/* Difficulty breakdown — over the rows currently in view */}
+                    {items.length > 0 && (
+                        <div className="pr-breakdown">
+                            {DIFFICULTIES.map(d => {
+                                const dTotal = items.filter(p => p.difficulty === d).length
+                                const done = items.filter(p => p.difficulty === d && progressMap[p.id]?.status === 'solved').length
+                                return (
+                                    <span key={d}>
+                                        <DifficultyBadge difficulty={d} />
+                                        {done}/{dTotal}
+                                    </span>
+                                )
+                            })}
+                        </div>
+                    )}
+
+                    {/* --- Filter bar --- */}
+                    <div data-tour="dsa-list" className="pr-filters">
+                        <SearchInput
+                            id="dsa-search"
+                            label="Search DSA problems"
+                            value={searchInput}
+                            onChange={updateSearch}
+                            placeholder={isMobile ? 'Search problems…' : 'Search title or topics… ( / )'}
+                        />
+
+                        {/* Difficulty toggles (multi-select) */}
+                        <div className="pr-toggles" role="group" aria-label="Difficulty">
                             {DIFFICULTIES.map(d => {
                                 const active = difficulties.includes(d)
-                                const colors = { Easy: '#4ade80', Medium: '#facc15', Hard: '#f87171' }
                                 return (
-                                    <button key={d} onClick={() => {
-                                        const next = active ? difficulties.filter(x => x !== d) : [...difficulties, d]
-                                        updateParam('difficulty', next)
-                                    }} style={{
-                                        padding: '5px 10px', borderRadius: 6, border: `1px solid ${active ? colors[d] : 'var(--subtle)'}`,
-                                        background: active ? `rgba(${d === 'Easy' ? '74,222,128' : d === 'Medium' ? '250,204,21' : '248,113,113'},0.12)` : 'transparent',
-                                        color: active ? colors[d] : 'var(--muted)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 900,
-                                        textTransform: 'uppercase', letterSpacing: '0.06em', transition: 'all 0.15s',
-                                    }}>{d}</button>
+                                    <button key={d} type="button" aria-pressed={active}
+                                        className={`pr-toggle tone-${DIFFICULTY_TONE[d]}`}
+                                        onClick={() => {
+                                            const next = active ? difficulties.filter(x => x !== d) : [...difficulties, d]
+                                            updateParam('difficulty', next)
+                                        }}>{d}</button>
                                 )
                             })}
                         </div>
@@ -467,69 +376,45 @@ export default function DSAListPage({ filterCompany }) {
                         />
 
                         <select
+                            className="sys-select"
+                            aria-label="Sort problems"
                             value={sort}
                             onChange={e => updateParam('sort', e.target.value)}
-                            style={{
-                                padding: '6px 10px', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6,
-                                color: 'var(--accent)', font: 'inherit', fontSize: '0.78rem', outline: 'none', cursor: 'pointer',
-                            }}
                         >
                             {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                         </select>
 
-                        <button onClick={() => setShowMoreFilters(v => !v)} style={{
-                            padding: '6px 12px', background: showMoreFilters ? '#22d3ee' : 'none', border: '1px solid var(--subtle)',
-                            borderRadius: 6, color: showMoreFilters ? 'var(--surface)' : 'var(--muted)', cursor: 'pointer', fontSize: '0.72rem',
-                            fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em',
-                        }}>
-                            {showMoreFilters ? '▲ Less' : '▼ More'}
-                        </button>
+                        <Button
+                            variant={showMoreFilters || statusActive ? 'primary' : 'secondary'}
+                            icon={SlidersHorizontal}
+                            iconOnly
+                            aria-label={showMoreFilters ? 'Hide status filter' : 'Show status filter'}
+                            aria-expanded={showMoreFilters}
+                            aria-controls="dsa-more-filters"
+                            title="Status filter"
+                            onClick={() => setShowMoreFilters(v => !v)}
+                        />
                     </div>
 
                     {/* More filters */}
-                    {showMoreFilters && (
-                        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 12, padding: '12px 16px', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8 }}>
-                            <div>
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Status</label>
-                                <div style={{ display: 'flex', gap: 4 }}>
-                                    {['', 'solved', 'attempted', 'unsolved', 'bookmarked'].map(s => (
-                                        <button key={s} onClick={() => updateParam('status', s)} style={{
-                                            padding: '4px 10px', borderRadius: 5, border: `1px solid ${statusFilter === s ? '#22d3ee' : 'var(--subtle)'}`,
-                                            background: statusFilter === s ? 'rgba(34,211,238,0.12)' : 'transparent',
-                                            color: statusFilter === s ? '#22d3ee' : 'var(--muted)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
-                                        }}>
-                                            {s || 'All'}
-                                        </button>
-                                    ))}
-                                </div>
-                                <p style={{ fontSize: '0.62rem', color: 'var(--faint)', marginTop: 6 }}>
-                                    Status filters apply across all matching problems.
-                                </p>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Table header */}
-                    {!isMobile && (
-                        <div style={{
-                            display: 'grid', gridTemplateColumns: '28px 1fr 90px 1fr',
-                            gap: 8, padding: '6px 12px', borderBottom: '1px solid var(--subtle)',
-                            fontSize: '0.62rem', fontWeight: 900, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.08em',
-                        }}>
-                            <span></span>
-                            <span>Problem</span>
-                            <span>Difficulty</span>
-                            <span>Companies</span>
+                    {(showMoreFilters || statusActive) && (
+                        <div id="dsa-more-filters" className="pr-more">
+                            <Segmented
+                                label="Status"
+                                value={statusFilter}
+                                onChange={s => updateParam('status', s)}
+                                options={STATUS_OPTIONS}
+                            />
                         </div>
                     )}
 
                     {isLoading ? (
-                        <div>
+                        <div className="pr-table" role="status" aria-label="Loading problems">
                             {Array.from({ length: 12 }).map((_, i) => (
-                                <div key={i} style={{ height: 51, borderBottom: '1px solid var(--panel)', display: 'flex', alignItems: 'center', gap: 12, padding: '0 12px' }}>
-                                    <div style={{ width: 20, height: 20, borderRadius: 4, background: 'var(--subtle)' }} />
-                                    <div style={{ flex: 1, height: 14, borderRadius: 4, background: 'var(--panel)', animation: 'pulse 1.5s ease-in-out infinite' }} />
-                                    <div style={{ width: 60, height: 14, borderRadius: 4, background: 'var(--panel)' }} />
+                                <div key={i} className="pr-skel">
+                                    <i style={{ width: 18, height: 18 }} />
+                                    <i style={{ flex: 1 }} />
+                                    <i style={{ width: 60 }} />
                                 </div>
                             ))}
                         </div>
@@ -541,46 +426,49 @@ export default function DSAListPage({ filterCompany }) {
                         />
                     ) : viewItems.length === 0 ? (
                         <EmptyState
-                            icon="🔍"
+                            art="code"
+                            tone="active"
                             title="No problems match your filters."
-                            action={(
-                                <button onClick={() => setSearchParams({})} style={{ padding: '6px 16px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 6, color: '#22d3ee', cursor: 'pointer', fontSize: '0.78rem' }}>
-                                    Clear filters
-                                </button>
-                            )}
+                            action={<Button onClick={() => setSearchParams({})}>Clear filters</Button>}
                         />
                     ) : (
                         <>
-                            <div style={{ opacity: isFetching ? 0.6 : 1, transition: 'opacity 0.15s' }}>
-                                {viewItems.map(p => (
-                                    <ProblemRow
-                                        key={p.id}
-                                        p={p}
-                                        prog={progressMap[p.id]}
-                                        isMobile={isMobile}
-                                        onToggleStatus={toggleStatus}
-                                        onToggleBookmark={toggleBookmark}
-                                    />
-                                ))}
+                            <div className={`pr-table${isFetching ? ' is-fetching' : ''}`} aria-busy={isFetching || undefined}>
+                                {/* Table header */}
+                                {!isMobile && (
+                                    <div className="pr-thead pr-grid" aria-hidden="true">
+                                        <span></span>
+                                        <span>Problem</span>
+                                        <span>Difficulty</span>
+                                        <span>Companies</span>
+                                    </div>
+                                )}
+                                <div role="list" aria-label="DSA problems">
+                                    {viewItems.map(p => (
+                                        <ProblemRow
+                                            key={p.id}
+                                            p={p}
+                                            prog={progressMap[p.id]}
+                                            isMobile={isMobile}
+                                            onToggleStatus={toggleStatus}
+                                            onToggleBookmark={toggleBookmark}
+                                        />
+                                    ))}
+                                </div>
                             </div>
 
                             {companyLock && lockedCount > 0 && (
                                 <>
-                                    <div style={{
-                                        margin: '10px 0', padding: '10px 14px', borderRadius: 8,
-                                        border: '1px solid rgba(167,139,250,0.35)', background: 'rgba(167,139,250,0.08)',
-                                        fontSize: '0.78rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 8,
-                                        flexWrap: 'wrap',
-                                    }}>
-                                        <Lock size={14} style={{ color: '#a78bfa', flexShrink: 0 }} />
-                                        <span><strong style={{ color: 'var(--bright)' }}>{lockedCount}</strong> more question{lockedCount === 1 ? '' : 's'} available with Premium</span>
-                                        <Link to="/pricing" style={{ color: '#a78bfa', fontWeight: 700, textDecoration: 'none' }}>— Upgrade to unlock</Link>
+                                    <div className="sys-locked pr-lock-note">
+                                        <Lock size={14} className="sys-locked-icon" aria-hidden="true" />
+                                        <span className="sys-locked-title"><strong>{lockedCount}</strong> more with Premium</span>
+                                        <Link to="/pricing" className="sys-locked-cta">Upgrade</Link>
                                     </div>
-                                    <div style={{ opacity: isFetching ? 0.6 : 1 }}>
+                                    <div className="pr-lock-list" style={{ opacity: isFetching ? 0.6 : 1 }}>
                                         {/* one placeholder per hidden question; capped so a company
                                             with hundreds of matches doesn't blow up the DOM. */}
                                         {Array.from({ length: Math.min(lockedCount, 100) }).map((_, i) => (
-                                            <LockedQuestionCard key={`lock-${i}`} isMobile={isMobile} onClick={() => navigate('/pricing')} />
+                                            <LockedQuestionCard key={`lock-${i}`} onClick={() => navigate('/pricing')} />
                                         ))}
                                     </div>
                                 </>
@@ -591,22 +479,22 @@ export default function DSAListPage({ filterCompany }) {
                             )}
 
                             {pageCount > 1 && (
-                                <Pagination page={currentPage} totalPages={pageCount} onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
+                                <Pagination page={currentPage} totalPages={pageCount} accent="var(--sys-active)" label="DSA pages"
+                                    onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
                             )}
                         </>
                     )}
 
                     {!isLoading && !isError && (
-                        <div style={{ marginTop: 8, color: 'var(--faint)', fontSize: '0.72rem', textAlign: 'center' }}>
+                        <div className="pr-foot" aria-live="polite">
                             {unlimited ? (
                                 <>
-                                    Showing {statusActive ? filteredItems.length : items.length} of {statusActive ? filteredItems.length : filteredCount} · {total} total · Press <kbd style={{ border: '1px solid var(--subtle)', borderRadius: 3, padding: '0 4px', fontSize: '0.65rem', color: 'var(--muted)' }}>/</kbd> to search
+                                    {statusActive ? filteredItems.length : items.length} of {statusActive ? filteredItems.length : filteredCount}
+                                    <span className="pr-kbd-hint"> · Press <kbd>/</kbd> to search</span>
                                 </>
                             ) : (
                                 <>
-                                    Preview: {items.length} of {total}
-                                    {' — '}
-                                    <Link to="/pricing" style={{ color: '#22d3ee', textDecoration: 'none', fontWeight: 700 }}>upgrade for all</Link>
+                                    Preview: {items.length} of {total} · <Link to="/pricing">upgrade for all</Link>
                                 </>
                             )}
                         </div>

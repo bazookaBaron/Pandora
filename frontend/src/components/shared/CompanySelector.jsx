@@ -34,12 +34,12 @@ export default function CompanySelector({ selected = [], onChange }) {
                     gap: 4,
                     padding: '6px 10px',
                     background: 'var(--panel)',
-                    border: `1px solid ${open ? '#22d3ee' : 'var(--subtle)'}`,
+                    border: `1px solid ${open ? 'var(--pop)' : 'var(--subtle)'}`,
                     borderRadius: 6,
                     cursor: 'text',
                     minHeight: 36,
                     alignItems: 'center',
-                    boxShadow: open ? '0 0 0 2px rgba(34,211,238,0.15)' : 'none',
+                    boxShadow: open ? '0 0 0 2px color-mix(in srgb, var(--pop) 15%, transparent)' : 'none',
                     transition: 'border-color 0.15s, box-shadow 0.15s',
                 }}
                 onClick={() => { setOpen(true); }}
@@ -50,15 +50,15 @@ export default function CompanySelector({ selected = [], onChange }) {
                 {selected.map(c => (
                     <span key={c} style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
-                        background: 'rgba(34,211,238,0.1)', color: '#22d3ee',
-                        border: '1px solid rgba(34,211,238,0.25)', borderRadius: 4,
+                        background: 'var(--pop-dim)', color: 'var(--pop)',
+                        border: '1px solid color-mix(in srgb, var(--pop) 25%, transparent)', borderRadius: 4,
                         padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
                     }}>
                         {c}
                         <button type="button" aria-label={`Remove ${c}`}
                             onPointerDown={(e) => { e.preventDefault(); e.stopPropagation() }}
                             onClick={(e) => { e.preventDefault(); e.stopPropagation(); remove(c) }}
-                            style={{ background: 'none', border: 'none', color: '#22d3ee', cursor: 'pointer', padding: '4px 6px', margin: '-4px -6px -4px 0', lineHeight: 1, fontSize: 14, minWidth: 24, minHeight: 24, touchAction: 'manipulation' }}>
+                            style={{ background: 'none', border: 'none', color: 'var(--pop)', cursor: 'pointer', padding: '4px 6px', margin: '-4px -6px -4px 0', lineHeight: 1, fontSize: 14, minWidth: 24, minHeight: 24, touchAction: 'manipulation' }}>
                             ×
                         </button>
                     </span>
@@ -111,7 +111,7 @@ export default function CompanySelector({ selected = [], onChange }) {
                             onMouseDown={(e) => { e.preventDefault(); add(c) }}
                             style={{
                                 padding: '7px 12px', cursor: 'pointer', fontSize: '0.82rem', color: 'var(--accent)',
-                                borderBottom: '1px solid rgba(39,39,42,0.5)',
+                                borderBottom: '1px solid var(--subtle)',
                                 transition: 'background 0.1s, color 0.1s',
                             }}
                             onMouseEnter={e => { e.target.style.background = 'var(--subtle)'; e.target.style.color = 'var(--bright)' }}

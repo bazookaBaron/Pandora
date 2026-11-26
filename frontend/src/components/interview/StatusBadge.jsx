@@ -1,20 +1,21 @@
+import Pill from '../ui/Pill'
+
 // ── Answer status badge ────────────────────────────────────────────
 // Enum values in interview_questions.answer_status:
 //   pending | generating | completed | failed
+// Rendered as a shared <Pill>: generating = active (live dot), pending = waiting,
+// failed = danger, completed = success. color / bg / border are token strings
+// kept for any caller that styles its own element from this map.
 export const STATUS_CONFIG = {
-    completed: { label: 'Done', color: '#4ade80', bg: 'rgba(74,222,128,0.1)', border: 'rgba(74,222,128,0.25)' },
-    generating: { label: 'Gen…', color: '#22d3ee', bg: 'rgba(34,211,238,0.1)', border: 'rgba(34,211,238,0.25)' },
-    pending: { label: 'Pending', color: '#facc15', bg: 'rgba(250,204,21,0.1)', border: 'rgba(250,204,21,0.25)' },
-    failed: { label: 'Failed', color: '#f87171', bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.25)' },
+    completed: { label: 'Done', tone: 'success', color: 'var(--sys-success)', bg: 'var(--sys-success-dim)', border: 'var(--sys-success)' },
+    generating: { label: 'Gen…', tone: 'active', live: true, color: 'var(--sys-active)', bg: 'var(--sys-active-dim)', border: 'var(--sys-active)' },
+    pending: { label: 'Pending', tone: 'waiting', color: 'var(--sys-waiting)', bg: 'var(--sys-waiting-dim)', border: 'var(--sys-waiting)' },
+    failed: { label: 'Failed', tone: 'danger', color: 'var(--sys-danger)', bg: 'var(--sys-danger-dim)', border: 'var(--sys-danger)' },
 }
 
 export default function StatusBadge({ status }) {
-    const cfg = STATUS_CONFIG[status] || { label: status || '…', color: 'var(--muted)', bg: 'transparent', border: 'var(--subtle-strong)' }
+    const cfg = STATUS_CONFIG[status] || { label: status || '…', tone: 'history' }
     return (
-        <span style={{
-            fontSize: '0.58rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.07em',
-            padding: '2px 6px', borderRadius: 4, border: `1px solid ${cfg.border}`,
-            background: cfg.bg, color: cfg.color, flexShrink: 0,
-        }}>{cfg.label}</span>
+        <Pill tone={cfg.tone} live={!!cfg.live} soft style={{ flexShrink: 0 }}>{cfg.label}</Pill>
     )
 }

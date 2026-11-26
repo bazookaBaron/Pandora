@@ -5,7 +5,6 @@ import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
 import { apiFetch } from '../../lib/apiClient'
 import { consumeInitialData } from '../../lib/initialData'
-import { useMediaQuery } from '../../lib/useMediaQuery'
 import { LockedSlice } from '../../components/shared/PaywallGate'
 import { ErrorState, EmptyState } from '../../components/shared/states'
 import Navbar from '../../components/Navbar'
@@ -13,16 +12,13 @@ import FluidCheckbox from '../../components/shared/FluidCheckbox'
 import CompanySelector from '../../components/shared/CompanySelector'
 import CompanyLogo from '../../components/shared/CompanyLogo'
 import Pagination from '../../components/shared/Pagination'
+import { Pill, SearchInput, Button } from '../../components/ui'
+import { ArrowRight, Check, CheckCircle2 } from 'lucide-react'
 
 const PAGE_SIZE = 6
 
 function LLDSkeleton() {
-    return Array.from({ length: PAGE_SIZE }).map((_, i) => (
-        <div key={i} style={{
-            background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 8, padding: 16, height: 120,
-            animation: 'pulse 1.5s ease-in-out infinite',
-        }} />
-    ))
+    return Array.from({ length: PAGE_SIZE }).map((_, i) => <div key={i} className="pr-card-skel" />)
 }
 
 export default function LLDListPage() {
@@ -33,7 +29,6 @@ export default function LLDListPage() {
     const [page, setPage] = useState(1)
     const companies = searchParams.get('company') ? searchParams.get('company').split(',') : []
     const companyKey = companies.join(',')
-    const isMobile = useMediaQuery('(max-width: 767px)')
 
     // Debounce the search box → URL param (300ms) so it feeds the query key
     // without a request per keystroke.
@@ -92,68 +87,37 @@ export default function LLDListPage() {
 
     useEffect(() => { setPage(1) }, [search, companyKey])
 
-    const gridCols = isMobile ? '1fr' : 'repeat(auto-fill, minmax(280px, 1fr))'
-
     const renderCard = (p) => {
         const prog = progressMap[p.id]
         const isSolved = prog?.status === 'solved'
+        const cos = p.companies || []
         return (
-            <div key={p.id} style={{
-                background: 'var(--panel)', border: `1px solid ${isSolved ? 'rgba(244,114,182,0.3)' : 'var(--subtle)'}`,
-                borderRadius: 8, padding: '14px 16px', position: 'relative',
-                transition: 'border-color 0.15s, transform 0.15s',
-                display: 'flex', flexDirection: 'column', gap: 10,
-            }}
-                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = isSolved ? 'rgba(244,114,182,0.5)' : 'var(--subtle-strong)' }}
-                onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = isSolved ? 'rgba(244,114,182,0.3)' : 'var(--subtle)' }}
-            >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div key={p.id} className={`pr-card tone-attention${isSolved ? ' is-done' : ''}`} role="listitem">
+                <div className="pr-card-top">
                     <FluidCheckbox
                         checked={isSolved}
                         onChange={() => toggleStatus(p.id, prog?.status ?? 'unsolved')}
                     />
-                    {isSolved && (
-                        <span style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', color: '#f472b6', letterSpacing: '0.08em', marginLeft: 'auto' }}>
-                            ✓ Practiced
-                        </span>
-                    )}
+                    {isSolved && <Pill tone="attention" icon={Check}>Practiced</Pill>}
                 </div>
 
-                <Link to={`/lld/${p.slug}`} style={{ textDecoration: 'none' }}>
-                    <h3 style={{
-                        fontSize: '0.92rem', fontWeight: 900, color: isSolved ? 'var(--muted)' : 'var(--bright)',
-                        letterSpacing: '-0.02em', lineHeight: 1.3, textDecoration: isSolved ? 'line-through' : 'none',
-                    }}>
-                        {p.title}
-                    </h3>
+                <Link to={`/lld/${p.slug}`} className="pr-card-link">
+                    <h3 className="pr-card-title">{p.title}</h3>
                 </Link>
 
                 {p.requirements && (
-                    <p style={{
-                        fontSize: '0.73rem', color: 'var(--muted)', lineHeight: 1.5,
-                        overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-                    }}>
-                        {p.requirements.replace(/[#*`]/g, '').slice(0, 120)}…
-                    </p>
+                    <p className="pr-card-desc">{p.requirements.replace(/[#*`]/g, '').slice(0, 120)}…</p>
                 )}
 
-                {(p.companies || []).length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                        {(p.companies || []).slice(0, 3).map(c => (
-                            <CompanyLogo key={c} company={c} />
-                        ))}
-                        {(p.companies || []).length > 3 && (
-                            <span style={{ fontSize: '0.62rem', color: 'var(--faint)', alignSelf: 'center' }}>+{p.companies.length - 3}</span>
-                        )}
+                {cos.length > 0 && (
+                    <div className="pr-card-logos">
+                        {cos.slice(0, 3).map(c => <CompanyLogo key={c} company={c} />)}
+                        {cos.length > 3 && <span className="pr-plus">+{cos.length - 3}</span>}
                     </div>
                 )}
 
-                <Link to={`/lld/${p.slug}`} style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4,
-                    fontSize: '0.72rem', fontWeight: 900, color: '#f472b6', textDecoration: 'none',
-                    textTransform: 'uppercase', letterSpacing: '0.06em',
-                }}>
-                    Open IDE →
+                <Link to={`/lld/${p.slug}`} className="pr-card-cta" aria-label={`Open IDE: ${p.title}`}>
+                    <span className="pr-cta-word">Open IDE</span><ArrowRight size={13} aria-hidden="true" />
                 </Link>
             </div>
         )
@@ -162,84 +126,76 @@ export default function LLDListPage() {
     return (
         <>
             <Navbar />
-            <div className="has-tilebar" style={{ paddingTop: 56, minHeight: '100vh', maxWidth: 1100, margin: '0 auto', padding: '80px 16px 40px' }}>
-                {/* Header */}
-                <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'flex-end', flexWrap: 'wrap', gap: 16, marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-                    <div>
-                        <h1 className="pg-title">LLD Problems</h1>
-                        <p className="pg-subtitle">Low-level design — class diagrams + code walkthroughs</p>
+            <div className="has-tilebar" style={{ minHeight: '100vh' }}>
+                <div className="pr-page is-narrow">
+                    {/* Header */}
+                    <div className="pr-head">
+                        <div>
+                            <h1 className="pg-title">LLD Problems</h1>
+                            <p className="pg-subtitle">Class diagrams and code walkthroughs</p>
+                        </div>
+                        <div className="pg-stat tone-attention" aria-label={`${solved} of ${total} practiced`}>
+                            <CheckCircle2 size={14} className="tone-text" aria-hidden="true" />
+                            <span className="pg-stat-label">Practiced</span>
+                            <span className="pg-stat-value tone-text">{solved}</span>
+                            <span className="pg-stat-sep">/</span>
+                            <span className="pg-stat-total">{total}</span>
+                        </div>
                     </div>
-                    <div className="pg-stat">
-                        <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Practiced</span>
-                        <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#f472b6' }}>{solved}</span>
-                        <span style={{ color: 'var(--subtle-strong)' }}>/</span>
-                        <span style={{ fontSize: '0.82rem', color: 'var(--accent)' }}>{total}</span>
-                    </div>
-                </div>
 
-                {/* Filters */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20, alignItems: 'center' }}>
-                    <div style={{ position: 'relative', flex: '1 1 220px' }}>
-                        <svg style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" strokeWidth="2">
-                            <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
-                        </svg>
-                        <input
+                    {/* Filters */}
+                    <div className="pr-filters">
+                        <SearchInput
+                            label="Search LLD problems"
+                            tone="attention"
                             value={searchInput}
-                            onChange={e => updateSearch(e.target.value)}
-                            placeholder="Search by title or requirements…"
-                            style={{
-                                width: '100%', padding: '8px 10px 8px 32px', background: 'var(--panel)', border: '1px solid var(--subtle)',
-                                borderRadius: 6, color: 'var(--bright)', font: 'inherit', fontSize: '0.82rem', outline: 'none',
-                            }}
-                            onFocus={e => e.target.style.borderColor = '#f472b6'}
-                            onBlur={e => e.target.style.borderColor = 'var(--subtle)'}
+                            onChange={updateSearch}
+                            placeholder="Search LLD problems…"
                         />
+                        <CompanySelector selected={companies} onChange={v => updateParam('company', v)} />
                     </div>
-                    <CompanySelector selected={companies} onChange={v => updateParam('company', v)} />
+
+                    {/* Card Grid */}
+                    {isLoading ? (
+                        <div className="pr-cards" role="status" aria-label="Loading LLD problems">
+                            <LLDSkeleton />
+                        </div>
+                    ) : isError ? (
+                        <ErrorState
+                            title="Could not load LLD problems."
+                            err={error}
+                            onRetry={() => refetch()}
+                        />
+                    ) : items.length === 0 ? (
+                        <EmptyState
+                            art="diagram"
+                            tone="attention"
+                            title="No LLD problems match your filters."
+                            action={<Button onClick={() => { setSearchInput(''); setSearchParams({}); setPage(1) }}>Clear filters</Button>}
+                        />
+                    ) : (
+                        <>
+                            <div className={`pr-cards${isFetching ? ' is-fetching' : ''}`} role="list" aria-label="LLD problems" aria-busy={isFetching || undefined}>
+                                {items.map(renderCard)}
+                            </div>
+
+                            {locked > 0 && (
+                                <LockedSlice count={locked} noun="LLD problems" variant="card" />
+                            )}
+
+                            {pageCount > 1 && (
+                                <Pagination page={data?.page ?? page} totalPages={pageCount} label="LLD pages"
+                                    onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
+                            )}
+
+                            <div className="pr-foot" aria-live="polite">
+                                {unlimited
+                                    ? `${items.length} of ${filteredCount}${pageCount > 1 ? ` · page ${data?.page ?? page} of ${pageCount}` : ''}`
+                                    : <>Preview: {items.length} of {total} · <Link to="/pricing">upgrade for all</Link></>}
+                            </div>
+                        </>
+                    )}
                 </div>
-
-                {/* Card Grid */}
-                {isLoading ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 12 }}>
-                        <LLDSkeleton />
-                    </div>
-                ) : isError ? (
-                    <ErrorState
-                        title="Could not load LLD problems."
-                        err={error}
-                        onRetry={() => refetch()}
-                    />
-                ) : items.length === 0 ? (
-                    <EmptyState
-                        icon="🧩"
-                        title="No LLD problems match your filters."
-                        action={(
-                            <button onClick={() => { setSearchInput(''); setSearchParams({}); setPage(1) }} style={{ padding: '6px 16px', background: 'none', border: '1px solid var(--subtle)', borderRadius: 6, color: '#f472b6', cursor: 'pointer', fontSize: '0.78rem' }}>
-                                Clear filters
-                            </button>
-                        )}
-                    />
-                ) : (
-                    <>
-                        <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 12, opacity: isFetching ? 0.6 : 1, transition: 'opacity 0.15s' }}>
-                            {items.map(renderCard)}
-                        </div>
-
-                        {locked > 0 && (
-                            <LockedSlice count={locked} noun="LLD problems" variant="card" />
-                        )}
-
-                        {pageCount > 1 && (
-                            <Pagination page={data?.page ?? page} totalPages={pageCount} onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
-                        )}
-
-                        <div style={{ textAlign: 'center', marginTop: 12, color: 'var(--faint)', fontSize: '0.72rem' }}>
-                            {unlimited
-                                ? `Showing ${items.length} of ${filteredCount}${pageCount > 1 ? ` · page ${data?.page ?? page} of ${pageCount}` : ''} · ${total} total`
-                                : `Preview: ${items.length} of ${total} — upgrade for all`}
-                        </div>
-                    </>
-                )}
             </div>
         </>
     )

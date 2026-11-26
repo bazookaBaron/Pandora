@@ -48,7 +48,7 @@ const BlogPostPage = lazy(() => import('./pages/StaticPages').then(m => ({ defau
 const GuidelinesPage = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.GuidelinesPage })))
 const LegalPrivacyScaffold = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.LegalPrivacyScaffold })))
 const LegalTermsScaffold = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.LegalTermsScaffold })))
-const FAQPage = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.FAQPage })))
+const FAQPage = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.FaqPage })))
 const SubscriptionSuccessPage = lazy(() => import('./pages/StaticPages').then(m => ({ default: m.SubscriptionSuccessPage })))
 
 // Key problem pages by their route param so navigating /lld/a -> /lld/b (e.g.

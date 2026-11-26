@@ -34,19 +34,19 @@ export default function SessionExpiredBanner() {
                 position: 'fixed', top: 56, left: 0, right: 0, zIndex: 900,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, flexWrap: 'wrap',
                 padding: '9px 16px',
-                background: 'rgba(244,114,182,0.12)',
-                borderBottom: '1px solid rgba(244,114,182,0.4)',
+                background: 'var(--warm-dim)',
+                borderBottom: '1px solid color-mix(in srgb, var(--warm) 40%, transparent)',
                 backdropFilter: 'blur(8px)',
             }}
         >
-            <span style={{ fontSize: '0.8rem', color: '#f472b6', fontWeight: 700 }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--warm)', fontWeight: 700 }}>
                 Your session expired — please sign in again.
             </span>
             <button
                 onClick={() => { setShow(false); navigate('/auth') }}
                 style={{
-                    padding: '4px 14px', borderRadius: 6, border: '1px solid rgba(244,114,182,0.5)',
-                    background: 'none', color: '#f472b6', cursor: 'pointer',
+                    padding: '4px 14px', borderRadius: 6, border: '1px solid color-mix(in srgb, var(--warm) 50%, transparent)',
+                    background: 'none', color: 'var(--warm)', cursor: 'pointer',
                     fontSize: '0.72rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em',
                 }}
             >
