@@ -3558,7 +3558,7 @@ app.post(
         });
       }
 
-      // Atomic claim (sql/50): per-user advisory lock + 24h count + conditional UPDATE in ONE
+      // Atomic claim (sql/51): per-user advisory lock + 24h count + conditional UPDATE in ONE
       // transaction, so parallel accepts cannot overshoot the cap. The pre-check above only
       // supplies the friendly message / retryAt; this RPC is the enforcement.
       // Note: work-email verification is deliberately optional in this feature (it only raises
@@ -4101,7 +4101,7 @@ app.post(
       if (existing && effectivePlanFromRow(existing) !== "free") {
         return res.status(409).json({ error: "already_subscribed", message: "You already have an active plan." });
       }
-      // Coupons grant a monthly term unless the coupon row explicitly allows yearly (sql/49).
+      // Coupons grant a monthly term unless the coupon row explicitly allows yearly (sql/50).
       // Fail closed: a missing column / read error means monthly.
       if (billingPeriod === "yearly") {
         const { data: cRow, error: cErr } = await supabaseAdmin.from("coupons").select("allow_yearly").eq("code", code).maybeSingle();

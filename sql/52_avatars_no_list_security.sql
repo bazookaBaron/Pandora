@@ -1,4 +1,4 @@
--- 51_avatars_no_list_security.sql
+-- 52_avatars_no_list_security.sql
 -- sql/15 gave the public `avatars` bucket a SELECT policy for everyone, which lets any client LIST
 -- (enumerate) every user's avatar paths via the storage API. Public object URLs
 -- (/storage/v1/object/public/avatars/...) are served by the bucket's public flag and do NOT need it.

@@ -1,4 +1,4 @@
--- 50_referral_accept_atomic_security.sql
+-- 51_referral_accept_atomic_security.sql
 -- The rolling-24h accept cap was check-then-update in Node, so N parallel accepts all passed the check.
 -- This function serialises per accepting user (advisory xact lock), counts inside the same transaction
 -- and performs the conditional claim. Raises 'accept_limit' when over the cap; returns 0 rows when the

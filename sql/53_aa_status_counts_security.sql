@@ -1,4 +1,4 @@
--- 52_aa_status_counts_security.sql
+-- 53_aa_status_counts_security.sql
 -- /api/autoapply/batches and /batches/:id counted task statuses in JS over up to 10k rows on every poll.
 -- This returns the per-batch status histogram from one GROUP BY. Service-role only (the API already
 -- scopes by user; p_user is re-checked here so a batch id from another user yields nothing).

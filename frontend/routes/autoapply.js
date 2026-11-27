@@ -49,7 +49,7 @@ export { AAError, handleAutoApplyWebhook };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
 /**
- * Per-batch status histogram {batchId: {status: n}} via one GROUP BY (sql/52 aa_task_status_counts).
+ * Per-batch status histogram {batchId: {status: n}} via one GROUP BY (sql/53 aa_task_status_counts).
  * Falls back to counting a capped row scan when the RPC is not deployed yet.
  */
 async function statusCountsFor(db, userId, batchIds) {
