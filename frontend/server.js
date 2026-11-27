@@ -3558,22 +3558,31 @@ app.post(
         });
       }
 
-      // Single conditional UPDATE: id + status='open' + company match
-      // (case-insensitive) + not self. maybeSingle() → null when nothing matched.
-      const { data, error } = await supabaseAdmin
-        .from("referral_requests")
-        .update({
-          status: "accepted",
-          accepted_by_user_id: req.user.id,
-          accepted_at: new Date().toISOString(),
-        })
-        .eq("id", req.params.id)
-        .eq("status", "open")
-        .eq("target_company_norm", myCompany.toLowerCase())
-        .neq("poster_user_id", req.user.id)
-        .select()
-        .maybeSingle();
-      if (error) throw error;
+      // Atomic claim (sql/50): per-user advisory lock + 24h count + conditional UPDATE in ONE
+      // transaction, so parallel accepts cannot overshoot the cap. The pre-check above only
+      // supplies the friendly message / retryAt; this RPC is the enforcement.
+      // Note: work-email verification is deliberately optional in this feature (it only raises
+      // the cap, see lib/referralAccess.js), so no verified-only gate is added here.
+      const { data: claimed, error } = await supabaseAdmin.rpc("accept_referral_request", {
+        p_id: req.params.id,
+        p_user: req.user.id,
+        p_company_norm: myCompany.toLowerCase(),
+        p_limit: lim.limit,
+      });
+      if (error) {
+        if (String(error.message || "").includes("accept_limit")) {
+          return res.status(429).json({
+            error: "accept_limit",
+            message: acceptLimitMessage({ limit: lim.limit, verified: mine.verified }),
+            limit: lim.limit,
+            used: lim.limit,
+            retryAt: null,
+            verified: mine.verified,
+          });
+        }
+        throw error;
+      }
+      const data = Array.isArray(claimed) ? claimed[0] : claimed;
       if (!data) return res.status(409).json({ error: "already_accepted" });
 
       res.json({ id: data.id, status: "accepted", referrerVerified: mine.verified });
@@ -4070,7 +4079,7 @@ app.post(
     try {
       const code = normCouponCode(req.body && req.body.code);
       if (!code) return res.status(400).json({ error: "coupon_invalid", message: COUPON_MESSAGES.coupon_invalid });
-      const billingPeriod = PERIODS.includes(req.body && req.body.billingPeriod) ? req.body.billingPeriod : "monthly";
+      let billingPeriod = PERIODS.includes(req.body && req.body.billingPeriod) ? req.body.billingPeriod : "monthly";
       const peek = await redeemCoupon(supabaseAdmin, { code, userId: req.user.id, target: "plan", dry: true });
       if (peek.kind !== "free_all") {
         return res.status(400).json({ error: "coupon_not_applicable", message: "This coupon works on AutoApply packs, not plans." });
@@ -4082,6 +4091,12 @@ app.post(
         .maybeSingle();
       if (existing && effectivePlanFromRow(existing) !== "free") {
         return res.status(409).json({ error: "already_subscribed", message: "You already have an active plan." });
+      }
+      // Coupons grant a monthly term unless the coupon row explicitly allows yearly (sql/49).
+      // Fail closed: a missing column / read error means monthly.
+      if (billingPeriod === "yearly") {
+        const { data: cRow, error: cErr } = await supabaseAdmin.from("coupons").select("allow_yearly").eq("code", code).maybeSingle();
+        if (cErr || !cRow || cRow.allow_yearly !== true) billingPeriod = "monthly";
       }
       if (req.body && req.body.dry) return res.json({ ok: true, dry: true, kind: peek.kind, plan: peek.plan });
 
