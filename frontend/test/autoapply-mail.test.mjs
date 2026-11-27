@@ -45,11 +45,11 @@ test("classifier: important", () => {
   assert.equal(classifyMail({ subject: "Online assessment" }).retention_days, null);
 });
 
-test("classifier: strong important beats code/received; unsure is never code/received", () => {
+test("classifier: strong important beats code; unsure is never code/received", () => {
   // a code mail that is really an assessment invite
   assert.equal(cat({ subject: "Verify your email to start your coding assessment", codes: ["123456"] }), "important");
   // a confirmation that mentions an interview is kept long
-  assert.equal(cat({ subject: "Thank you for applying", text_excerpt: "If shortlisted we will call you for an interview." }), "important");
+  assert.equal(cat({ subject: "Thank you for applying", text_excerpt: "If shortlisted we will call you for an interview." }), "received", "an auto-acknowledgement stays a receipt even when it mentions an interview");
   // a person writing is never code/received, even with code-like words
   assert.equal(cat({ subject: "Thank you for applying", text_excerpt: "Hi Priya, I'm Jane from the team", is_human: true }), "important");
   assert.equal(cat({ subject: "Verify your email", is_human: true }), "important");

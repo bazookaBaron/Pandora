@@ -23,14 +23,26 @@ export const KINDS = ["interview", "assessment", "offer", "recruiter", "rejectio
 /** Categories that alert the user (push + daily digest + unread badge). */
 export const NOTIFY_CATEGORIES = ["important", "rejected"];
 
+/** Candidate kinds that must be confirmed by corroborating evidence before they are saved (stage 2, confirmKind). */
+export const VERIFY_KINDS = ["interview", "assessment", "offer"];
+
+// Hard evidence: a calendar invite, a meeting link or a link to an assessment platform. It wins even over a
+// "thank you for applying" opener, because the link itself is the invitation.
+const ASSESS_LINK_RE = /https?:\/\/[^\s"'<>]*\b(hackerrank\.com|codility\.com|codesignal\.com|hirevue\.com|mettl\.com|devskiller\.com|testgorilla\.com|coderpad\.io|hackerearth\.com|shl\.com|cocubes\.com|karat\.com|vervoe\.com|criteriacorp\.com|imocha\.io|glider\.ai)\b[^\s"'<>]*/i;
+// Unambiguous textual cues. NOT a bare "interview" / "assessment" / "availability" / "next steps": those appear in
+// "thank you for applying ... we will contact you to arrange an interview" boilerplate.
 const STRONG_IMPORTANT = [
-  /\bassessments?\b/i, /\bcoding (test|challenge|round|exercise)\b/i, /\b(online|technical|aptitude|skills?|hiring) (test|challenge|round)\b/i,
-  /\b(hackerrank|codility|codesignal|hirevue|mettl|devskiller|testgorilla|coderpad|shl|cocubes|eightfold)\b/i,
-  /\binterviews?\b/i, /\boffer (letter|of employment)\b/i, /\bjob offer\b/i, /\bpleased to offer\b/i,
-  /\bschedule (a|your) (call|interview|meeting|discussion)\b/i, /\b(video|phone|telephonic) (call|screen|interview)\b/i,
-  /\bwe would like to (invite|speak|talk|meet)\b/i,
+  /\bschedule (a|your|an) (interview|call|meeting|discussion)\b/i, /\binvite (you )?to (an? )?(interview|assessment|coding (test|challenge)|technical (round|test|screen))\b/i,
+  /\b(interview|assessment|coding challenge|test) (invitation|invite)\b/i, /\binvited (you )?to (an? )?(interview|complete|take|attempt)\b/i,
+  /\b(complete|take|attempt|start|begin) (the|this|your|an|a) (online |coding |technical |hackerrank |skills? )?(assessment|test|challenge)\b/i,
+  /\b(link to|access) (the|your) (online |coding |technical )?(assessment|test)\b/i, /\bcoding (test|challenge|round|exercise)\b/i,
+  /\b(online|technical|aptitude|hiring) (test|challenge)\b/i, /\btake[- ]home (test|assignment|assessment|challenge|exercise)\b/i,
+  /\boffer (letter|of employment)\b/i, /\bjob offer\b/i, /\bpleased to (offer|extend (you )?an offer)\b/i,
+  /\b(video|phone|telephonic) (call|screen|interview)\b/i, /\bwe would like to (invite|speak|talk|meet)\b/i,
 ];
+// Soft signals keep a mail (category important, never deleted) but name no kind and never create an interview row.
 const WEAK_IMPORTANT = [
+  /\binterviews?\b/i, /\bassessments?\b/i, /\b(hackerrank|codility|codesignal|hirevue|mettl|devskiller|testgorilla|coderpad|shl|cocubes|eightfold)\b/i,
   /\bnext steps?\b/i, /\bshortlisted\b/i, /\b(move|moving) (you )?forward\b/i, /\bwe'?d like to\b/i, /\brecruiter\b/i,
   /\bselected for\b/i, /\bcongratulations\b/i, /\bavailability\b/i, /\bhiring manager\b/i,
 ];
@@ -81,11 +93,38 @@ const INVITE = [
 
 const OFFER_RE = [/\boffer (letter|of employment)\b/i, /\bjob offer\b/i, /\bpleased to (offer|extend (you )?an offer)\b/i];
 const ASSESS_RE = [
-  /\bassessments?\b/i, /\bcoding (test|challenge|round|exercise)\b/i, /\b(online|technical|aptitude|skills?|hiring) (test|challenge)\b/i,
-  /\b(hackerrank|codility|codesignal|hirevue|mettl|devskiller|testgorilla|shl|cocubes|hackerearth)\b/i, /\btake[- ]home\b/i,
+  /\bcoding (test|challenge|round|exercise)\b/i, /\b(online|technical|aptitude|skills?|hiring) (test|challenge)\b/i,
+  /\b(complete|take|attempt|start|begin) (the|this|your|an|a) [a-z ]{0,25}(assessment|test|challenge)\b/i, /\b(link to|access) (the|your) [a-z ]{0,20}(assessment|test)\b/i,
+  /\b(assessment|test) (invitation|invite)\b/i, /\btake[- ]home (test|assignment|assessment|challenge|exercise)\b/i,
 ];
-const MEETING_RE = /(zoom\.us\/j|meet\.google\.com\/[a-z]|teams\.microsoft\.com\/l\/meetup-join|teams\.live\.com\/meet|webex\.com\/(meet|join))/i;
-const INTERVIEW_RE = [/\binterview(s|ing)?\b/i, /\bschedule (a|your) (call|meeting|discussion)\b/i, /\b(video|phone|telephonic) (call|screen)\b/i];
+const MEETING_RE = /(zoom\.us\/(j|my)|meet\.google\.com\/[a-z]|teams\.microsoft\.com\/l\/meetup-join|teams\.live\.com\/meet|webex\.com\/(meet|join)|calendly\.com\/|goodtime\.io\/|savvycal\.com\/|cal\.com\/|gotomeet\.me\/|chilipiper\.com\/)/i;
+// Stage 2 evidence
+const INTERVIEW_CONFIRM = [
+  /\bschedule (a|your|an|the) (interview|call with)\b/i, /\binvite you to (an? )?(interview|technical (round|screen))\b/i, /\binvited (you )?to (an? )?interview\b/i,
+  /\binterview (is |has been |was )?(scheduled|confirmed)\b/i, /\b(select|pick|choose|book|reserve) (a|your|an) (time|slot|date)\b/i, /\binterview (invitation|invite)\b/i,
+];
+const ASSESS_CONFIRM = /\b(complete|take|attempt|start|begin) (the|this|your|an|a) [a-z ]{0,25}(assessment|test|challenge)\b/i;
+const ASSESS_SENDER = /@[a-z0-9.-]*\b(hackerrank|codility|codesignal|hackerearth|mettl|testgorilla|karat|devskiller|hirevue|coderpad|shl|cocubes)\b/i;
+const OFFER_CONFIRM = [/\boffer letter\b/i, /\boffer of employment\b/i, /\bpleased to (offer|extend (you )?an offer)\b/i, /\b(extend|extending) (you )?(an|the|our) offer\b/i, /\bjob offer\b/i];
+const MARKETING = /\b(unsubscribe|newsletter|view in browser|manage (your )?(email )?preferences|special offer|limited[- ]time|% off|discount|job alerts?|jobs? (near|for) you|recommended jobs?)\b/i;
+// Applicant-tracking systems send acknowledgements from no-reply addresses; without hard evidence they are receipts.
+const ATS_AUTO = /(no-?reply|donotreply|do-not-reply|notifications?)@|@[a-z0-9.-]*\b(myworkday|workday|greenhouse|lever|smartrecruiters|icims|taleo|successfactors|ashbyhq|jobvite|bamboohr|recruitee|breezy|workable|teamtailor)\b/i;
+
+/** Stage 2: does corroborating evidence back the candidate kind? Pure. */
+export function confirmKind(kind, { all, sender, hasIcs, isReceived, isHuman }) {
+  const hasMeeting = MEETING_RE.test(all);
+  const hasAssessLink = ASSESS_LINK_RE.test(all);
+  const atsAuto = !isHuman && ATS_AUTO.test(sender);
+  const textOk = !isReceived && !atsAuto;   // phrase-only evidence is not enough on an auto-acknowledgement
+  if (kind === "interview") return hasIcs || hasMeeting || (textOk && any(INTERVIEW_CONFIRM, all));
+  if (kind === "assessment") return hasAssessLink || ASSESS_SENDER.test(sender) || (textOk && ASSESS_CONFIRM.test(all) && /https?:\/\//i.test(all));
+  if (kind === "offer") return textOk && any(OFFER_CONFIRM, all) && !MARKETING.test(all);
+  return true;
+}
+const INTERVIEW_RE = [
+  /\bschedule (a|your|an) (interview|call|meeting|discussion)\b/i, /\binvite (you )?to (an? )?(interview|technical (round|screen))\b/i, /\binterview (invitation|invite)\b/i,
+  /\binvited (you )?to (an? )?interview\b/i, /\b(video|phone|telephonic) (call|screen|interview)\b/i, /\bwe would like to (invite|speak|talk|meet)\b/i,
+];
 
 const any = (list, s) => list.some((re) => re.test(s));
 
@@ -96,9 +135,9 @@ export function isRejection(all) {
   return UNFORTUNATELY.test(all) && APP_CONTEXT.test(all);
 }
 
-function importantKind(subject, all, isHuman, hasIcs) {
+function importantKind(subject, all, isHuman, hasIcs, hasAssessLink = false) {
   if (any(OFFER_RE, subject)) return "offer";
-  if (any(ASSESS_RE, subject)) return "assessment";
+  if (any(ASSESS_RE, subject) || hasAssessLink) return "assessment";
   if (any(INTERVIEW_RE, subject)) return "interview";
   if (any(OFFER_RE, all)) return "offer";
   if (hasIcs || MEETING_RE.test(all)) return "interview";   // meeting link / calendar invite
@@ -117,22 +156,39 @@ export function classifyMail(m = {}) {
   const body = String(m.text_excerpt ?? m.text ?? "");
   const head = body.slice(0, 400);
   const meeting = Array.isArray(m.meeting_links) ? m.meeting_links.join("\n") : "";
-  const all = `${subject}\n${body}\n${meeting}`;
+  const links = Array.isArray(m.links) ? m.links.join("\n") : "";
+  const all = `${subject}\n${body}\n${meeting}\n${links}`;
   const isHuman = m.is_human === true;
   const codes = Array.isArray(m.codes) ? m.codes : [];
   const hasIcs = typeof m.ics === "string" && /BEGIN:VEVENT/i.test(m.ics);
   const lowTrust = m.auth_ok === false;
 
+  const hardEvidence = hasIcs || MEETING_RE.test(all) || ASSESS_LINK_RE.test(all);
+  const isReceived = !isHuman && (any(RECEIVED, subject) || any(RECEIVED, head));
+
   let category;
   if (!hasIcs && isRejection(all)) category = "rejected";
-  else if (hasIcs || any(STRONG_IMPORTANT, all)) category = "important";
-  else if (!isHuman && (any(RECEIVED, subject) || any(RECEIVED, head))) category = "received";
+  else if (hardEvidence) category = "important";
+  else if (isReceived) category = "received";   // before STRONG: "thank you for applying ... we will arrange an interview" is a receipt
+  else if (any(STRONG_IMPORTANT, all)) category = "important";
   else if (!isHuman && any(WEAK_IMPORTANT, all)) category = "important";
   else if (!isHuman && (any(CODE_SUBJECT, subject) || (codes.length > 0 && any(CODE_BODY, all)))) category = lowTrust ? "other" : "code";
   else if (isHuman) category = "important";
   else category = "other";
-  const kind = category === "rejected" ? "rejection" : category === "important" ? importantKind(subject, all, isHuman, hasIcs) : null;
-  return { category, kind, retention_days: RETENTION_DAYS[category] ?? null, low_trust: lowTrust };
+  let kind = category === "rejected" ? "rejection" : category === "important" ? importantKind(subject, all, isHuman, hasIcs, ASSESS_LINK_RE.test(all)) : null;
+  // Stage 2: an interview / assessment / offer candidate is saved only with corroborating evidence.
+  let kind_source = null;
+  if (VERIFY_KINDS.includes(kind)) {
+    const sender = String(m.sender || "");
+    if (confirmKind(kind, { all, sender, hasIcs, isReceived, isHuman })) kind_source = "rule_confirmed";
+    else {
+      kind_source = "rule_weak";
+      if (isHuman) { category = "important"; kind = "recruiter"; }
+      else if (isReceived || ATS_AUTO.test(sender)) { category = "received"; kind = null; }
+      else kind = null;   // keep the mail (important, never deleted) but name no kind and create no interview row
+    }
+  }
+  return { category, kind, kind_source, retention_days: RETENTION_DAYS[category] ?? null, low_trust: lowTrust };
 }
 
 /** ISO expiry for a category, or null when the mail is never deleted. */

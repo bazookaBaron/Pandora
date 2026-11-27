@@ -209,3 +209,55 @@ export async function backfillMail({ mailDb, batchSize = 500, maxBatches = 1000,
   }
   return stats;
 }
+
+/**
+ * Re-run the two-stage rules (candidate, then evidence) on mail already tagged interview / assessment / offer.
+ * Dry run by default: nothing is written, the returned `changes` is the diff. With apply:true the row is updated
+ * (category, kind, kind_source, expires_at) and an aa_interviews row is removed when the mail is no longer an
+ * interview (or created when it is a confirmed one that has none).
+ * The calendar invite and meeting links are not stored, so an interview that arrived with an attachment and
+ * has no link / scheduling phrase in the stored text is left as it is (reported as kept_unverifiable).
+ */
+export async function reverifyMail({ mailDb, apply = false, afterId = 0, limit = Infinity, batchSize = 500, log = () => {} } = {}) {
+  const stats = { scanned: 0, confirmed: 0, changed: 0, kept_unverifiable: 0, interviews_removed: 0, interviews_created: 0 };
+  const changes = [];
+  let cursor = afterId;
+  while (stats.scanned < limit) {
+    const { data, error } = await mailDb
+      .from("aa_mail_events")
+      .select("id, user_id, sender, from_name, subject, codes, links, is_human, text_excerpt, received_at, category, kind, company, expires_at, has_attachments, auth_ok")
+      .in("kind", ["interview", "assessment", "offer"])
+      .gt("id", cursor)
+      .order("id", { ascending: true })
+      .limit(batchSize);
+    if (error) throw error;
+    const rows = data || [];
+    if (!rows.length) break;
+    for (const r of rows) {
+      if (stats.scanned >= limit) break;
+      stats.scanned++;
+      cursor = r.id;
+      const next = classifyMail({ ...r, auth_ok: r.auth_ok !== false });
+      if (r.kind === "interview" && r.has_attachments && next.kind_source === "rule_weak") { stats.kept_unverifiable++; continue; }
+      if (next.kind === r.kind && next.category === r.category) {
+        stats.confirmed++;
+        if (apply) await mailDb.from("aa_mail_events").update({ kind_source: next.kind_source }).eq("id", r.id);
+        continue;
+      }
+      stats.changed++;
+      changes.push({ id: r.id, subject: String(r.subject || "").slice(0, 80), from: `${r.category}/${r.kind}`, to: `${next.category}/${next.kind ?? "-"}` });
+      if (!apply) continue;
+      const expires_at = mailExpiresAt({ category: next.category, user_id: r.user_id }, r.received_at || new Date());
+      const { error: uErr } = await mailDb.from("aa_mail_events").update({ category: next.category, kind: next.kind, kind_source: next.kind_source, expires_at }).eq("id", r.id);
+      if (uErr) throw uErr;
+      if (r.kind === "interview" && next.kind !== "interview") {
+        const { error: dErr } = await mailDb.from("aa_interviews").delete().eq("mail_event_id", r.id);
+        if (dErr) throw dErr;
+        stats.interviews_removed++;
+      }
+    }
+    log({ ...stats, last_id: cursor });
+    if (rows.length < batchSize) break;
+  }
+  return { stats, changes };
+}

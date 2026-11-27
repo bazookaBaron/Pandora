@@ -87,6 +87,8 @@ const isMissingDedupe = (err) =>
   !!err && (["PGRST204", "42703", "42P10"].includes(err.code) || /dedupe_key|no unique or exclusion constraint/i.test(String(err.message || "")));
 // auth_ok comes with sql/mail/05 (and sql/27 for the main-db fallback)
 const isMissingAuthOk = (err) => !!err && /auth_ok/i.test(String(err.message || ""));
+// kind_source comes with sql/mail/07_mail_kind_verify.sql
+const isMissingVerify = (err) => !!err && /kind_source/i.test(String(err.message || ""));
 
 const strArr = (v, max, len) =>
   (Array.isArray(v) ? v : []).filter((x) => typeof x === "string" && x).slice(0, max).map((x) => x.slice(0, len));
@@ -137,7 +139,12 @@ export async function storeInbound({ db, mailDb = db, payload }) {
   const meetingLinks = strArr(p.meeting_links, 10, 2000);
   const fromName = p.from_name == null ? null : String(p.from_name).slice(0, 200);
   // classified on the codes the mail claimed (so a spoofed OTP mail is recognised and labelled low-trust)
-  const { category, kind, low_trust: lowTrust } = classifyMail({ ...row, codes: strArr(p.codes, 20, 64), ics, meeting_links: meetingLinks, auth_ok: authOk });
+  const cls = classifyMail({ ...row, codes: strArr(p.codes, 20, 64), ics, meeting_links: meetingLinks, auth_ok: authOk });
+  const lowTrust = cls.low_trust;
+  row.dedupe_key = mailDedupeKey(p);
+  // classifyMail already validated interview / assessment / offer candidates against corroborating evidence
+  const { category, kind } = cls;
+  row.kind_source = cls.kind_source;
   row.category = category;
   row.kind = kind;
   row.from_name = fromName;
@@ -148,7 +155,6 @@ export async function storeInbound({ db, mailDb = db, payload }) {
   // arrival at Vloombox, so a late retry from the worker is not deleted at once. Everything else keeps
   // expires_at NULL = never deleted.
   row.expires_at = mailExpiresAt({ category, user_id: row.user_id }, new Date());
-  row.dedupe_key = mailDedupeKey(p);
   // INSERT ... ON CONFLICT (dedupe_key) DO NOTHING: a retried delivery inserts nothing and returns no row.
   let { data: inserted, error } = await mailDb
     .from("aa_mail_events")
@@ -157,6 +163,11 @@ export async function storeInbound({ db, mailDb = db, payload }) {
   if (error && isMissingAuthOk(error)) {
     console.warn("[autoapply/inbound] auth_ok column missing (apply sql/mail/05), storing without it");
     delete row.auth_ok;
+    ({ data: inserted, error } = await mailDb.from("aa_mail_events").upsert(row, { onConflict: "dedupe_key", ignoreDuplicates: true }).select("*"));
+  }
+  if (error && isMissingVerify(error)) {
+    console.warn("[autoapply/inbound] kind_source columns missing (apply sql/mail/07), storing without them");
+    delete row.kind_source;
     ({ data: inserted, error } = await mailDb.from("aa_mail_events").upsert(row, { onConflict: "dedupe_key", ignoreDuplicates: true }).select("*"));
   }
   if (error && isMissingDedupe(error)) {

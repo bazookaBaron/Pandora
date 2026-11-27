@@ -40,6 +40,16 @@ function Control({ field, value, onChange }) {
                     ))}
                 </div>
             )
+        case 'radio':
+            return (
+                <div className="ny-multi" role="radiogroup" aria-labelledby={`${id}-l`}>
+                    {opts.map((o) => (
+                        <label key={o.value} className="ny-check">
+                            <input type="radio" name={field.id} value={o.value} checked={String(value) === String(o.value)} onChange={() => onChange(o.value)} /> {o.label}
+                        </label>
+                    ))}
+                </div>
+            )
         case 'select':
             return (
                 <select {...common} className="input-field provider-select" value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
@@ -150,9 +160,14 @@ export default function NeedsYouPage() {
                         <div key={f.id} className="aa-field ny-field">
                             <label id={`${id}-l`} htmlFor={id} className="field-label ny-label">{f.label}</label>
                             <Control field={f} value={answers[f.id]} onChange={(v) => setAnswers((a) => ({ ...a, [f.id]: v }))} />
+                            {f.jobs?.length > 0 && (
+                                <div className="field-hint ny-from">
+                                    {f.jobs.slice(0, 2).map((j) => [j.company, j.title].filter(Boolean).join(' · ')).join('; ')}
+                                    {(f.job_count || f.jobs.length) > 2 ? ` +${(f.job_count || f.jobs.length) - 2} more` : ''}
+                                </div>
+                            )}
                             <div id={`${id}-h`} className="field-hint">
-                                {f.count > 1 ? `Asked by ${f.count} jobs` : 'Asked by 1 job'}
-                                {f.companies?.length ? ` (${f.companies.slice(0, 3).join(', ')}${f.companies.length > 3 ? '…' : ''})` : ''}
+                                {(f.job_count || f.count) > 1 ? `Used for ${f.job_count || f.count} jobs` : 'Used for 1 job'}
                                 {f.help ? `. ${f.help}` : ''}
                             </div>
                         </div>

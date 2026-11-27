@@ -1013,8 +1013,12 @@ export function createAutoApplyRouter(deps = {}) {
       const all = req.query.all === "1";
       const { items: ready, tasks: byId, accumulating } = await readyItems({ db, userId: req.user.id, now: now(), all });
       const items = [...ready].reverse().slice(0, 200); // newest first, as before
+      // unique_count: what the user actually has to answer (the same question asked by 5 jobs counts once), for banners
+      const uf = buildForm(ready, byId, {});
       res.json({
         accumulating,
+        unique_count: uf.fields.length + uf.sites.length + uf.unconfirmed.length + (uf.profile ? 1 : 0),
+        unique_questions: uf.fields.length,
         items: items.map((i) => {
           const t = (i.task_id && byId.get(i.task_id)) || null;
           return {

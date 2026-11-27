@@ -365,6 +365,7 @@ test("needs-you: list, answer -> aa_answers + task queued; done; double resolve"
   const n2 = { id: crypto.randomUUID(), task_id: tb.id, user_id: PRO, kind: "captcha", payload: { apply_url: "https://x" }, resolved_at: null, created_at: new Date().toISOString() };
   db.rows("aa_needs_you").push(n1, n2);
   const list = await call("GET", "/api/autoapply/needs-you?all=1");
+  assert.equal(typeof list.json.unique_count, "number"); assert.ok(list.json.unique_count <= list.json.items.length, "unique_count never exceeds the raw item count");
   const item = list.json.items.find((i) => i.id === n1.id);
   assert.equal(item.task.company, ta.company);
   const a = await call("POST", `/api/autoapply/needs-you/${n1.id}`, { body: { action: "answer", answer: "Yes" } });
@@ -497,7 +498,7 @@ test("inbound email: HMAC, alias -> user, mail db row with category, never forwa
   assert.equal(pushes.length, 0, "a code mail does not push");
   assert.equal(sent.length, 0, "nothing is ever sent through Resend for inbound mail");
 
-  const human = signed({ ...mail, from: "jane@acme.com", from_name: "Jane at Acme", subject: "Interview", is_human: true, codes: [], has_attachments: true, message_id: "<m2>" });
+  const human = signed({ ...mail, from: "jane@acme.com", from_name: "Jane at Acme", subject: "Interview", is_human: true, codes: [], has_attachments: true, meeting_links: ["https://meet.google.com/abc-defg-hij"], message_id: "<m2>" });
   await call("POST", "/api/inbound/email", { user: null, raw: human.raw, headers: human.headers });
   await lastAfter;
   assert.equal(sent.length, 0, "recruiter mail is not forwarded");
