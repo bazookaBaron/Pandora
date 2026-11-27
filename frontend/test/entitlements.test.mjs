@@ -14,19 +14,24 @@ test("active paid row past its period end downgrades to free", () => {
   assert.equal(effectivePlanFromRow({ plan: "max", status: "active", provider: "razorpay", current_period_end: past }, NOW), "free");
   assert.equal(effectivePlanFromRow({ plan: "pro", status: "on_trial", current_period_end: past }, NOW), "free");
 });
-test("active row without a period end is honoured (provider-backed or manual grant)", () => {
-  const warn = console.warn;
-  console.warn = () => {};
-  try {
-    assert.equal(effectivePlanFromRow({ plan: "pro", status: "active", provider: "razorpay", current_period_end: null }, NOW), "pro");
-  } finally {
-    console.warn = warn;
-  }
-  assert.equal(effectivePlanFromRow({ plan: "pro", status: "active", provider: null, current_period_end: null }, NOW), "pro");
+test("active paid row with NO period end is Free unless it is a legacy admin grant", () => {
+  assert.equal(effectivePlanFromRow({ plan: "pro", status: "active", provider: "razorpay", current_period_end: null }, NOW), "free");
+  assert.equal(effectivePlanFromRow({ plan: "pro", status: "active", provider: null, current_period_end: null }, NOW), "free");
+  assert.equal(effectivePlanFromRow({ plan: "pro", status: "active", provider: null, current_period_end: null, admin_grant: true }, NOW), "pro");
+  assert.equal(effectivePlanFromRow({ plan: "pro", status: "active", admin_grant: true, current_period_end: past }, NOW), "free");
 });
-test("cancelled/past_due honour the paid-through date only", () => {
+test("cancelled keeps access until the paid-through date, then Free", () => {
   assert.equal(effectivePlanFromRow({ plan: "pro", status: "cancelled", current_period_end: future }, NOW), "pro");
+  assert.equal(effectivePlanFromRow({ plan: "pro", status: "cancelled", cancel_at_period_end: true, current_period_end: past }, NOW), "free");
+  assert.equal(effectivePlanFromRow({ plan: "pro", status: "active", cancel_at_period_end: true, current_period_end: future }, NOW), "pro");
+});
+test("past_due: paid-through or 3-day grace, then Free", () => {
   assert.equal(effectivePlanFromRow({ plan: "pro", status: "past_due", current_period_end: past }, NOW), "free");
+  assert.equal(effectivePlanFromRow({ plan: "pro", status: "past_due", current_period_end: past, grace_until: "2026-06-17T00:00:00Z" }, NOW), "pro");
+  assert.equal(effectivePlanFromRow({ plan: "pro", status: "past_due", current_period_end: past, grace_until: "2026-06-14T00:00:00Z" }, NOW), "free");
+});
+test("halted drops to Free immediately, even inside the paid period", () => {
+  assert.equal(effectivePlanFromRow({ plan: "max", status: "halted", current_period_end: future, grace_until: future }, NOW), "free");
 });
 test("created/halted/expired/unknown and missing rows are free", () => {
   for (const status of ["created", "halted", "expired", "paused", "weird"]) {

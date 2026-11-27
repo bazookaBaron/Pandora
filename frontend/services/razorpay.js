@@ -1,11 +1,10 @@
 /**
- * Razorpay Standard Checkout — SERVER ONLY.
+ * Razorpay — SERVER ONLY.
  *
- * One-time payments that grant a plan for a fixed term (monthly / yearly).
- * There is no recurring billing: when the term lapses, the entitlements
- * "lazy check-on-access" (lib/entitlements.js) drops the user back to free,
- * and they re-purchase. This matches Razorpay's Orders + signature-verify
- * flow and the app's existing subscription model.
+ * Pro / Max are sold ONLY as recurring Razorpay Subscriptions (see the
+ * "Subscriptions" section below). The one-time Orders helpers at the top
+ * (createOrder / fetchOrder / verifyPaymentSignature / refund*) remain for
+ * AutoApply packs and wallet top-ups, which are not plans.
  *
  * DORMANT when RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are unset: isEnabled()
  * is false and the routes 503. KEY_SECRET never leaves this module.
@@ -127,36 +126,59 @@ export async function listRefunds(paymentId) {
 
 // ── Subscriptions ─────────────────────────────────────────────────
 // Recurring billing against pre-created Razorpay Plans. Env:
-//   RAZORPAY_PLAN_PRO_MONTHLY / _PRO_YEARLY / _MAX_MONTHLY / _MAX_YEARLY
+//   RAZORPAY_SUBSCRIPTIONS_ENABLED=true            (kill switch, default OFF)
+//   RAZORPAY_PLAN_{PRO,MAX}_{MONTHLY,YEARLY}       INR plans (match price_inr)
+//   RAZORPAY_PLAN_{PRO,MAX}_{MONTHLY,YEARLY}_USD   USD plans (match price)
 //   RAZORPAY_WEBHOOK_SECRET
-// TODO: fill the four PLAN ids from the Razorpay dashboard (Subscriptions →
-// Plans). Each must be an INR recurring plan matching config/tiers.js price_inr.
+// Each plan must be created in the Razorpay dashboard (Subscriptions -> Plans)
+// in the matching currency, period and amount from config/tiers.js.
 
-const PLAN_ENV = {
-  "pro:monthly": "RAZORPAY_PLAN_PRO_MONTHLY",
-  "pro:yearly": "RAZORPAY_PLAN_PRO_YEARLY",
-  "max:monthly": "RAZORPAY_PLAN_MAX_MONTHLY",
-  "max:yearly": "RAZORPAY_PLAN_MAX_YEARLY",
-};
+export const CURRENCIES = ["INR", "USD"];
 
-export function planId(plan, period) {
-  const env = PLAN_ENV[`${plan}:${period}`];
-  return (env && process.env[env]) || null;
+function planEnvName(plan, period, currency = "INR") {
+  const base = `RAZORPAY_PLAN_${String(plan).toUpperCase()}_${String(period).toUpperCase()}`;
+  return currency === "USD" ? `${base}_USD` : base;
+}
+
+const PLAN_KEYS = [
+  ["pro", "monthly"],
+  ["pro", "yearly"],
+  ["max", "monthly"],
+  ["max", "yearly"],
+];
+
+/** Razorpay plan id for (plan, period, currency), or null. */
+export function planId(plan, period, currency = "INR", env = process.env) {
+  return env[planEnvName(plan, period, currency)] || null;
+}
+
+/** Reverse lookup: Razorpay plan id -> { plan, period, currency } (or null). */
+export function planFromRazorpayPlanId(rzpPlanId, env = process.env) {
+  if (!rzpPlanId) return null;
+  for (const currency of CURRENCIES) {
+    for (const [plan, period] of PLAN_KEYS) {
+      if (env[planEnvName(plan, period, currency)] === rzpPlanId) return { plan, period, currency };
+    }
+  }
+  return null;
+}
+
+/** The kill switch alone (RAZORPAY_SUBSCRIPTIONS_ENABLED). */
+export function subscriptionsEnabled(env = process.env) {
+  return /^(1|true|yes|on)$/i.test((env.RAZORPAY_SUBSCRIPTIONS_ENABLED || "").trim());
 }
 
 /**
- * True only when recurring subscriptions are explicitly opted in
- * (RAZORPAY_SUBSCRIPTIONS_ENABLED=true) AND the key pair + all four plan ids
- * are present. Default is OFF: checkout uses one-time term payments, which is
- * what every pricing / terms / refund page describes ("one-time payment for a
- * fixed term — nothing auto-renews"). This also stops stale or test-mode plan
- * ids from silently routing live traffic into the recurring flow.
+ * True only when the kill switch is on AND the key pair + all four plan ids for
+ * `currency` are present. When false the pricing page shows "coming soon";
+ * there is NO fallback to one-time payments for plans.
  */
-export function subscriptionsConfigured() {
-  const optIn = /^(1|true|yes|on)$/i.test(
-    (process.env.RAZORPAY_SUBSCRIPTIONS_ENABLED || "").trim(),
+export function subscriptionsConfigured(currency = "INR", env = process.env) {
+  return (
+    subscriptionsEnabled(env) &&
+    !!(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET) &&
+    PLAN_KEYS.every(([p, per]) => !!env[planEnvName(p, per, currency)])
   );
-  return optIn && isEnabled() && Object.values(PLAN_ENV).every((e) => !!process.env[e]);
 }
 
 /** Create a Razorpay customer. `notes` may carry our user_id. */
@@ -200,6 +222,51 @@ export async function createSubscription({ planIdValue, customerId, totalCount, 
     const e = new Error("Could not start the subscription.");
     e.status = 502;
     throw e;
+  }
+}
+
+/**
+ * Cancel a subscription. cancelAtCycleEnd=true keeps it running (and the user
+ * paid-for) until the end of the current cycle, then stops renewals.
+ */
+export async function cancelSubscription(subscriptionId, cancelAtCycleEnd = true) {
+  try {
+    return await client().subscriptions.cancel(String(subscriptionId), cancelAtCycleEnd ? 1 : 0);
+  } catch (err) {
+    const desc = (err && (err.error?.description || err.message)) || String(err);
+    console.error("[razorpay] cancelSubscription failed:", redact(desc));
+    const e = new Error(/already|cancelled|completed/i.test(desc) ? "already_cancelled" : "Could not cancel the subscription.");
+    e.status = /already|cancelled|completed/i.test(desc) ? 409 : 502;
+    throw e;
+  }
+}
+
+/**
+ * Schedule a plan change at the end of the current cycle (Razorpay update).
+ * Razorpay may refuse (e.g. UPI mandates, different period); callers surface that.
+ */
+export async function scheduleSubscriptionPlanChange(subscriptionId, newPlanId) {
+  try {
+    return await client().subscriptions.update(String(subscriptionId), {
+      plan_id: newPlanId,
+      schedule_change_at: "cycle_end",
+      customer_notify: 1,
+    });
+  } catch (err) {
+    console.error("[razorpay] planChange failed:", redact((err && (err.error?.description || err.message)) || String(err)));
+    const e = new Error("change_unsupported");
+    e.status = 409;
+    throw e;
+  }
+}
+
+/** Fetch an invoice (used to map a payment.failed back to its subscription). */
+export async function fetchInvoice(invoiceId) {
+  try {
+    return await client().invoices.fetch(String(invoiceId));
+  } catch (err) {
+    console.error("[razorpay] fetchInvoice failed:", redact((err && err.message) || String(err)));
+    return null;
   }
 }
 

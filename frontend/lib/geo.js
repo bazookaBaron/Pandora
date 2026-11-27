@@ -35,7 +35,49 @@ export async function countryFromIp(ip) {
 
 /** Header first (if trusted), then IP lookup. */
 export async function countryFromRequest(req) {
-  return countryFromHeaders(req) || (await countryFromIp(req && req.ip));
+  return (await detectCountry(req)).country;
+}
+
+/**
+ * Like countryFromRequest but also says WHERE the answer came from:
+ *   { country, source: 'header' | 'ip' | null }
+ * 'header' (Cloudflare cf-ipcountry, only when TRUST_GEO_HEADERS=true) is the
+ * reliable source; 'ip' (geoip-lite on req.ip) is best-effort and is what we
+ * re-detect on later logins (profiles.country_source).
+ *
+ * PRODUCTION: behind Cloudflare, TRUST_GEO_HEADERS MUST be true, otherwise the
+ * app only sees Cloudflare edge IPs (or a mis-counted proxy hop) and Indian
+ * users get a wrong country, so INR flashes to USD.
+ */
+export async function detectCountry(req) {
+  const fromHeader = countryFromHeaders(req);
+  if (fromHeader) return { country: fromHeader, source: "header" };
+  const fromIp = await countryFromIp(req && req.ip);
+  return fromIp ? { country: fromIp, source: "ip" } : { country: null, source: null };
+}
+
+/**
+ * Express "trust proxy" hop count from TRUST_PROXY_HOPS.
+ *   Railway edge only            -> 1 (default)
+ *   Cloudflare -> Railway edge   -> 2
+ *   no proxy (local dev)         -> 0
+ * Wrong values make req.ip a proxy address (or a spoofable client value), which
+ * silently breaks geo-IP and rate limiting.
+ */
+export function trustProxyHops(env = process.env) {
+  const raw = String(env.TRUST_PROXY_HOPS ?? "").trim();
+  if (raw === "") return 1;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 && n <= 5 ? n : 1;
+}
+
+/**
+ * Should a stored country be re-detected on login? Never for a user-chosen
+ * value; always when it came from IP detection (or predates country_source).
+ */
+export function shouldRedetectCountry(row) {
+  if (!row || !row.country) return true;
+  return row.country_source !== "user";
 }
 
 // India (and unknown) pays in INR; everyone else pays in USD. Unknown must
