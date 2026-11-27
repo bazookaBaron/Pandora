@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { ChevronRight, Code2, FileText, MessageSquare, Network, Boxes } from 'lucide-react'
+import { ChevronRight, Code2, FileText, MessageSquare, Network, Boxes, Database } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import { PageContainer } from '../components/shared/Layout'
 import { PageHeader, NextStep } from '../components/ui'
@@ -38,6 +38,10 @@ export default function PreparePage() {
             <Navbar />
             <PageContainer width="sm">
                 <PageHeader section="prepare" />
+                <div className="sys-infobox" role="note">
+                    <Database size={16} aria-hidden="true" />
+                    <p>Every question here is crawled company-wise from real interviews asked over the last 10 years.</p>
+                </div>
                 <ul className="sys-tiles-sec" aria-label="Prepare tools">
                     {TILES.map((t) => {
                         const Icon = t.icon
