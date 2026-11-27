@@ -366,3 +366,37 @@ test("free_all coupon covers packs up to 50 unless the coupon row allows more", 
   maxPack = 100;
   assert.equal((await order(100)).free, true);
 });
+
+test("buildForm: payload.input_type picks the control; repeats across jobs count once per job and show their jobs", () => {
+  const t1 = { id: "t1", company: "Acme", title: "SDE 2", ats: "workday" };
+  const t2 = { id: "t2", company: "Beta", title: "Backend Engineer", ats: "greenhouse" };
+  const skills = ["Python", "Go", "Rust"];
+  const items = [
+    q(t1, "Which of these do you know?", { options: skills, input_type: "multiselect", required: true }),
+    q(t2, "Which of these do you know?", { options: skills, input_type: "multiselect" }),
+    q(t1, "Work mode", { options: ["Onsite", "Remote", "Hybrid"], input_type: "radio" }),
+    q(t1, "Notice period", { options: ["15 days", "30 days"], input_type: "select" }),
+    q(t1, "Why do you want this job?", { input_type: "text" }),
+    q(t1, "Expected CTC", { input_type: "number" }),
+    q(t1, "I agree to the terms", { input_type: "checkbox" }),
+    q(t2, "Legacy question with options", { options: ["A", "B"] }),
+  ];
+  const form = buildForm(items, new Map([[t1.id, t1], [t2.id, t2]]), {});
+  const by = (label) => form.fields.find((f) => f.label === label);
+  const skillF = by("Which of these do you know?");
+  assert.equal(skillF.type, "multiselect");
+  assert.equal(skillF.required, true);
+  assert.equal(skillF.job_count, 2);
+  assert.deepEqual(skillF.jobs, [{ company: "Acme", title: "SDE 2" }, { company: "Beta", title: "Backend Engineer" }]);
+  assert.equal(by("Work mode").type, "radio");
+  assert.equal(by("Notice period").type, "select");
+  assert.equal(by("Why do you want this job?").type, "text", "worker-reported single-line input beats the 'why' heuristic");
+  assert.equal(by("Expected CTC").type, "number");
+  assert.equal(by("I agree to the terms").type, "yesno");
+  assert.equal(by("Legacy question with options").type, "select", "no input_type: old heuristics");
+  // multiselect answers must come from the site's options
+  const id = skillF.id;
+  assert.throws(() => parseSubmission(form, { answers: { [id]: "Python,Cobol" } }), /choose from the options/);
+  const ok = parseSubmission(form, { answers: { [id]: "python, Go" } });
+  assert.ok(ok.answers.some((a) => a.value === "Python,Go"));
+});

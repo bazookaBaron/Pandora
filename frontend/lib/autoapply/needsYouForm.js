@@ -83,13 +83,39 @@ export function itemKey(payload) {
 
 const isYesNoSet = (opts) => opts.length > 0 && opts.every((o) => ["yes", "no"].includes(normaliseLabel(optValue(o))));
 
-function controlFor(key, label, options) {
+const YES_NO_OPTS = [{ value: "Yes", label: "Yes" }, { value: "No", label: "No" }];
+
+/** The control the worker saw on the real form (payload.input_type), or null to fall back to the heuristics. */
+function controlFromInputType(inputType, options) {
+  const opts = options.map((o) => ({ value: optValue(o), label: optLabel(o) }));
+  switch (inputType) {
+    case "multiselect":
+      return opts.length ? { type: "multiselect", options: opts } : null;
+    case "checkbox":
+      return opts.length ? { type: "multiselect", options: opts } : { type: "yesno", options: YES_NO_OPTS };   // one tick box = yes / no
+    case "radio":
+      return opts.length ? { type: isYesNoSet(opts) ? "yesno" : "radio", options: opts } : null;
+    case "select":
+      return opts.length ? { type: isYesNoSet(opts) ? "yesno" : "select", options: opts } : null;
+    case "textarea":
+    case "text":
+    case "date":
+    case "number":
+      return { type: inputType, options: [] };
+    default:
+      return null;   // file / unknown
+  }
+}
+
+function controlFor(key, label, options, inputType = null) {
   const std = stdQuestion(key);
   if (std) {
     const options = Array.isArray(std.options) ? std.options.map((o) => ({ value: optValue(o), label: optLabel(o) })) : [];
     if (std.type === "select" && isYesNoSet(options)) return { type: "yesno", options };
     return { type: ["select", "multiselect", "yesno", "number", "date", "text"].includes(std.type) ? std.type : "text", options };
   }
+  const fromWorker = controlFromInputType(inputType, options);
+  if (fromWorker) return fromWorker;
   const norm = normaliseLabel(label);
   if (options.length) return { type: isYesNoSet(options) ? "yesno" : "select", options: options.map((o) => ({ value: optValue(o), label: optLabel(o) })) };
   if (YES_NO_Q_RE.test(norm)) return { type: "yesno", options: [{ value: "Yes", label: "Yes" }, { value: "No", label: "No" }] };
@@ -139,7 +165,8 @@ export function buildForm(items, tasks = new Map(), answers = {}) {
       if (!f) {
         if (fields.size >= MAX_FIELDS) continue;
         const std = stdQuestion(key);
-        const ctl = controlFor(key, label, part ? [] : opts);
+        const inputType = typeof p.input_type === "string" && !part ? p.input_type : null;
+        const ctl = controlFor(key, label, part ? [] : opts, inputType);
         f = {
           id: key,
           key,
@@ -150,6 +177,10 @@ export function buildForm(items, tasks = new Map(), answers = {}) {
           value: answers[key] ?? null,
           suggestion: p.suggestion ?? null,
           max_length: ctl.type === "textarea" ? TEXTAREA_MAX : TEXT_MAX,
+          input_type: typeof p.input_type === "string" ? p.input_type : null,
+          required: false,
+          jobs: [],
+          job_count: 0,
           companies: [],
           sources: [],
           item_ids: [],
@@ -161,7 +192,17 @@ export function buildForm(items, tasks = new Map(), answers = {}) {
       }
       f.item_ids.push(it.id);
       f.sources.push({ item_id: it.id, task_id: it.task_id || null, key: itemKey(p), part, options: opts.map(optValue) });
-      const company = task && task.company;
+      const company = (task && task.company) || clip(p.company, 120) || null;
+      const jobTitle = (task && task.title) || clip(p.job_title, 200) || null;
+      if (p.required === true) f.required = true;
+      // one answer applies to every job that asked the same question: count distinct jobs (task), not rows
+      const jobId = it.task_id || `item:${it.id}`;
+      if (!f._jobIds) Object.defineProperty(f, "_jobIds", { value: new Set(), enumerable: false });
+      if (!f._jobIds.has(jobId)) {
+        f._jobIds.add(jobId);
+        f.job_count = f._jobIds.size;
+        if ((company || jobTitle) && f.jobs.length < 10) f.jobs.push({ company, title: jobTitle });
+      }
       if (company && !f.companies.includes(company) && f.companies.length < 10) f.companies.push(company);
       if (f.suggestion == null && p.suggestion != null) f.suggestion = p.suggestion;
       continue;
@@ -263,7 +304,13 @@ export function parseSubmission(form, body) {
     if (!v.ok) throw bad(v.message.replace(f.key, f.label));
     let value = v.value;
     if (f.type === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw bad(`${f.label}: pick a date.`);
-    if ((f.type === "select" || f.type === "yesno") && f.options.length && !stdQuestion(f.key)) {
+    if (f.type === "multiselect" && f.options.length && !stdQuestion(f.key) && !f.options.some((o) => /,/.test(o.value))) {
+      const picked = value.split(",").map((s) => s.trim()).filter(Boolean);
+      const hits = picked.map((p) => f.options.find((o) => normaliseLabel(o.value) === normaliseLabel(p)));
+      if (!hits.length || hits.some((h) => !h)) throw bad(`${f.label}: choose from the options.`);
+      value = hits.map((h) => h.value).join(",");
+    }
+    if ((f.type === "select" || f.type === "radio" || f.type === "yesno") && f.options.length && !stdQuestion(f.key)) {
       // learned question with choices: the answer must be one of the site's own options (stored in its spelling)
       const hit = f.options.find((o) => normaliseLabel(o.value) === normaliseLabel(value));
       if (!hit) throw bad(`${f.label}: choose one of the options.`);

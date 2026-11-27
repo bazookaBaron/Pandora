@@ -364,6 +364,7 @@ test("needs-you: list, answer -> aa_answers + task queued; done; double resolve"
   const n2 = { id: crypto.randomUUID(), task_id: tb.id, user_id: PRO, kind: "captcha", payload: { apply_url: "https://x" }, resolved_at: null, created_at: new Date().toISOString() };
   db.rows("aa_needs_you").push(n1, n2);
   const list = await call("GET", "/api/autoapply/needs-you?all=1");
+  assert.equal(typeof list.json.unique_count, "number"); assert.ok(list.json.unique_count <= list.json.items.length, "unique_count never exceeds the raw item count");
   const item = list.json.items.find((i) => i.id === n1.id);
   assert.equal(item.task.company, ta.company);
   const a = await call("POST", `/api/autoapply/needs-you/${n1.id}`, { body: { action: "answer", answer: "Yes" } });
