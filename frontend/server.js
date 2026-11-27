@@ -34,7 +34,8 @@ import {
   getEntitlementsSummary,
   invalidateUser,
 } from "./lib/entitlements.js";
-import { countryFromRequest, currencyForCountry } from "./lib/geo.js";
+import { reduceSubscriptionEvent, HANDLED_EVENTS } from "./lib/subscriptionEvents.js";
+import { detectCountry, currencyForCountry, trustProxyHops, shouldRedetectCountry } from "./lib/geo.js";
 import * as resend from "./services/resend.js";
 import {
   referralRequestCreated,
@@ -114,7 +115,7 @@ const PLAN_GATED_CACHE = "private, no-cache";
 // Behind Railway's proxy: trust exactly one hop so req.ip is the real client
 // (the right-most X-Forwarded-For entry Railway appended). If you put another
 // proxy/CDN (e.g. Cloudflare) in front, set TRUST_PROXY_HOPS=2.
-app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
+app.set("trust proxy", trustProxyHops());
 app.disable("x-powered-by");
 
 // Per-request CSP nonce for the few inline <script>s we emit (theme bootstrap,
@@ -571,32 +572,51 @@ app.get("/api/entitlements/me", requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/profile/detect-country — best-effort, idempotent IP -> country
-// fill-in. Fired once per login from AuthContext.jsx (same guard pattern as
-// its analytics identifyUser call), so this covers new signups AND existing
-// users with no country yet, without a backfill script. No-ops once
-// profiles.country is set — never overwrites an existing value (a user who
-// travels or uses a VPN keeps whatever was first detected, not the newest).
+// POST /api/profile/detect-country — best-effort country fill-in, fired on
+// each login/mount from AuthContext.jsx. Sets profiles.country + country_source
+// ('header' = trusted CDN header, 'ip' = geoip guess, 'user' = chosen by the
+// user). Only a 'user' value is sticky; 'ip'/legacy values are re-detected so a
+// wrong first guess (e.g. proxy IP) heals itself.
 app.post("/api/profile/detect-country", requireAuth, async (req, res) => {
   try {
     const { data: existing } = await supabaseAdmin
       .from("profiles")
-      .select("country")
+      .select("country, country_source")
       .eq("id", req.user.id)
       .maybeSingle();
-    if (existing?.country) return res.json({ country: existing.country, updated: false });
+    // A user-set country is never overridden; an IP-detected one is re-checked
+    // on every login (a trusted CDN header beats an earlier geoip guess).
+    if (existing?.country && !shouldRedetectCountry(existing)) {
+      return res.json({ country: existing.country, updated: false });
+    }
 
-    const detected = await countryFromRequest(req);
-    if (!detected) return res.json({ country: null, updated: false });
+    const { country: detected, source } = await detectCountry(req);
+    if (!detected) return res.json({ country: existing?.country || null, updated: false });
+    if (existing?.country === detected && existing.country_source === source) {
+      return res.json({ country: detected, updated: false });
+    }
 
     const { error } = await supabaseAdmin
       .from("profiles")
-      .update({ country: detected })
+      .update({ country: detected, country_source: source })
       .eq("id", req.user.id);
     if (error) throw error;
-    res.json({ country: detected, updated: true });
+    invalidateUser(req.user.id); // currency is part of the cached entitlements summary
+    res.json({ country: detected, updated: existing?.country !== detected });
   } catch (err) {
     fail(res, err, "profile/detect-country", "Failed to detect country.");
+  }
+});
+
+// GET /api/geo -> { country, currency } for logged-out visitors (and a cheap
+// pre-auth hint on the pricing page). Not stored; never cached by a shared cache.
+app.get("/api/geo", catalogLimiter, async (req, res) => {
+  try {
+    const { country } = await detectCountry(req);
+    res.set("Cache-Control", "private, no-store");
+    res.json({ country: country || null, currency: currencyForCountry(country) });
+  } catch (err) {
+    fail(res, err, "geo", "Failed to detect region.");
   }
 });
 
@@ -2712,9 +2732,19 @@ app.get("/api/jobs/company/:slug", catalogLimiter, optionalAuth, async (req, res
     if (!JOBS_COMPANY_SLUG_RE.test(slug)) return res.status(404).json({ error: "Unknown company." });
     const key = `jobs-company:${slug}`;
     const wasHit = hasFresh(key);
-    const payload = await getJobsCompanyPayload(slug);
-    if (!payload) return res.status(404).json({ error: "Unknown company." });
-    res.set("Cache-Control", "public, max-age=60, s-maxage=300, stale-while-revalidate=600");
+    const full = await getJobsCompanyPayload(slug);
+    if (!full) return res.status(404).json({ error: "Unknown company." });
+    // Same jobs_visible clamp as GET /api/jobs: the per-company hub must not be
+    // a back door around the free-tier cap. Response is plan-dependent, so it
+    // is never shared-cacheable.
+    const plan = req.user ? await getUserPlan(req.user.id) : "free";
+    const jobsLimit = getLimit(plan, "jobs_visible");
+    const unlimited = isUnlimited(jobsLimit);
+    const postings = unlimited ? full.postings : full.postings.slice(0, jobsLimit);
+    const payload = unlimited
+      ? full
+      : { ...full, postings, locked: Math.max(0, full.postings.length - postings.length), limit: serializeLimit(jobsLimit) };
+    res.set("Cache-Control", PLAN_GATED_CACHE);
     res.set("X-Cache", wasHit ? "HIT" : "MISS");
     res.json(payload);
   } catch (err) {
@@ -4003,10 +4033,12 @@ app.post("/api/run", requireAuth, runLimiter, async (req, res) => {
   }
 });
 
-// ── Billing / payments (Razorpay Standard Checkout) ─────────────────
-// Provider logic: ./services/razorpay.js. One-time orders that grant a plan
-// for a fixed term; when it lapses the entitlements lazy check drops the user
-// to free. DORMANT until RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are set.
+// ── Billing / payments (Razorpay) ───────────────────────────────────
+// Provider logic: ./services/razorpay.js. Pro / Max are sold ONLY as recurring
+// Razorpay Subscriptions (/api/subscriptions/*, webhook below). One-time Orders
+// remain for AutoApply packs / wallet only (routes/autoapply.js). Legacy
+// one-time term users keep their paid term; when it lapses they are Free.
+// DORMANT until RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are set.
 const checkoutLimiter = makeLimiter({ windowMs: 60 * 1000, max: 12 });
 // Coupon checks are per IP too (the user-keyed checkout limiter alone lets one person guess codes from many
 // throwaway accounts): 20 coupon attempts per 15 min per IP across plan + AutoApply.
@@ -4048,52 +4080,11 @@ app.get("/api/billing/status", requireAuth, (_req, res) => {
   });
 });
 
-// POST /api/payments/razorpay/order
-//   body: { plan: 'pro'|'max', billingPeriod: 'monthly'|'yearly' }
-//   → { order_id, amount, currency, keyId }
-app.post(
-  "/api/payments/razorpay/order",
-  requireAuth,
-  checkoutLimiter,
-  async (req, res) => {
-    try {
-      if (!razorpay.isEnabled()) {
-        return res.status(503).json({ error: "checkout_unconfigured" });
-      }
-      const { plan, billingPeriod } = req.body || {};
-      assert(PAID_PLANS.includes(plan), "plan must be 'pro' or 'max'.");
-      assert(PERIODS.includes(billingPeriod), "billingPeriod must be 'monthly' or 'yearly'.");
-
-      const currency = currencyForCountry(await getUserCountry(req.user.id));
-      const amountPaise = expectedAmountFor(currency, plan, billingPeriod);
-      assert(Number.isInteger(amountPaise) && amountPaise >= 100, "Plan price is not configured.");
-
-      const order = await razorpay.createOrder({
-        amountPaise,
-        currency,
-        receipt: `u${String(req.user.id).slice(0, 8)}_${Date.now().toString(36)}`,
-        notes: { user_id: req.user.id, plan, billingPeriod, currency, amount_paise: String(amountPaise) },
-      });
-
-      res.json({
-        order_id: order.id,
-        amount: order.amount,
-        currency: order.currency,
-        keyId: razorpay.keyId(),
-      });
-    } catch (err) {
-      const status = Number(err && err.status) || 500;
-      if (status === 400) {
-        return res.status(400).json({ error: err.message || "Invalid request." });
-      }
-      if (status === 503) {
-        return res.status(503).json({ error: "checkout_unconfigured" });
-      }
-      console.error("[razorpay/order]", redact((err && err.message) || String(err)));
-      res.status(502).json({ error: "order_failed" });
-    }
-  },
-);
+// One-time plan purchases are gone: Pro / Max are subscription-only. These
+// paths stay as explicit 410s so a stale client gets a clear message, not a 404.
+app.post(["/api/payments/razorpay/order", "/api/payments/razorpay/verify"], requireAuth, (_req, res) => {
+  res.status(410).json({ error: "use_subscriptions", message: "Plans are now recurring subscriptions. Reload the page." });
+});
 
 // POST /api/payments/coupon  body: { code, billingPeriod?, dry? }
 //   A free_all coupon grants its plan (coupons.plan) for one term, no payment. dry=true only checks it.
@@ -4157,190 +4148,98 @@ app.post(
   },
 );
 
-// POST /api/payments/razorpay/verify
-//   body: { razorpay_order_id, razorpay_payment_id, razorpay_signature,
-//           plan, billingPeriod }
-//   → { ok: true, plan }  (only when the signature is valid)
-app.post(
-  "/api/payments/razorpay/verify",
-  requireAuth,
-  checkoutLimiter,
-  async (req, res) => {
-    try {
-      if (!razorpay.isEnabled()) {
-        return res.status(503).json({ error: "checkout_unconfigured" });
-      }
-      const {
-        razorpay_order_id,
-        razorpay_payment_id,
-        razorpay_signature,
-        plan,
-        billingPeriod,
-      } = req.body || {};
-
-      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-        return res.status(400).json({ error: "missing_fields" });
-      }
-      if (!PAID_PLANS.includes(plan) || !PERIODS.includes(billingPeriod)) {
-        return res.status(400).json({ error: "missing_fields" });
-      }
-
-      const ok = razorpay.verifyPaymentSignature({
-        orderId: razorpay_order_id,
-        paymentId: razorpay_payment_id,
-        signature: razorpay_signature,
-      });
-      if (!ok) {
-        return res.status(400).json({ error: "signature_mismatch" });
-      }
-
-      // Authoritative re-check against Razorpay. FAIL CLOSED: if the order
-      // cannot be fetched (Razorpay 5xx / network) we must not grant on the
-      // signature alone — the client can retry.
-      const order = await razorpay.fetchOrder(razorpay_order_id);
-      if (!order) {
-        return res.status(503).json({ error: "order_lookup_failed", retryable: true });
-      }
-      // Payment captured but order not yet flipped to "paid" (Razorpay
-      // moves created -> attempted -> paid): transient, let the client retry
-      // rather than reporting a mismatch.
-      if (String(order.status || "") === "attempted") {
-        return res.status(503).json({ error: "order_not_yet_paid", retryable: true });
-      }
-      const n = order.notes || {};
-      // Trust the order's OWN currency (Razorpay's authoritative record of
-      // what was actually charged), not a freshly-recomputed one.
-      const expected = recordedAmountFor(order, plan, billingPeriod);
-      if (
-        String(order.status || "") !== "paid" ||
-        String(n.user_id || "") !== String(req.user.id) ||
-        String(n.plan || "") !== plan ||
-        String(n.billingPeriod || "") !== billingPeriod ||
-        Number(order.amount) !== expected ||
-        Number(order.amount_paid ?? order.amount) !== expected
-      ) {
-        console.warn("[razorpay/verify] order/claim mismatch", redact(JSON.stringify({ n, status: order.status, amount: order.amount, expected })));
-        return res.status(400).json({ error: "order_mismatch" });
-      }
-
-      // Exactly-once: the first of verify / order.paid webhook claims the
-      // payment; the loser must not extend the term again (sql/30).
-      const claim = await claimPayment({
-        payment_id: razorpay_payment_id,
-        order_id: razorpay_order_id,
-        user_id: req.user.id,
-        plan,
-        billing_period: billingPeriod,
-        amount: Number(order.amount),
-        currency: order.currency || null,
-        source: "verify",
-      });
-      if (!claim.claimed) {
-        const { data: prior } = await supabaseAdmin
-          .from("processed_payments")
-          .select("user_id, plan, period_end")
-          .eq("order_id", razorpay_order_id)
-          .maybeSingle();
-        if (prior && String(prior.user_id) === String(req.user.id)) {
-          invalidateUser(req.user.id);
-          return res.json({ ok: true, plan: prior.plan, current_period_end: prior.period_end, alreadyProcessed: true });
-        }
-        return res.status(409).json({ error: "payment_already_used" });
-      }
-
-      try {
-        const { data: existing } = await supabaseAdmin
-          .from("subscriptions")
-          .select("plan, status, current_period_end")
-          .eq("user_id", req.user.id)
-          .maybeSingle();
-        const end = computePeriodEnd({ termDays: TERM_DAYS[billingPeriod], existing, plan });
-        const row = {
-          user_id: req.user.id,
-          plan,
-          status: "active",
-          provider: "razorpay",
-          provider_customer_id: null,
-          provider_subscription_id: razorpay_order_id, // UNIQUE — idempotent per order
-          billing_period: billingPeriod,
-          current_period_end: end.toISOString(),
-        };
-        const { error } = await supabaseAdmin
-          .from("subscriptions")
-          .upsert(row, { onConflict: "user_id" });
-        if (error) throw error;
-        await recordPaymentPeriodEnd(razorpay_payment_id, row.current_period_end).catch(() => {});
-
-        invalidateUser(req.user.id); // drop the ~15s plan cache
-        res.json({ ok: true, plan, current_period_end: row.current_period_end });
-      } catch (grantErr) {
-        await releasePayment(razorpay_payment_id).catch(() => {});
-        throw grantErr;
-      }
-    } catch (err) {
-      console.error("[razorpay/verify]", redact((err && (err.stack || err.message)) || String(err)));
-      res.status(500).json({ error: "verify_failed" });
-    }
-  },
-);
-
 // ── Razorpay Subscriptions (recurring, in-page checkout) ────────────
-// create → open the Checkout modal with the subscription_id → verify the
-// callback signature → the webhook is the source of truth for status.
+// create -> open the Checkout modal with the subscription_id -> verify the
+// callback signature (payment_id|subscription_id) -> the webhook is the
+// long-term source of truth for status / renewals / failures.
 
-// Map Razorpay subscription status → our subscriptions.status.
+// Map Razorpay subscription status -> our subscriptions.status.
+// NOTE: 'authenticated' (mandate registered, first charge still pending) is NOT
+// access: only 'active' (activated / charged) grants a plan.
 function subStatusFromRazorpay(rzpStatus) {
   const s = String(rzpStatus || "").toLowerCase();
-  if (s === "active" || s === "authenticated") return "active";
-  if (s === "halted" || s === "cancelled" || s === "completed" || s === "expired") return s === "expired" ? "expired" : s;
+  if (s === "active") return "active";
+  if (s === "halted" || s === "cancelled" || s === "expired") return s;
+  if (s === "completed") return "cancelled";
   if (s === "pending") return "past_due";
-  return "created"; // created / anything unknown
+  return "created"; // created / authenticated / anything unknown
 }
 
-// GET /api/subscriptions/status → { configured, keyId, plans }
-app.get("/api/subscriptions/status", requireAuth, (_req, res) => {
+const resolveRzpPlan = (id) => razorpay.planFromRazorpayPlanId(id);
+
+async function userCurrency(userId) {
+  return currencyForCountry(await getUserCountry(userId));
+}
+
+// GET /api/subscriptions/status -> { enabled, configured, currency, keyId }
+//   enabled    : kill switch (RAZORPAY_SUBSCRIPTIONS_ENABLED)
+//   configured : enabled AND keys + the 4 plan ids for THIS user's currency
+// When !configured the pricing page shows "coming soon" (never a one-time fallback).
+app.get("/api/subscriptions/status", requireAuth, async (req, res) => {
+  const currency = await userCurrency(req.user.id);
   res.json({
-    configured: razorpay.subscriptionsConfigured(),
+    enabled: razorpay.subscriptionsEnabled(),
+    configured: razorpay.subscriptionsConfigured(currency),
+    currency,
     keyId: razorpay.isEnabled() ? razorpay.keyId() : null,
   });
 });
 
 // POST /api/subscriptions/create  body: { plan:'pro'|'max', billingPeriod:'monthly'|'yearly' }
-//   → { subscription_id, short_url, keyId }
+//   -> { subscription_id, short_url, keyId, currency }
 app.post(
   "/api/subscriptions/create",
   requireAuth,
   checkoutLimiter,
   async (req, res) => {
     try {
-      if (!razorpay.subscriptionsConfigured()) {
-        return res.status(503).json({ error: "subscriptions_unconfigured" });
-      }
       const { plan, billingPeriod } = req.body || {};
       assert(PAID_PLANS.includes(plan), "plan must be 'pro' or 'max'.");
       assert(PERIODS.includes(billingPeriod), "billingPeriod must be 'monthly' or 'yearly'.");
 
-      const rzpPlanId = razorpay.planId(plan, billingPeriod);
+      const currency = await userCurrency(req.user.id);
+      if (!razorpay.subscriptionsConfigured(currency)) {
+        return res.status(503).json({ error: "subscriptions_unconfigured" });
+      }
+      const rzpPlanId = razorpay.planId(plan, billingPeriod, currency);
       if (!rzpPlanId) return res.status(400).json({ error: "plan_not_configured" });
 
-      // Never replace a live paid row with a 'created' placeholder.
+      // Prevent double subscriptions: any live paid access (recurring, legacy
+      // term, coupon, grant) blocks a new one until it ends or is changed.
       const { data: curSub } = await supabaseAdmin
         .from("subscriptions")
-        .select("plan, status, provider, current_period_end")
+        .select("*")
         .eq("user_id", req.user.id)
         .maybeSingle();
       if (curSub && effectivePlanFromRow(curSub) !== "free") {
         return res.status(409).json({ error: "already_subscribed" });
       }
 
+      // An abandoned checkout leaves a 'created' row: reuse that subscription
+      // when it is the same plan and still untouched at Razorpay; if Razorpay
+      // already authenticated / activated it, never open a second one.
+      if (curSub && curSub.status === "created" && String(curSub.provider_subscription_id || "").startsWith("sub_")) {
+        const live = await razorpay.fetchSubscription(curSub.provider_subscription_id);
+        if (live && ["authenticated", "active", "pending"].includes(String(live.status))) {
+          return res.status(409).json({ error: "subscription_processing" });
+        }
+        if (live && live.status === "created" && live.plan_id === rzpPlanId) {
+          return res.json({
+            subscription_id: live.id,
+            short_url: live.short_url || null,
+            keyId: razorpay.keyId(),
+            currency,
+          });
+        }
+      }
+
       // Reuse (or create) one Razorpay customer per user.
-      let customerId = null;
       const { data: prof } = await supabaseAdmin
         .from("profiles")
         .select("razorpay_customer_id")
         .eq("id", req.user.id)
         .maybeSingle();
-      customerId = prof?.razorpay_customer_id || null;
+      let customerId = prof?.razorpay_customer_id || null;
       if (!customerId) {
         const cust = await razorpay.createCustomer({
           email: req.user.email,
@@ -4361,29 +4260,44 @@ app.post(
         planIdValue: rzpPlanId,
         customerId,
         totalCount,
-        notes: { user_id: req.user.id, plan, billingPeriod },
+        notes: { user_id: req.user.id, plan, billingPeriod, currency },
       });
 
-      // Persist the "created" row now so the admin panel shows it immediately.
-      await supabaseAdmin.from("subscriptions").upsert(
+      // Persist the 'created' row BEFORE opening checkout: webhooks only act on
+      // a row whose provider_subscription_id matches, so this must succeed.
+      const { error: upErr } = await supabaseAdmin.from("subscriptions").upsert(
         {
           user_id: req.user.id,
           plan,
-          status: subStatusFromRazorpay(sub.status),
+          status: "created",
           provider: "razorpay",
           provider_customer_id: customerId,
           provider_subscription_id: sub.id,
           provider_plan_id: rzpPlanId,
           subscription_short_url: sub.short_url || null,
           billing_period: billingPeriod,
+          currency,
+          current_period_end: null,
+          cancel_at_period_end: false,
+          cancelled_at: null,
+          grace_until: null,
+          pending_plan: null,
+          last_event_at: null,
+          admin_grant: false,
         },
         { onConflict: "user_id" },
-      ).then(({ error }) => error && console.warn("[subscriptions] upsert created row:", redact(error.message)));
+      );
+      if (upErr) {
+        console.error("[subscriptions/create] could not save row:", redact(upErr.message));
+        return res.status(500).json({ error: "create_failed" });
+      }
+      invalidateUser(req.user.id);
 
       res.json({
         subscription_id: sub.id,
         short_url: sub.short_url || null,
         keyId: razorpay.keyId(),
+        currency,
       });
     } catch (err) {
       const status = Number(err && err.status) || 500;
@@ -4397,7 +4311,9 @@ app.post(
 
 // POST /api/subscriptions/verify
 //   body: { razorpay_payment_id, razorpay_subscription_id, razorpay_signature }
-//   → { ok, plan, status }   (200 only when the signature is valid)
+//   -> { ok, plan, status }   (200 only when the signature is valid)
+// Signature = HMAC(payment_id|subscription_id). Access is then taken from
+// Razorpay's own record of the subscription (fail closed), never the client.
 app.post(
   "/api/subscriptions/verify",
   requireAuth,
@@ -4411,7 +4327,6 @@ app.post(
       if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
         return res.status(400).json({ error: "missing_fields" });
       }
-
       const ok = razorpay.verifySubscriptionSignature({
         paymentId: razorpay_payment_id,
         subscriptionId: razorpay_subscription_id,
@@ -4419,31 +4334,43 @@ app.post(
       });
       if (!ok) return res.status(400).json({ error: "signature_mismatch" });
 
-      // The row must belong to this user (created in /create).
-      const { data: existing } = await supabaseAdmin
+      const { data: stored } = await supabaseAdmin
         .from("subscriptions")
-        .select("user_id, plan, billing_period")
+        .select("*")
         .eq("provider_subscription_id", razorpay_subscription_id)
         .maybeSingle();
-      if (!existing || String(existing.user_id) !== String(req.user.id)) {
+      if (!stored || String(stored.user_id) !== String(req.user.id)) {
         return res.status(400).json({ error: "subscription_mismatch" });
       }
 
-      // Pull the authoritative state from Razorpay.
       const sub = await razorpay.fetchSubscription(razorpay_subscription_id);
-      const status = subStatusFromRazorpay(sub && sub.status);
-      const patch = { status, updated_at: new Date().toISOString() };
-      if (sub && (sub.current_end || sub.charge_at)) {
-        patch.current_period_end = new Date((sub.current_end || sub.charge_at) * 1000).toISOString();
-      }
-      if (sub && sub.customer_id) patch.provider_customer_id = sub.customer_id;
-      await supabaseAdmin
-        .from("subscriptions")
-        .update(patch)
-        .eq("provider_subscription_id", razorpay_subscription_id);
+      if (!sub) return res.status(503).json({ error: "subscription_lookup_failed", retryable: true });
 
+      let status = stored.status;
+      if (String(sub.status) === "active") {
+        const r = reduceSubscriptionEvent({
+          event: "subscription.activated",
+          entity: sub,
+          subscriptionId: sub.id,
+          stored,
+          resolvePlan: resolveRzpPlan,
+        });
+        if (r.action === "patch") {
+          const { error } = await supabaseAdmin
+            .from("subscriptions")
+            .update(r.patch)
+            .eq("user_id", req.user.id)
+            .eq("provider_subscription_id", razorpay_subscription_id);
+          if (error) throw error;
+          status = "active";
+        }
+      } else {
+        // authenticated / created: the first charge is still settling. The
+        // activated / charged webhook completes it; the client keeps polling.
+        status = subStatusFromRazorpay(sub.status);
+      }
       invalidateUser(req.user.id);
-      res.json({ ok: true, plan: existing.plan, status });
+      res.json({ ok: true, plan: stored.plan, status, processing: status !== "active" });
     } catch (err) {
       console.error("[subscriptions/verify]", redact((err && (err.stack || err.message)) || String(err)));
       res.status(500).json({ error: "verify_failed" });
@@ -4451,19 +4378,108 @@ app.post(
   },
 );
 
+// POST /api/subscriptions/cancel -> { ok, cancel_at_period_end, current_period_end }
+// Cancels at the END of the paid cycle (cancel_at_cycle_end=1): access continues
+// until current_period_end, then the user is Free. No refund (see terms).
+app.post("/api/subscriptions/cancel", requireAuth, checkoutLimiter, async (req, res) => {
+  try {
+    if (!razorpay.isEnabled()) return res.status(503).json({ error: "subscriptions_unconfigured" });
+    const { data: row } = await supabaseAdmin
+      .from("subscriptions")
+      .select("*")
+      .eq("user_id", req.user.id)
+      .maybeSingle();
+    const subId = String((row && row.provider_subscription_id) || "");
+    if (!row || row.provider !== "razorpay" || !subId.startsWith("sub_")) {
+      return res.status(400).json({ error: "not_cancellable", message: "This plan does not renew, so there is nothing to cancel. It simply ends on its end date." });
+    }
+    if (row.cancel_at_period_end || row.status === "cancelled") {
+      return res.json({ ok: true, already: true, cancel_at_period_end: true, current_period_end: row.current_period_end });
+    }
+    if (effectivePlanFromRow(row) === "free") {
+      return res.status(400).json({ error: "not_cancellable", message: "There is no active plan to cancel." });
+    }
+    try {
+      await razorpay.cancelSubscription(subId, true);
+    } catch (e) {
+      if (!(e && e.message === "already_cancelled")) throw e;
+    }
+    const { error } = await supabaseAdmin
+      .from("subscriptions")
+      .update({
+        cancel_at_period_end: true,
+        cancelled_at: new Date().toISOString(),
+        pending_plan: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", req.user.id)
+      .eq("provider_subscription_id", subId);
+    if (error) throw error;
+    invalidateUser(req.user.id);
+    res.json({ ok: true, cancel_at_period_end: true, current_period_end: row.current_period_end });
+  } catch (err) {
+    console.error("[subscriptions/cancel]", redact((err && (err.stack || err.message)) || String(err)));
+    res.status(Number(err && err.status) === 502 ? 502 : 500).json({ error: "cancel_failed" });
+  }
+});
+
+// POST /api/subscriptions/change  body: { plan: 'pro'|'max' }
+// Pro <-> Max on the SAME subscription (Razorpay update, effective at the next
+// renewal), so there is never a second active subscription. Same billing period
+// and currency only; otherwise 409 change_unsupported (cancel, then re-subscribe
+// when the term ends).
+app.post("/api/subscriptions/change", requireAuth, checkoutLimiter, async (req, res) => {
+  try {
+    const { plan } = req.body || {};
+    assert(PAID_PLANS.includes(plan), "plan must be 'pro' or 'max'.");
+    const { data: row } = await supabaseAdmin
+      .from("subscriptions")
+      .select("*")
+      .eq("user_id", req.user.id)
+      .maybeSingle();
+    const subId = String((row && row.provider_subscription_id) || "");
+    if (!row || row.provider !== "razorpay" || !subId.startsWith("sub_") || row.status !== "active" || effectivePlanFromRow(row) === "free") {
+      return res.status(400).json({ error: "not_changeable" });
+    }
+    if (row.cancel_at_period_end) return res.status(409).json({ error: "cancelling", message: "This plan is set to end. Subscribe again after it ends." });
+    if (plan === row.plan) return res.status(400).json({ error: "same_plan" });
+    const cur = resolveRzpPlan(row.provider_plan_id) || { period: row.billing_period, currency: row.currency || "INR" };
+    const target = razorpay.planId(plan, cur.period, cur.currency);
+    if (!target) return res.status(409).json({ error: "change_unsupported" });
+    await razorpay.scheduleSubscriptionPlanChange(subId, target);
+    const { error } = await supabaseAdmin
+      .from("subscriptions")
+      .update({ pending_plan: plan, updated_at: new Date().toISOString() })
+      .eq("user_id", req.user.id)
+      .eq("provider_subscription_id", subId);
+    if (error) throw error;
+    invalidateUser(req.user.id);
+    res.json({ ok: true, pending_plan: plan, effective_at: row.current_period_end });
+  } catch (err) {
+    const status = Number(err && err.status) || 500;
+    if (status === 400) return res.status(400).json({ error: err.message || "Invalid request." });
+    if (status === 409) return res.status(409).json({ error: "change_unsupported", message: "Your payment method can't switch plans in place. Cancel at period end and subscribe to the other plan after it ends." });
+    console.error("[subscriptions/change]", redact((err && (err.stack || err.message)) || String(err)));
+    res.status(500).json({ error: "change_failed" });
+  }
+});
+
+// Resolve the subscription id behind a payment.failed (payments only sometimes
+// carry subscription_id; otherwise go through their invoice).
+async function subscriptionIdForPayment(payment) {
+  if (!payment) return null;
+  if (payment.subscription_id) return String(payment.subscription_id);
+  if (payment.invoice_id) {
+    const inv = await razorpay.fetchInvoice(payment.invoice_id);
+    if (inv && inv.subscription_id) return String(inv.subscription_id);
+  }
+  return null;
+}
+
 // POST /api/webhooks/razorpay — subscription lifecycle. No auth; the X-Razorpay-
 // Signature header (HMAC of the raw body with RAZORPAY_WEBHOOK_SECRET) is the
 // authenticity check. Uses the global express.json `verify` hook for req.rawBody.
-const RZP_SUB_EVENTS = new Set([
-  "subscription.activated",
-  "subscription.charged",
-  "subscription.completed",
-  "subscription.cancelled",
-  "subscription.halted",
-  "subscription.pending",
-  "subscription.updated",
-]);
-
+// Per-event rules live in lib/subscriptionEvents.js (unit-tested).
 app.post("/api/webhooks/razorpay", async (req, res) => {
   if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
     return res.status(503).json({ error: "webhook_unconfigured" });
@@ -4490,9 +4506,9 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
     const aa = await handleAutoApplyWebhook({ db: supabaseAdmin, body: req.body });
     if (aa) return res.status(200).json(aa);
 
-    // One-time term payments: safety net for a lost browser callback (tab
-    // closed right after paying). Grant the plan straight from order.notes —
-    // idempotent with /api/payments/razorpay/verify via processed_payments.
+    // LEGACY ONLY: an in-flight one-time plan order paid before the switch to
+    // subscriptions (the order route is gone, so no new ones exist). Grants the
+    // term it was bought for; idempotent via processed_payments.
     if (event === "order.paid") {
       const order = req.body?.payload?.order?.entity;
       const n = (order && order.notes) || {};
@@ -4535,6 +4551,8 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
             provider_subscription_id: order.id, // UNIQUE per order — idempotent
             billing_period: n.billingPeriod,
             current_period_end: end,
+            cancel_at_period_end: false,
+            grace_until: null,
           },
           { onConflict: "user_id" },
         );
@@ -4548,76 +4566,57 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
       return res.status(200).json({ ok: true, granted: n.plan });
     }
 
-    if (!RZP_SUB_EVENTS.has(event)) {
+    if (!HANDLED_EVENTS.has(event)) {
       return res.status(200).json({ ok: true, ignored: event });
     }
 
-    const entity =
-      req.body?.payload?.subscription?.entity ||
-      req.body?.payload?.payment?.entity?.subscription /* rare */ ||
-      null;
-    const subId = entity && (entity.id || entity.subscription_id);
+    const entity = req.body?.payload?.subscription?.entity || null;
+    const payment = req.body?.payload?.payment?.entity || null;
+    const subId = entity ? entity.id || entity.subscription_id : await subscriptionIdForPayment(payment);
     if (!subId) {
       return res.status(202).json({ ok: true, note: "no subscription id" });
     }
 
-    // Resolve our user: the notes we set at creation, else the existing row.
-    let userId = entity.notes && entity.notes.user_id;
-    let planFromNotes = entity.notes && entity.notes.plan;
-    if (!userId) {
-      const { data: match } = await supabaseAdmin
-        .from("subscriptions")
-        .select("user_id, plan")
-        .eq("provider_subscription_id", subId)
-        .maybeSingle();
-      if (match) {
-        userId = match.user_id;
-        planFromNotes = planFromNotes || match.plan;
-      }
-    }
-    if (!userId) {
-      console.warn(`[rzp-webhook] ${event}: no user for ${redact(String(subId))}`);
-      return res.status(202).json({ ok: true, note: "no user mapping" });
-    }
+    // Look the row up BY subscription id: an event for any subscription other
+    // than the one currently stored on the user's row finds nothing (or is
+    // rejected by the reducer) and can never overwrite a newer subscription.
+    const { data: stored } = await supabaseAdmin
+      .from("subscriptions")
+      .select("*")
+      .eq("provider_subscription_id", subId)
+      .maybeSingle();
 
-    // Ignore events older than what we already stored (out-of-order delivery).
-    if (eventCreatedMs) {
-      const { data: stored } = await supabaseAdmin
-        .from("subscriptions")
-        .select("updated_at")
-        .eq("user_id", userId)
-        .eq("provider_subscription_id", subId)
-        .maybeSingle();
-      if (stored && stored.updated_at && new Date(stored.updated_at).getTime() > eventCreatedMs) {
-        return res.status(200).json({ ok: true, ignored: "stale_event" });
+    const result = reduceSubscriptionEvent({
+      event,
+      entity,
+      payment,
+      subscriptionId: subId,
+      stored,
+      eventCreatedMs,
+      resolvePlan: resolveRzpPlan,
+    });
+    if (result.action === "ignore") {
+      if (result.reason !== "stale_event") {
+        console.warn(`[rzp-webhook] ${event} ${redact(String(subId))} ignored: ${result.reason}`);
       }
+      return res.status(200).json({ ok: true, ignored: result.reason });
     }
-
-    const status = subStatusFromRazorpay(entity.status);
-    const patch = {
-      user_id: userId,
-      plan: planFromNotes || undefined,
-      status,
-      provider: "razorpay",
-      provider_subscription_id: subId,
-      updated_at: new Date().toISOString(),
-    };
-    if (entity.plan_id) patch.provider_plan_id = entity.plan_id;
-    if (entity.customer_id) patch.provider_customer_id = entity.customer_id;
-    if (entity.short_url) patch.subscription_short_url = entity.short_url;
-    if (entity.current_end || entity.charge_at) {
-      patch.current_period_end = new Date((entity.current_end || entity.charge_at) * 1000).toISOString();
-    }
-    // Never null the plan on a downgrade event — the lazy entitlement check
-    // preserves access until current_period_end passes.
-    Object.keys(patch).forEach((k) => patch[k] === undefined && delete patch[k]);
 
     const { error } = await supabaseAdmin
       .from("subscriptions")
-      .upsert(patch, { onConflict: "user_id" });
+      .update(result.patch)
+      .eq("user_id", stored.user_id)
+      .eq("provider_subscription_id", subId);
     if (error) throw error;
 
-    invalidateUser(userId);
+    // subscription.charged: audit row per charge (also dedupes against verify).
+    if (result.audit) {
+      await claimPayment(result.audit).catch((e) => {
+        console.warn("[rzp-webhook] audit row failed:", redact(String((e && e.message) || e)));
+      });
+    }
+
+    invalidateUser(stored.user_id);
     res.status(200).json({ ok: true });
   } catch (err) {
     if (eventClaimed) await releaseWebhookEvent(eventId).catch(() => {});

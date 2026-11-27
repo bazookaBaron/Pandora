@@ -63,8 +63,8 @@ export function TermsPage() {
 
             <H>3. Plans, payments and term</H>
             <UL>
-                <li>Paid plans (Pro, Max) are sold as a <strong>one-time payment for a fixed term</strong> — monthly (30 days) or yearly (365 days). Nothing renews automatically; access ends when the term expires unless you purchase again.</li>
-                <li>Prices are shown in Indian Rupees (INR) and are processed by our payment partner, Razorpay. Applicable taxes, if any, are included or added at checkout.</li>
+                <li>Paid plans (Pro, Max) are <strong>recurring subscriptions</strong>, billed monthly or yearly. Your plan renews automatically at the end of each billing period and your payment method is charged until you cancel. If a renewal payment fails, you keep access for a 3-day grace period and then return to Free. Accounts that bought a fixed term before subscriptions began keep that term, which then ends without renewing.</li>
+                <li>Prices are shown in Indian Rupees (INR) or US dollars (USD) depending on your region and are processed by our payment partner, Razorpay. Applicable taxes, if any, are included or added at checkout.</li>
                 <li>Access to a paid plan begins immediately after a successful payment is verified.</li>
                 <li>Refunds and cancellations are covered by our <Link to="/refunds">Refund & Cancellation Policy</Link>.</li>
             </UL>
@@ -155,10 +155,10 @@ export function RefundPage() {
             <P>This policy applies to paid {BIZ.name} plans (Pro and Max) purchased through Razorpay.</P>
 
             <H>1. How billing works</H>
-            <P>Paid plans are a <strong>one-time payment for a fixed term</strong> (monthly = 30 days, yearly = 365 days). There is no automatic renewal and no recurring charge. When the term ends, your account simply reverts to the Free plan unless you choose to buy again.</P>
+            <P>Paid plans are <strong>recurring subscriptions</strong> billed monthly or yearly through Razorpay. They renew automatically at the end of each period until you cancel. Accounts that bought a fixed term before subscriptions began keep that term, which ends without renewing.</P>
 
             <H>2. Cancellation</H>
-            <P>You can cancel anytime — because nothing auto-renews, cancelling just means not buying the next term. There is no recurring charge to stop. You keep access to your paid features until the end of the term you already paid for, then the account returns to the Free plan.</P>
+            <P>You can cancel anytime from the Plans page. Cancelling stops future renewals; you keep access to your paid features until the end of the period you already paid for, then the account returns to the Free plan. Cancel before the renewal date to avoid being charged for the next period.</P>
 
             <H>3. Refunds</H>
             <P>Plan access is a digital service delivered immediately on payment, so <strong>all sales are final and fees are non-refundable</strong>, except where required by law or in the following cases:</P>

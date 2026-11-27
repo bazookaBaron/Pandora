@@ -220,9 +220,10 @@ export function LegalTermsScaffold() {
 
             <h2>Plans</h2>
             <p>
-                Pro and Max are a one-time payment for a fixed term (monthly or yearly) and do not
-                auto-renew. When a term ends, the account returns to Free. Prices are in INR and
-                processed by Razorpay.
+                Pro and Max are subscriptions, billed monthly or yearly and renewed automatically
+                until you cancel. Cancel anytime from the Plans page and you keep access until the end
+                of the period you paid for, then the account returns to Free. Prices are in INR or USD
+                depending on your region and are processed by Razorpay.
             </p>
 
             <h2>Referrals & jobs disclaimer</h2>
@@ -296,7 +297,7 @@ const FAQ_ITEMS = [
     },
     {
         q: 'Do plans auto-renew?',
-        a: 'No. Pro and Max are a one-time payment for a fixed term (monthly or yearly). When the term ends you return to Free unless you buy again.',
+        a: 'Yes. Pro and Max renew automatically each month or year until you cancel. Cancel anytime and you keep access until the end of the period you paid for, then you return to Free.',
     },
     {
         q: 'How do I get a refund?',

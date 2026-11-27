@@ -59,6 +59,11 @@ export function useEntitlements() {
     // country → INR, never USD) — same reasoning applies here for a
     // logged-out/not-yet-loaded viewer.
     const currency = data?.currency === 'USD' ? 'USD' : 'INR'
+    // false until the server has a stored country; callers that render prices
+    // must wait (or ask /api/geo) instead of trusting the INR fail-safe.
+    const currencyKnown = !!data?.currency_known
+    // Billing details for the Plans page (renewal date, cancel state, ...).
+    const subscription = data?.subscription || null
 
     function can(feature) {
         if (feature === 'hld_catalog') return limits.hld_catalog_access === 'full'
@@ -72,6 +77,8 @@ export function useEntitlements() {
         limits,
         usage,
         currency,
+        currencyKnown,
+        subscription,
         can,
         isLoading: query.isLoading,
         isError: query.isError,

@@ -26,6 +26,7 @@
  */
 import {
   TIERS,
+  PLAN_ORDER,
   METERED_FEATURES,
   USAGE_LIMIT_KEY,
   isValidPlan,
@@ -66,16 +67,30 @@ function summaryCacheSet(userId, value) {
   summaryCache.set(userId, { value, exp: Date.now() + SUMMARY_TTL_MS });
 }
 
+const SUB_COLUMNS_LEGACY = "plan,status,provider,billing_period,current_period_end";
+const SUB_COLUMNS =
+  SUB_COLUMNS_LEGACY +
+  ",cancel_at_period_end,grace_until,currency,admin_grant,pending_plan,provider_subscription_id";
+
 /** Read the user's single subscriptions row (cached ~15s). null if none. */
 async function getSubscription(userId) {
   const hit = subCache.get(userId);
   if (hit && Date.now() < hit.exp) return hit.row;
 
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from("subscriptions")
-    .select("plan,status,provider,billing_period,current_period_end")
+    .select(SUB_COLUMNS)
     .eq("user_id", userId)
     .maybeSingle();
+  // sql/54 not applied yet (undefined column): fall back to the legacy columns
+  // instead of failing every user to 'free'.
+  if (error && (error.code === "42703" || /column .* does not exist/i.test(String(error.message)))) {
+    ({ data, error } = await supabaseAdmin
+      .from("subscriptions")
+      .select(SUB_COLUMNS_LEGACY)
+      .eq("user_id", userId)
+      .maybeSingle());
+  }
 
   if (error) {
     console.error(
@@ -110,42 +125,102 @@ export async function getUserPlan(userId) {
 
 /**
  * Pure plan resolution for a subscriptions row (exported for tests).
- * Any paid row that carries a current_period_end is only honoured while that
- * instant is in the future - including status 'active' / 'on_trial', so a
- * missed webhook can never leave a lapsed user on a paid plan forever.
- * An active paid row with NO period end is honoured (manual grants and
- * provider rows whose webhook carried no period alike) and logged.
+ *
+ * Paid access always needs a paid-through instant in the future:
+ *   active / on_trial   -> only while current_period_end > now. An active paid
+ *                          row with NO period end is NOT honoured forever (a
+ *                          missed webhook must never leave a lapsed user on a
+ *                          paid plan) - the sole exception is a legacy manual
+ *                          grant flagged admin_grant=true (sql/54).
+ *   cancelled           -> until current_period_end (cancel-at-cycle-end).
+ *   past_due            -> a failed renewal: until current_period_end OR the
+ *                          grace_until instant (3-day grace), whichever is later.
+ *   halted / expired / paused / created / pending / unknown -> free, immediately.
  */
 export function effectivePlanFromRow(row, now = Date.now()) {
   if (!row) return "free";
   const plan = isValidPlan(row.plan) ? row.plan : "free";
   if (plan === "free") return "free";
 
-  const end = row.current_period_end
-    ? new Date(row.current_period_end).getTime()
-    : null;
-  const hasEnd = end !== null && !Number.isNaN(end);
+  const ts = (v) => {
+    if (!v) return null;
+    const t = new Date(v).getTime();
+    return Number.isNaN(t) ? null : t;
+  };
+  const end = ts(row.current_period_end);
+  const grace = ts(row.grace_until);
   const status = row.status;
 
   if (status === "active" || status === "on_trial") {
-    if (hasEnd) return end > now ? plan : "free";
-    // Active with NO period end: honour it. A provider-backed row can lack the
-    // end when a webhook carried no period (or a legacy row predates the
-    // column); dropping a paying user to free would lock them out. Logged so
-    // the row can be repaired.
-    if (row.provider) {
-      console.warn(
-        "[entitlements] active provider-backed subscription without current_period_end; treating as active",
-        String(row.user_id || ""),
-      );
-    }
-    return plan;
+    if (end !== null) return end > now ? plan : "free";
+    return row.admin_grant === true ? plan : "free";
   }
-  if (status === "cancelled" || status === "past_due") {
-    return hasEnd && end > now ? plan : "free";
+  if (status === "cancelled") {
+    return end !== null && end > now ? plan : "free";
   }
-  // expired | paused | created | pending | halted | unknown
+  if (status === "past_due") {
+    const paidThrough = end !== null && end > now;
+    const inGrace = grace !== null && grace > now;
+    return paidThrough || inGrace ? plan : "free";
+  }
+  // halted | expired | paused | created | pending | authenticated | unknown
   return "free";
+}
+
+/**
+ * Does `plan` satisfy a plan requirement? (pure; plans ordered free < pro < max)
+ */
+export function planAtLeast(plan, min = "pro") {
+  const a = PLAN_ORDER.indexOf(plan);
+  const b = PLAN_ORDER.indexOf(min);
+  return a >= 0 && b >= 0 && a >= b;
+}
+
+/**
+ * Server-side gate for paid-only features (AutoApply packs / wallet, etc.).
+ * Resolves the user's EFFECTIVE plan (so a halted, lapsed, cancelled-and-ended
+ * or grace-expired subscription is Free) and says whether it is enough.
+ *
+ *   const gate = await requiresActivePlan(userId);            // pro or max
+ *   const gate = await requiresActivePlan(userId, { min: "max" });
+ *   if (!gate.ok) return res.status(402).json({ error: "plan_required", plan: gate.plan });
+ *
+ * Never throws for a missing row (that is simply Free). Fails closed.
+ * @returns {Promise<{ ok: boolean, plan: string, required: string }>}
+ */
+export async function requiresActivePlan(userId, { min = "pro" } = {}) {
+  let plan = "free";
+  try {
+    plan = userId ? await getUserPlan(userId) : "free";
+  } catch {
+    plan = "free";
+  }
+  return { ok: planAtLeast(plan, min), plan, required: min };
+}
+
+/**
+ * Billing details for the Plans / Me UI, derived from the raw row (pure).
+ * Returns null for free users with nothing to manage.
+ */
+export function subscriptionView(row, now = Date.now()) {
+  if (!row) return null;
+  const effective = effectivePlanFromRow(row, now);
+  if (effective === "free") return null;
+  const providerSub = String(row.provider_subscription_id || "");
+  const recurring = row.provider === "razorpay" && providerSub.startsWith("sub_");
+  const cancelling = row.status === "cancelled" || row.cancel_at_period_end === true;
+  return {
+    plan: effective,
+    status: row.status,
+    billing_period: row.billing_period || null,
+    current_period_end: row.current_period_end || null,
+    cancel_at_period_end: cancelling,
+    grace_until: row.status === "past_due" ? row.grace_until || null : null,
+    pending_plan: row.pending_plan || null,
+    recurring,
+    // Legacy one-time / coupon / admin terms just end; nothing to cancel.
+    can_cancel: recurring && !cancelling,
+  };
 }
 
 // ── geo-based currency ───────────────────────────────────────────────────
@@ -585,7 +660,17 @@ export async function getEntitlementsSummary(userId) {
     usage[feature] = { used, limit: serializeLimit(limit), resetsAt };
   });
 
-  const summary = { plan, limits, usage, currency: currencyForCountry(country) };
+  const subRow = await getSubscription(userId);
+  const summary = {
+    plan,
+    limits,
+    usage,
+    currency: currencyForCountry(country),
+    // false until detect-country has stored a country: the client then asks
+    // GET /api/geo instead of trusting the INR fail-safe (avoids INR->USD flash).
+    currency_known: !!country,
+    subscription: subscriptionView(subRow),
+  };
   summaryCacheSet(userId, summary);
   return summary;
 }

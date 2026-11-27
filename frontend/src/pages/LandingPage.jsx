@@ -25,7 +25,7 @@ const FAQ = [
     ['Is Vloombox free?', 'Yes. Free gives you some of every feature. Pro unlocks more.'],
     ['Where do the jobs come from?', 'Straight from company career pages, checked every day.'],
     ['How do referrals work?', 'You ask. Employees at that company can refer you.'],
-    ['Do plans auto-renew?', 'No. You pay once for a month or a year.'],
+    ['Do plans auto-renew?', 'Yes, until you cancel. Cancel anytime and you keep access until the end of the period you paid for.'],
 ]
 
 const fmt = (n) => Number(n).toLocaleString('en-IN')

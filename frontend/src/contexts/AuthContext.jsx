@@ -63,7 +63,11 @@ export function AuthProvider({ children }) {
                 // reads the session) inside the onAuthStateChange callback — it
                 // can deadlock on the auth lock. Defer to the next tick.
                 setTimeout(() => {
-                    apiFetch('/api/profile/detect-country', { method: 'POST' }).catch(() => {
+                    apiFetch('/api/profile/detect-country', { method: 'POST' }).then((r) => {
+                        // Currency comes from the stored country: refresh the plan
+                        // summary so pricing never keeps a pre-detection currency.
+                        if (r && r.country) queryClient.invalidateQueries({ queryKey: ['entitlements'] })
+                    }).catch(() => {
                         // Best-effort — a failed detection just leaves country
                         // null, which currencyForCountry() already treats as
                         // India (the safe default), so there's nothing to

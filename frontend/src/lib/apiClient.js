@@ -60,7 +60,7 @@ let signOutInFlight = false
 // Routes that require a session (see ProtectedRoute in App.jsx). Everything
 // else (home/jobs, dsa, lld/hld lists, static + legal pages…) is browsable
 // logged-out, so a dead session there must NOT bounce the visitor to /auth.
-const PROTECTED_PATHS = ['/profile', '/pricing', '/subscription/success']
+const PROTECTED_PATHS = ['/profile', '/subscription/success']
 export function isProtectedPath(pathname) {
     return PROTECTED_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
 }
