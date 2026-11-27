@@ -113,7 +113,7 @@
 
 /* Progress */
 .aa-progress { height: 8px; background: var(--surface); border: 1px solid var(--subtle); border-radius: 4px; overflow: hidden; }
-.aa-progress > span { display: block; height: 100%; background: linear-gradient(90deg, var(--pop), #a78bfa); transition: width 0.6s ease; }
+.aa-progress > span { display: block; height: 100%; background: var(--pop); transition: width 0.6s ease; }
 
 /* Status pills */
 .aa-pill {
