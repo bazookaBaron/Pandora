@@ -54,8 +54,8 @@ test("classifier: a rejection that also invites / offers / assesses is kept (imp
 test("classifier: kinds inside important", () => {
   assert.equal(kind("Interview invitation - Backend Engineer"), "interview");
   assert.equal(kind("Next steps", "Join us on https://meet.google.com/abc-defg-hij at 3 PM"), "interview");
-  assert.equal(kind("Complete your HackerRank test"), "assessment");
-  assert.equal(kind("Online assessment before your interview", "Please finish it before the interview"), "assessment");
+  assert.equal(kind("Complete your HackerRank test", "Start here: https://www.hackerrank.com/test/abc123/login"), "assessment");
+  assert.equal(kind("Online assessment before your interview", "Please complete the online assessment: https://app.codility.com/c/run/xyz"), "assessment");
   assert.equal(kind("Your offer letter from Acme"), "offer");
   assert.equal(kind("Congratulations!", "We are pleased to offer you the role of SDE 2."), "offer");
   assert.equal(kind("Hello", "Hi, quick question about your profile", { is_human: true }), "recruiter");

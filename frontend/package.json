@@ -15,7 +15,7 @@
         "start": "node server.js",
         "test:resume": "node test/resume-isolation.test.mjs",
         "test:seo": "node test/seo-routes.test.mjs",
-        "test:autoapply": "node --test test/autoapply-unit.test.mjs test/autoapply-gate.test.mjs test/autoapply-mail.test.mjs test/autoapply-interview.test.mjs test/autoapply-api.test.mjs test/autoapply-features.test.mjs test/autoapply-hardening.test.mjs test/autoapply-broker.test.mjs test/autoapply-audit2.test.mjs test/autoapply-live.test.mjs test/autoapply-supply-match.test.mjs test/autoapply-setup.test.mjs test/autoapply-needsyou.test.mjs test/autoapply-retention.test.mjs",
+        "test:autoapply": "node --test test/autoapply-unit.test.mjs test/autoapply-gate.test.mjs test/autoapply-mail.test.mjs test/autoapply-interview.test.mjs test/autoapply-api.test.mjs test/autoapply-features.test.mjs test/autoapply-hardening.test.mjs test/autoapply-broker.test.mjs test/autoapply-audit2.test.mjs test/autoapply-live.test.mjs test/autoapply-supply-match.test.mjs test/autoapply-setup.test.mjs test/autoapply-needsyou.test.mjs test/autoapply-retention.test.mjs test/autoapply-inbox-verify.test.mjs",
         "test": "node --test test/coupons.test.mjs test/entitlements.test.mjs test/latex-sanitize.test.mjs test/microcache.test.mjs test/referral-access.test.mjs test/jobs-feed.test.mjs"
     },
     "dependencies": {
