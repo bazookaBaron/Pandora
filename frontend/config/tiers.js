@@ -141,7 +141,18 @@ export const AUTO_APPLY = {
     credit_validity_days: 90,
     review_hours: 6,                      // shortlist review window when review_before_apply = true
     tenant_daily_cap_default: 150,        // platform-wide submissions per tenant_host per IST day
-    packs: {                              // paise, GST inclusive
+    // Wallet (replaces packs, sql/55): users top up, a batch holds size x product rate at start and each SUBMITTED
+    // application captures the rate of its job's company kind; the unused hold returns to the wallet at the end.
+    wallet: {
+        batch_sizes: [25, 50, 100],
+        rate_paise: { product: 1800, service: 1200 },     // per submitted application, GST inclusive
+        min_topup_paise: 30000,                           // 300 rupees
+        max_topup_paise: 5000000,                         // 50,000 rupees
+        topup_presets_paise: [50000, 100000, 200000],
+        batch_valid_days: 30,                             // a wallet batch closes (unused money returns) after this
+        idle_close_hours: 48,                             // waiting_supply with no new matches this long -> finished_partial
+    },
+    packs: {                              // LEGACY (pack buying is retired): paise, GST inclusive, read-only history
         service: { 50: 59900, 100: 115000 },
         product: { 50: 89900, 100: 149900 },   // confirmed 2026-11-20 (80 packs removed)
     },

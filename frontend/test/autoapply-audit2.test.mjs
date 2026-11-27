@@ -167,6 +167,7 @@ before(async () => {
   const app = express();
   app.use(express.json());
   app.use("/api/autoapply", createAutoApplyRouter({
+      legacyPacks: true,
     db,
     mailDb: createFakeDb(),
     razorpay: { isEnabled: () => true },

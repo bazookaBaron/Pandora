@@ -1,17 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ListFilter, Search } from 'lucide-react'
-import { useAuth } from '../../contexts/AuthContext'
 import { ErrorState, errorText } from '../../components/shared/states'
 import { HelpChip, PageHeader, Row, Sheet, StatusBanner } from '../../components/ui'
-import { openRazorpayOrder } from '../../lib/razorpay'
 import { track, TRACK } from '../../lib/track'
-import { useAutoApplyMe, useCompanySuggest, useCouponQuote, useCreateOrder, useSupply, useVerifyOrder } from '../../lib/useAutoApply'
+import { useAutoApplyMe, useCompanySuggest, useStartBatch, useSupply, useWallet } from '../../lib/useAutoApply'
 import { TIERS } from '../../../config/tiers.js'
-import {
-    AALayout, MustCompaniesInput, PACK_KINDS, PACK_SIZES, fmtDate, matchShown, num, packPrice, perApplication, rupees, setupLinkFor,
-} from './ui'
+import { AALayout, BATCH_SIZES, MustCompaniesInput, PRICE_LINE, fmtDate, matchShown, rupees, setupLinkFor } from './ui'
+import WalletTopUp from './WalletTopUp'
 import './buy.css'
+import './wallet.css'
 
 function useDebounced(value, ms) {
     const [v, setV] = useState(value)
@@ -22,7 +20,6 @@ function useDebounced(value, ms) {
     return v
 }
 
-const CARD_NAME = { service: 'Service companies', product: 'Product companies' }
 const proMonthly = TIERS?.pro?.price_inr?.monthly
 
 /** "Includes jobs from across India, last 90 days." from GET /supply's widened_parts (the broadening ladder). */
@@ -36,29 +33,8 @@ function widenedLine(d) {
     return `Includes ${what}${days ? ` from the last ${days} days` : ''}.`
 }
 
-// One stacked pack card (a radio): name, price, "50+ matching jobs", price per application.
-function PackCard({ kind, size, config, supply, selected, onPick, disabled }) {
-    const p = packPrice(config, kind, size)
-    const d = supply.data
-    const count = supply.isLoading ? null : d ? matchShown(d.count, size) : null
-    return (
-        <button type="button" role="radio" aria-checked={selected} className={`buy-card${selected ? ' is-on' : ''}`} onClick={onPick} disabled={disabled || p == null}>
-            <span className="buy-card-top">
-                <span className="buy-card-name">{CARD_NAME[kind]}</span>
-                <span className="buy-card-price">{p != null ? rupees(p) : '—'}</span>
-            </span>
-            <span className="buy-card-line">
-                <span className={d && d.count < 50 ? 'buy-card-low' : 'buy-card-match'}>
-                    {count == null ? (supply.isError ? 'Could not count jobs' : 'Counting jobs…') : `${count} matching jobs`}
-                </span>
-                {p != null && <span className="buy-card-per">{perApplication(p, size)} per application</span>}
-            </span>
-        </button>
-    )
-}
-
 function MatchesSheet({ open, onClose, supply, size }) {
-    const d = supply.data
+    const d = supply
     return (
         <Sheet open={open} onClose={onClose} title="Matching jobs" description={d ? `${matchShown(d.count, size)} jobs fit your setup right now.` : undefined}>
             {d && Array.isArray(d.sample) && d.sample.length > 0 ? (
@@ -69,201 +45,115 @@ function MatchesSheet({ open, onClose, supply, size }) {
                 </ul>
             ) : <p className="aa-muted">No matching jobs yet.</p>}
             {widenedLine(d) && <p className="aa-muted" style={{ marginTop: 12 }}>{widenedLine(d)}</p>}
-            <p className="aa-muted" style={{ marginTop: 8 }}>We keep applying until all {size} are submitted.</p>
+            <p className="aa-muted" style={{ marginTop: 8 }}>We keep applying to matching jobs until the batch is done or no new matches turn up.</p>
         </Sheet>
     )
 }
 
+/** Start a batch from the wallet: size 25 / 50 / 100, matching your profile. No up-front charge. */
 export default function BuyPage() {
     const me = useAutoApplyMe()
-    const { user } = useAuth()
+    const wallet = useWallet()
     const navigate = useNavigate()
     const [params] = useSearchParams()
-    const createOrder = useCreateOrder()
-    const verifyOrder = useVerifyOrder()
-    const couponQuote = useCouponQuote()
-    const [couponOpen, setCouponOpen] = useState(false)
-    const [couponInput, setCouponInput] = useState('')
-    const [coupon, setCoupon] = useState(null) // { code, kind } once checked
-    const [couponErr, setCouponErr] = useState('')
+    const start = useStartBatch()
+    const [topup, setTopup] = useState(false)
     const [sheet, setSheet] = useState(null) // 'matches' | 'options'
 
     const config = me.data?.config || {}
     const maxWindow = config.window_days_max ?? 30
-    const kindParam = params.get('kind')
-    const [kind, setKindState] = useState(kindParam === 'product' ? 'product' : 'service')
-    // the user's own pick (or a ?kind= link) wins; until then the kind with more matching jobs is pre-selected
-    const kindPicked = useRef(kindParam === 'product' || kindParam === 'service')
-    const setKind = (k) => { kindPicked.current = true; setKindState(k) }
-    const [size, setSize] = useState(50)
-    const [windowDays, setWindowDays] = useState(null)
-    const [note, setNote] = useState(null) // {kind: 'error'|'cap'|'eligible'|'consent', text}
-    const [stage, setStage] = useState('') // '' | 'order' | 'paying' | 'verifying'
+    const sizes = config.wallet?.batch_sizes || BATCH_SIZES
+    // "Start again with remaining" pre-fills size, window and must-apply companies (?size=&days=&must=)
+    const qSize = Number(params.get('size'))
+    const qDays = Number(params.get('days'))
+    const [size, setSize] = useState(BATCH_SIZES.includes(qSize) ? qSize : 50)
+    const [windowDays, setWindowDays] = useState(Number.isInteger(qDays) && qDays >= 1 && qDays <= 30 ? qDays : null)
+    const [must, setMust] = useState(() => (params.get('must') || '').split('|').map((x) => x.trim()).filter(Boolean).slice(0, 10))
+    const [mustQuery, setMustQuery] = useState('')
+    const [note, setNote] = useState(null)
 
     useEffect(() => {
         if (windowDays === null && me.data) setWindowDays(config.window_days_default ?? 30)
     }, [me.data, windowDays, config.window_days_default])
     const wd = windowDays ?? 30
     const debouncedWd = useDebounced(wd, 350)
+    const suggest = useCompanySuggest(useDebounced(mustQuery, 250))
 
-    const u = me.data?.usage || {}
-    const cap = u.monthly_cap ?? config.monthly_cap ?? 1000
-    const remaining = u.remaining_purchasable ?? Math.max(0, cap - (u.month_purchased || 0))
-    const listPrice = packPrice(config, kind, size)
-    const price = listPrice == null || !coupon ? listPrice : coupon.kind === 'free_all' ? 0 : coupon.kind === 'per_job_rupee' ? Math.min(listPrice, size * 100) : listPrice
-    const eligible = !!me.data?.eligible
-    const onboarded = !!me.data?.onboarding_done
-    const check = me.data?.profile_check
-    const profileMissing = check && !check.ok ? check.missing || [] : []
-    const [ackWait, setAckWait] = useState(false)
-    const [must, setMust] = useState([])
-    const [mustQuery, setMustQuery] = useState('')
-    const suggest = useCompanySuggest(useDebounced(mustQuery, 250), kind)
-    const sizeOk = size <= remaining
-    // both kinds: the cards compare them and the busier one is pre-selected (server-cached 10 min per user)
-    // only once /me set the window and the slider settled (0 disables the query)
     const supplyWd = me.data && windowDays !== null && debouncedWd === wd ? debouncedWd : 0
     const supplyService = useSupply('service', supplyWd, size)
     const supplyProduct = useSupply('product', supplyWd, size)
-    const supplyFor = (k) => (k === 'product' ? supplyProduct : supplyService)
+    const supplyLoading = supplyService.isLoading || supplyProduct.isLoading
+    const supplyData = supplyService.data || supplyProduct.data
+        ? {
+            count: (supplyService.data?.count || 0) + (supplyProduct.data?.count || 0),
+            sample: [...(supplyProduct.data?.sample || []), ...(supplyService.data?.sample || [])].slice(0, 5),
+            widened_parts: supplyProduct.data?.widened_parts || supplyService.data?.widened_parts,
+            widened_window_days: supplyService.data?.widened_window_days,
+        }
+        : null
 
-    useEffect(() => {
-        if (kindPicked.current) return
-        const sv = supplyService.data
-        const pr = supplyProduct.data
-        if (!sv || !pr) return
-        kindPicked.current = true
-        setKindState(pr.count > sv.count ? 'product' : 'service')
-    }, [supplyService.data, supplyProduct.data])
-
-    // funnel: one buy_view per visit, once /me says what is on offer
     const viewed = useRef(false)
     useEffect(() => {
         if (viewed.current || !me.data) return
         viewed.current = true
-        track(TRACK.BUY_VIEW, { pack: kind, size })
-    }, [me.data, kind, size])
+        track(TRACK.BUY_VIEW, { pack: 'wallet', size })
+    }, [me.data, size])
 
-    const busy = !!stage
+    const eligible = !!me.data?.eligible
+    const onboarded = !!me.data?.onboarding_done
+    const check = me.data?.profile_check
+    const profileMissing = check && !check.ok ? check.missing || [] : []
+    const minStart = wallet.data?.min_start_paise ?? config.wallet?.rate_paise?.product ?? 1800
+    const balance = wallet.data?.balance_paise
+    const shortfall = balance == null ? 0 : Math.max(0, minStart - balance)
+    const needsFunds = balance != null && shortfall > 0
+    const needsPlan = !!me.data && !eligible
+    const busy = start.isPending
 
-    // keep the selected size purchasable
-    useEffect(() => {
-        if (!me.data) return
-        if (size > remaining) {
-            const fit = [...PACK_SIZES].reverse().find((s) => s <= remaining)
-            if (fit) setSize(fit)
-        }
-    }, [remaining, me.data]) // eslint-disable-line react-hooks/exhaustive-deps
-
-    async function applyCoupon() {
-        setCouponErr('')
-        const code = couponInput.trim().toUpperCase()
-        if (!code) return
-        try {
-            const q = await couponQuote.mutateAsync({ coupon_code: code, pack_kind: kind, pack_size: size, window_days: wd })
-            setCoupon({ code: q.coupon_code, kind: q.kind })
-        } catch (err) {
-            setCoupon(null)
-            setCouponErr(err?.message && !/^coupon_/.test(err.message) ? err.message : errorText(err))
-        }
-    }
-
-    async function buy() {
+    async function begin() {
         setNote(null)
-        setStage('order')
-        const ev = { pack: kind, size, amount: Math.round((Number(price) || 0) / 100) }
-        track(TRACK.PAY_START, ev)
-        let order
+        track(TRACK.PAY_START, { pack: 'wallet', size })
         try {
-            order = await createOrder.mutateAsync({ pack_kind: kind, pack_size: size, window_days: wd, must_companies: must, ...(coupon ? { coupon_code: coupon.code } : {}) })
+            const out = await start.mutateAsync({ size, window_days: wd, must_companies: must })
+            track(TRACK.PAY_SUCCESS, { pack: 'wallet', size, amount: 0 })
+            navigate(out?.batch?.id ? `/autoapply/batches/${out.batch.id}?new=1` : '/autoapply')
         } catch (err) {
-            setStage('')
-            if (err?.status === 403 || err?.code === 'not_eligible') setNote({ kind: 'eligible', text: err.message })
+            if (err?.code === 'insufficient_balance') { wallet.refetch(); setTopup(true) }
+            else if (err?.status === 403 || err?.code === 'not_eligible') setNote({ kind: 'eligible', text: err.message })
             else if (err?.code === 'consent_required') setNote({ kind: 'consent', text: errorText(err) })
             else if (err?.status === 409 || err?.code === 'monthly_cap') setNote({ kind: 'cap', text: err.message })
             else setNote({ kind: 'error', text: errorText(err) })
-            me.refetch()
-            return
-        }
-        if (order.free) {
-            track(TRACK.PAY_SUCCESS, { ...ev, amount: 0 })
-            navigate(order.batch_id ? `/autoapply/batches/${order.batch_id}?new=1` : '/autoapply')
-            return
-        }
-        setStage('paying')
-        let resp
-        try {
-            resp = await openRazorpayOrder({
-                keyId: order.key_id,
-                orderId: order.order_id,
-                amount: order.amount,
-                currency: order.currency || 'INR',
-                description: `AutoApply · ${PACK_KINDS[kind].short} · ${size} applications`,
-                user,
-            })
-        } catch (err) {
-            setStage('')
-            if (err?.code !== 'dismissed') setNote({ kind: 'error', text: err?.message || 'The payment did not go through.' })
-            return
-        }
-        setStage('verifying')
-        try {
-            const res = await verifyOrder.mutateAsync({
-                razorpay_order_id: resp.razorpay_order_id,
-                razorpay_payment_id: resp.razorpay_payment_id,
-                razorpay_signature: resp.razorpay_signature,
-            })
-            track(TRACK.PAY_SUCCESS, { ...ev, amount: Math.round((Number(order.amount) || 0) / 100) })
-            const id = res?.batch?.id || order.batch_id
-            navigate(id ? `/autoapply/batches/${id}?new=1` : '/autoapply')
-        } catch (err) {
-            setStage('')
-            setNote({ kind: 'error', text: `We could not confirm the payment (${errorText(err)}). If you were charged, your pack will appear shortly; contact support if it doesn't.` })
         }
     }
 
-    // one status line: setup first, then an incomplete profile
     let banner = null
     if (me.data && !onboarded) {
-        banner = <StatusBanner tone="warn" text="Finish setup before you buy" action={{ label: 'Finish setup', to: '/autoapply/account' }} />
+        banner = <StatusBanner tone="warn" text="Finish setup before you start" action={{ label: 'Finish setup', to: '/autoapply/account' }} />
     } else if (me.data && profileMissing.length > 0) {
-        banner = <StatusBanner tone="warn" text={`${profileMissing.length} profile item${profileMissing.length === 1 ? '' : 's'} left. The pack waits until done.`} action={{ label: 'Fix', to: setupLinkFor(profileMissing) }} />
+        banner = <StatusBanner tone="warn" text={`${profileMissing.length} profile item${profileMissing.length === 1 ? '' : 's'} left. The batch waits until done.`} action={{ label: 'Fix', to: setupLinkFor(profileMissing) }} />
     }
-
-    // free plan: the plan need is shown inline and the bar sends them to pricing (a free-pack code still works)
-    const needsPlan = !!me.data && !eligible && !(coupon && coupon.kind === 'free_all')
-    const payDisabled = busy || !onboarded || !sizeOk || price == null || (profileMissing.length > 0 && !ackWait)
 
     return (
         <AALayout>
-            {(stage === 'order' || stage === 'verifying') && (
-                <div aria-live="polite" className="buy-overlay">
-                    <div className="buy-overlay-box">
-                        <span className="spinner-lg" />
-                        <span>{stage === 'order' ? 'Opening secure checkout…' : 'Confirming payment…'}</span>
-                    </div>
-                </div>
-            )}
-            <PageHeader section="autoapply" title="Pick a pack" subtitle="We apply to matching jobs for you." back={{ to: '/autoapply', label: 'Auto Apply' }}
+            <PageHeader section="autoapply" title="Start a batch" subtitle="We apply to jobs that match your profile." back={{ to: '/autoapply', label: 'Auto Apply' }}
                 aside={<HelpChip term="pack" />} />
 
             {banner && <div className="aa-gap">{banner}</div>}
 
-            <div className="buy-size" role="radiogroup" aria-label="Pack size">
-                {PACK_SIZES.map((s) => (
-                    <button key={s} type="button" role="radio" aria-checked={size === s} className="buy-size-opt" onClick={() => setSize(s)}
-                        disabled={busy || s > remaining} title={s > remaining ? 'Over this month’s limit' : undefined}>
+            <div className="buy-size" role="radiogroup" aria-label="Batch size">
+                {sizes.map((s) => (
+                    <button key={s} type="button" role="radio" aria-checked={size === s} className="buy-size-opt" onClick={() => setSize(s)} disabled={busy}>
                         {s} jobs
                     </button>
                 ))}
             </div>
-            {PACK_SIZES.some((s) => s > remaining) && <p className="aa-faint buy-left">{num(remaining)} of {num(cap)} applications left this month</p>}
 
-            <div className="buy-cards" role="radiogroup" aria-label="Companies">
-                {['service', 'product'].map((k) => (
-                    <PackCard key={k} kind={k} size={size} config={config} supply={supplyFor(k)} selected={kind === k} onPick={() => setKind(k)} disabled={busy} />
-                ))}
-            </div>
+            <p className="wl-note" style={{ margin: '4px 0 12px' }}>
+                {PRICE_LINE(config)}.{' '}
+                <span className={supplyData && supplyData.count < size ? 'buy-card-low' : 'buy-card-match'}>
+                    {supplyLoading && !supplyData ? 'Counting matching jobs…' : supplyData ? `${matchShown(supplyData.count, size)} matching jobs` : ''}
+                </span>
+            </p>
 
             {needsPlan && (
                 <p className="buy-plan" role="note">
@@ -276,60 +166,37 @@ export default function BuyPage() {
                 <li><Row leading={<ListFilter size={18} />} title="More options" sub={must.length ? `${must.length} must-apply companies` : `Jobs from the last ${wd} days`} onClick={() => setSheet('options')} /></li>
             </ul>
 
-            <div className="buy-code">
-                {couponOpen ? (
-                    <div className="aa-row" style={{ gap: 8 }}>
-                        <label className="aa-sr" htmlFor="buy-coupon">Coupon code</label>
-                        <input id="buy-coupon" className="input-field" placeholder="Code" value={couponInput} maxLength={40} autoFocus
-                            style={{ flex: '1 1 140px', minWidth: 0, textTransform: 'uppercase' }} disabled={busy}
-                            onChange={(e) => { setCouponInput(e.target.value); setCoupon(null); setCouponErr('') }}
-                            onKeyDown={(e) => { if (e.key === 'Enter') applyCoupon() }} />
-                        <button type="button" className="aa-btn buy-code-btn" onClick={applyCoupon} disabled={busy || !couponInput.trim() || couponQuote.isPending}>
-                            {couponQuote.isPending ? 'Checking…' : 'Apply'}
-                        </button>
-                    </div>
-                ) : (
-                    <button type="button" className="buy-code-link" onClick={() => setCouponOpen(true)}>Have a code?</button>
-                )}
-                {coupon && <span className="aa-chip" style={{ marginTop: 8 }}>{coupon.code} · {coupon.kind === 'free_all' ? 'free pack' : '₹1 per application'}</span>}
-                {couponErr && <p className="buy-err" role="alert">{couponErr}</p>}
-            </div>
-
-            {onboarded && profileMissing.length > 0 && (
-                <label className="aa-check buy-ack">
-                    <input type="checkbox" checked={ackWait} onChange={(e) => setAckWait(e.target.checked)} disabled={busy} />
-                    <span>I understand this pack waits until my profile is complete.</span>
-                </label>
-            )}
             {note?.kind === 'eligible' && (
                 <StatusBanner tone="warn" className="aa-gap" text={note.text && note.text !== 'not_eligible' ? note.text : 'Auto Apply needs an active Pro or Max plan.'} action={{ label: 'See plans', to: '/pricing' }} />
             )}
-            {note?.kind === 'cap' && (
-                <StatusBanner tone="warn" className="aa-gap" text={`${note.text && note.text !== 'monthly_cap' ? note.text : `This pack goes over the ${num(cap)} per month limit.`} ${num(remaining)} left this month.`} />
-            )}
+            {note?.kind === 'cap' && <StatusBanner tone="warn" className="aa-gap" text={note.text} />}
             {note?.kind === 'consent' && (
                 <StatusBanner tone="warn" className="aa-gap" text={note.text} action={{ label: 'Open setup', to: '/autoapply/account?step=review' }} />
             )}
             {note?.kind === 'error' && <ErrorState compact message={note.text} style={{ marginBottom: 12 }} />}
 
-            <div className="buy-bar" aria-label="Total">
+            <div className="buy-bar" aria-label="Start">
                 <div className="buy-bar-total">
-                    <strong>
-                        {price != null ? rupees(price) : '—'}
-                        {coupon && listPrice != null && price !== listPrice && <s className="buy-bar-was">{rupees(listPrice)}</s>}
-                    </strong>
-                    <span>{PACK_KINDS[kind].short} · {size} jobs · GST incl.</span>
+                    <strong>{balance == null ? '—' : rupees(balance)}</strong>
+                    <span>{needsFunds ? 'Wallet empty. Add money to start.' : 'in your wallet · used only for applications we submit'}</span>
                 </div>
                 {needsPlan ? (
                     <Link to="/pricing" className="sys-tone-btn buy-bar-btn" onClick={() => track(TRACK.CTA_CLICK, { id: 'buy_needs_plan', section: 'autoapply' })}>Get Pro</Link>
+                ) : needsFunds ? (
+                    <button type="button" className="sys-tone-btn buy-bar-btn" onClick={() => setTopup(true)}>Add money</button>
                 ) : (
-                    <button type="button" className="sys-tone-btn buy-bar-btn" onClick={buy} disabled={payDisabled} aria-busy={busy || undefined}>
-                        {stage === 'paying' ? 'Payment open…' : busy ? 'Working…' : price === 0 ? 'Get it free' : `Pay ${price != null ? rupees(price) : ''}`}
+                    <button type="button" className="sys-tone-btn buy-bar-btn" onClick={begin} disabled={busy || !onboarded || balance == null} aria-busy={busy || undefined}>
+                        {busy ? 'Starting…' : `Start ${size} jobs`}
                     </button>
                 )}
             </div>
+            {!needsPlan && !needsFunds && (
+                <p className="wl-note" style={{ marginTop: 8 }}>
+                    <button type="button" className="buy-code-link" onClick={() => setTopup(true)}>Add money</button>
+                </p>
+            )}
 
-            <MatchesSheet open={sheet === 'matches'} onClose={() => setSheet(null)} supply={supplyFor(kind)} size={size} />
+            <MatchesSheet open={sheet === 'matches'} onClose={() => setSheet(null)} supply={supplyData} size={size} />
             <Sheet open={sheet === 'options'} onClose={() => setSheet(null)} title="More options"
                 footer={<button type="button" className="sys-tone-btn" style={{ '--tone': 'var(--pop)' }} onClick={() => setSheet(null)}>Done</button>}>
                 <div className="aa-stack" style={{ gap: 18 }}>
@@ -344,6 +211,7 @@ export default function BuyPage() {
                     </div>
                 </div>
             </Sheet>
+            <WalletTopUp open={topup} onClose={() => setTopup(false)} wallet={wallet.data} shortfallPaise={shortfall} />
         </AALayout>
     )
 }

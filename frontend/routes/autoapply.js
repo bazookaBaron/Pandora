@@ -25,9 +25,10 @@ import * as realResend from "../services/resend.js";
 import { publicQuestions, validateAnswer, isValidKey, isRequiredKey, learnedKey, LEARNED_KEY_RE } from "../lib/autoapply/questions.js";
 import { validatePrefsInput, validateProfileDraft, cleanText } from "../lib/autoapply/setupOptions.js";
 import { decryptSecret } from "../lib/autoapply/vault.js";
-import { engineState, liveStatus } from "../lib/autoapply/liveStatus.js";
+import { engineState, liveCounts, liveStatus } from "../lib/autoapply/liveStatus.js";
 import { isEligiblePlan, usageFor } from "../lib/autoapply/limits.js";
 import { AAError, createAutoApplyOrder, quoteAutoApplyCoupon, verifyAutoApplyPayment, handleAutoApplyWebhook, expirePendingOrders } from "../lib/autoapply/orders.js";
+import { createTopupOrder, handleWalletWebhook, notifyWaitingFunds, retriggerFor, startBatch, verifyTopup, walletSummary } from "../lib/autoapply/wallet.js";
 import { verifyInbound, storeInbound } from "../lib/autoapply/inbound.js";
 import { mailDb as realMailDb } from "../lib/autoapply/mailDb.js";
 import { sendPushForMail, sendPushToUser, vapidConfig, isAllowedPushEndpoint } from "../lib/autoapply/push.js";
@@ -44,7 +45,7 @@ import { extractText, draftFromText, maybeEnrichWithAi } from "../lib/autoapply/
 import { isVerifyItem, confirmSubmitted, notSubmitted } from "../lib/autoapply/verify.js";
 import { readyItems, buildForm, publicForm, parseSubmission, applySubmission, notifyReadyNeedsYou, expireFinalBatchNeedsYou } from "../lib/autoapply/needsYouForm.js";
 
-export { AAError, handleAutoApplyWebhook };
+export { AAError, handleAutoApplyWebhook, handleWalletWebhook };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
@@ -73,15 +74,40 @@ async function statusCountsFor(db, userId, batchIds) {
   return out;
 }
 
-const TASK_FIELDS = "id, company, title, ats, status, reason_code, score, submitted_at, updated_at, apply_url, confirmation_text, proof_path, not_charged";
+const TASK_FIELDS = "id, company, title, ats, status, reason_code, score, submitted_at, updated_at, apply_url, confirmation_text, proof_path, not_charged, lease_until";
+
+const APPLYING_STATUSES = ["claimed", "running", "waiting_code", "submitting"];
+/**
+ * Live (lease-aware) counts per batch from the GROUP BY histogram: an application in an active status only counts as
+ * 'applying' while its lease is alive. The few in-flight rows (bounded by worker concurrency) are fetched separately, so
+ * this stays correct when task rows are paginated or omitted (?summary=1).
+ */
+async function liveCountsFor(db, userId, batchIds, histograms, at = new Date()) {
+  const out = new Map(batchIds.map((id) => [id, { ...(histograms.get(id) || {}) }]));
+  if (!batchIds.length) return out;
+  const { data, error } = await db
+    .from("aa_tasks")
+    .select("batch_id, status, lease_until")
+    .eq("user_id", userId)
+    .in("batch_id", batchIds)
+    .in("status", APPLYING_STATUSES)
+    .limit(5000);
+  if (error) throw error;
+  for (const c of out.values()) for (const st of APPLYING_STATUSES) delete c[st];
+  for (const t of data || []) {
+    const c = out.get(t.batch_id);
+    if (c) { const k = liveCounts([t], at); for (const [kk, n] of Object.entries(k)) c[kk] = (c[kk] || 0) + n; }
+  }
+  return out;
+}
 const PROOF_BUCKET = "aa-proof";
 const PROOF_URL_TTL_S = 300; // signed proof URLs live 5 minutes
-const EDITABLE_BATCH = ["paid", "shortlisting", "review", "running", "paused", "waiting_supply", "waiting_profile"];
+const EDITABLE_BATCH = ["paid", "shortlisting", "review", "running", "paused", "waiting_supply", "waiting_profile", "waiting_funds"];
 const CONFIRM_MAIL_FIELDS = "id, subject, sender, from_name, company, received_at, category";
 
 /** Task row for the client: proof_path is replaced by has_proof (the path itself is only used server-side). */
 function publicTask(t) {
-  const { proof_path, ...rest } = t;
+  const { proof_path, lease_until: _lease, ...rest } = t;
   return { ...rest, has_proof: !!proof_path };
 }
 const MAX_JSON_BYTES = 100 * 1024;
@@ -95,7 +121,7 @@ const mailDomain = () => process.env.AA_MAIL_DOMAIN || "apply.vloombox.in";
 
 function sendError(res, err, where) {
   if (err instanceof AAError || (err && Number.isInteger(err.status) && typeof err.code === "string" && /^[a-z_]+$/.test(err.code))) {
-    return res.status(err.status).json({ error: { code: err.code, message: err.message, ...(err.fields ? { fields: err.fields } : {}) } });
+    return res.status(err.status).json({ error: { code: err.code, message: err.message, ...(err.fields ? { fields: err.fields } : {}), ...(err.extra ? err.extra : {}) } });
   }
   console.error(`[autoapply] ${where}:`, (err && (err.message || err.details)) || String(err));
   return res.status(500).json({ error: { code: "internal", message: "Something went wrong." } });
@@ -318,6 +344,9 @@ export function createAutoApplyRouter(deps = {}) {
     });
   const now = deps.now || (() => new Date());
   const vaultKey = deps.vaultKey; // undefined -> AA_VAULT_KEY
+  // Pack buying is retired (wallet, sql/55). Only tests of the old purchase / verify code pass legacyPacks: true.
+  const legacyPacks = deps.legacyPacks === true;
+  const packsRetired = () => new AAError(410, "packs_retired", "Packs are no longer sold. Add money to your wallet and start a batch.");
 
   const router = express.Router();
   router.use(authenticate);
@@ -675,11 +704,13 @@ export function createAutoApplyRouter(deps = {}) {
     }),
   );
 
-  // POST /orders, /orders/verify
+  // Retired pack purchase: POST /orders and /orders/coupon answer 410 (unless legacyPacks, tests only).
+  // /orders/verify stays: a pack paid before the switch must still be recorded (money safety).
   router.post(
     "/orders",
     checkoutLimiter,
     wrap("orders", async (req, res) => {
+      if (!legacyPacks) throw packsRetired();
       const must = normMustCompanies(req.body && req.body.must_companies);
       if (!must.ok) throw bad(must.message);
       const order = await createAutoApplyOrder({ db, razorpay, getUserPlan, userId: req.user.id, body: req.body, now: now() });
@@ -695,6 +726,7 @@ export function createAutoApplyRouter(deps = {}) {
     "/orders/coupon",
     checkoutLimiter,
     wrap("orders/coupon", async (req, res) => {
+      if (!legacyPacks) throw packsRetired();
       res.json(await quoteAutoApplyCoupon({ db, userId: req.user.id, body: req.body }));
     }),
   );
@@ -705,6 +737,42 @@ export function createAutoApplyRouter(deps = {}) {
     wrap("orders/verify", async (req, res) => {
       const batch = await verifyAutoApplyPayment({ db, razorpay, userId: req.user.id, body: req.body, now: now() });
       res.json({ batch });
+    }),
+  );
+
+  // Wallet: balance + recent ledger, top-up order, top-up verify
+  router.get(
+    "/wallet",
+    wrap("wallet", async (req, res) => {
+      res.json(await walletSummary(db, req.user.id));
+    }),
+  );
+
+  router.post(
+    "/wallet/topup",
+    checkoutLimiter,
+    wrap("wallet/topup", async (req, res) => {
+      res.json(await createTopupOrder({ db, razorpay, userId: req.user.id, body: req.body }));
+    }),
+  );
+
+  router.post(
+    "/wallet/topup/verify",
+    checkoutLimiter,
+    wrap("wallet/topup/verify", async (req, res) => {
+      res.json(await verifyTopup({ db, razorpay, userId: req.user.id, body: req.body }));
+    }),
+  );
+
+  // Start a batch from the wallet: balance check + hold + status 'shortlisting' in one database transaction.
+  router.post(
+    "/batches",
+    checkoutLimiter,
+    wrap("batches/start", async (req, res) => {
+      const must = normMustCompanies(req.body && req.body.must_companies);
+      if (!must.ok) throw bad(must.message);
+      const out = await startBatch({ db, getUserPlan, userId: req.user.id, body: req.body, must: must.value, now: now() });
+      res.status(201).json(out);
     }),
   );
 
@@ -722,17 +790,19 @@ export function createAutoApplyRouter(deps = {}) {
       if (error) throw error;
       const batches = data || [];
       // a lightweight live line per ongoing batch (same helper as the batch page; no next-run lookup)
-      const LIVE = ["paid", "shortlisting", "review", "running", "paused", "waiting_supply", "waiting_profile"];
+      const LIVE = ["paid", "shortlisting", "review", "running", "paused", "waiting_supply", "waiting_profile", "waiting_funds"];
       const ongoing = batches.filter((b) => LIVE.includes(b.status)).map((b) => b.id);
       if (ongoing.length) {
         try {
-          const counts = await statusCountsFor(db, req.user.id, ongoing);
+          const hist = await statusCountsFor(db, req.user.id, ongoing);
+          const counts = await liveCountsFor(db, req.user.id, ongoing, hist, now());
           const engine = await engineState(db).catch(() => "off");
           for (const b of batches) if (counts.has(b.id)) b.live = liveStatus({ batch: b, counts: counts.get(b.id), engine, now: now() });
         } catch (tErr) {
           console.warn("[autoapply/batches] live counts failed:", (tErr && tErr.message) || tErr);
         }
       }
+      for (const b of batches) { const r = retriggerFor(b); if (r) b.retrigger = r; }
       res.json({ batches });
     }),
   );
@@ -792,9 +862,17 @@ export function createAutoApplyRouter(deps = {}) {
         .eq("status", "queued")
         .order("not_before", { ascending: true })
         .limit(1);
-      const live = liveStatus({ batch, counts, nextAt: (nx && nx[0] && nx[0].not_before) || null, engine: await engineState(db), now: now() });
+      const usage = await usageFor(db, req.user.id, now()).catch(() => null);
+      const live = liveStatus({
+        batch,
+        counts: ["completed", "finished_partial", "expired", "cancelled"].includes(batch.status) ? counts : (await liveCountsFor(db, req.user.id, [batch.id], new Map([[batch.id, counts]]), now())).get(batch.id),
+        nextAt: (nx && nx[0] && nx[0].not_before) || null,
+        engine: await engineState(db),
+        dailyCapReached: !!usage && usage.today_applied >= usage.daily_cap,
+        now: now(),
+      });
       const { final_counts: _finalCounts, ...batchOut } = batch; // internal retention snapshot, already merged into counts
-      res.json({ batch: batchOut, counts, live, tasks, task_total: taskTotal, offset, has_more: !summaryOnly && offset + rows.length < taskTotal });
+      res.json({ batch: batchOut, counts, live, tasks, task_total: taskTotal, offset, has_more: !summaryOnly && offset + rows.length < taskTotal, retrigger: retriggerFor(batch) });
     }),
   );
 
@@ -822,7 +900,7 @@ export function createAutoApplyRouter(deps = {}) {
     writeLimiter,
     wrap("batch/pause", async (req, res) => {
       const batch = await ownBatch(req.user.id, req.params.id);
-      const updated = await updateBatchIf(batch, ["paid", "shortlisting", "review", "running", "waiting_supply", "waiting_profile"], { status: "paused" });
+      const updated = await updateBatchIf(batch, ["paid", "shortlisting", "review", "running", "waiting_supply", "waiting_profile", "waiting_funds"], { status: "paused" });
       if (batch.status === "waiting_profile") await closeProfileItemIfIdle(req.user.id);
       res.json({ batch: updated });
     }),
@@ -852,10 +930,18 @@ export function createAutoApplyRouter(deps = {}) {
         return res.json({ batch: await updateBatchIf(batch, ["pending_payment"], { status: "cancelled" }), paused: false });
       }
       // already stopped (double click / retry, or a closed batch): 200 with the row as it is
-      if (["paused", "cancelled", "completed", "expired", "refund_due", "refunding", "refunded"].includes(batch.status)) {
+      if (["cancelled", "completed", "finished_partial", "expired", "refund_due", "refunding", "refunded"].includes(batch.status)
+          || (batch.status === "paused" && batch.rate_paise == null)) {
         return res.json({ batch, paused: batch.status === "paused" });
       }
-      const pausable = ["paid", "shortlisting", "review", "running", "waiting_supply", "waiting_profile"];
+      const pausable = ["paid", "shortlisting", "review", "running", "waiting_supply", "waiting_profile", "waiting_funds"];
+      if (batch.rate_paise != null) {
+        // wallet batch: Stop really ends it. The scheduler cancels what is still queued and returns the unused
+        // hold to the wallet once no application is mid-flight (applications already submitted stay charged).
+        const updated = await updateBatchIf(batch, [...pausable, "paused"], { status: "cancelled" });
+        if (batch.status === "waiting_profile") await closeProfileItemIfIdle(req.user.id);
+        return res.json({ batch: updated, paused: false, stopped: true });
+      }
       const updated = await updateBatchIf(batch, pausable, { status: "paused" });
       if (batch.status === "waiting_profile") await closeProfileItemIfIdle(req.user.id);
       res.json({ batch: updated, paused: true });
@@ -877,6 +963,7 @@ export function createAutoApplyRouter(deps = {}) {
       if (error) throw error;
       if (!batch) throw notFound("Batch not found.");
       if (["refund_due", "refunding", "refunded"].includes(batch.status)) return res.json({ batch, already: true });
+      if (batch.rate_paise != null) throw new AAError(409, "wallet_batch", "Wallet batches are not refunded to the card: unused money returns to the wallet automatically.");
       if (!batch.purchased_at) throw new AAError(409, "invalid_state", "This batch was never paid; there is nothing to refund.");
       const { error: tErr } = await db
         .from("aa_tasks")
@@ -1537,6 +1624,17 @@ export function runAutoApplyRefunds(deps = {}) {
 }
 
 /** Every 15 min: needs-you hygiene for final batches, then at most ONE "a few details needed" push per batch. */
+export async function runWalletFundsNotices(deps = {}) {
+  const db = deps.db || supabaseAdmin;
+  try {
+    const send = deps.send || ((a) => sendPushToUser({ ...a, env: deps.env, webpush: deps.webpush }));
+    return await notifyWaitingFunds({ db, send, now: deps.now });
+  } catch (e) {
+    console.error("[autoapply/wallet] funds notice:", (e && e.message) || String(e));
+    return { sent: 0 };
+  }
+}
+
 export async function runNeedsYouJobs(deps = {}) {
   const db = deps.db || supabaseAdmin;
   const now = deps.now || new Date();
