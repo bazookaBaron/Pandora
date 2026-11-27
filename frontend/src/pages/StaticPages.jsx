@@ -6,7 +6,7 @@ import { LoadingState, ErrorState, EmptyState } from '../components/shared/state
 import { apiFetch } from '../lib/apiClient'
 import { useEntitlements } from '../lib/useEntitlements'
 import { BIZ, ContentPage } from './LegalPages'
-import { Pill, Button } from '../components/ui'
+import { Button, Row } from '../components/ui'
 import { VLOOMBOX_BLURB, VLOOMBOX_ABOUT, VLOOMBOX_FEATURES } from '../lib/brand'
 
 // Long date for posts ('November 25, 2026').
@@ -19,7 +19,8 @@ function fmtLongDate(iso) {
 // ── /about ────────────────────────────────────────────────────────
 export function AboutPage() {
     return (
-        <ContentPage title="About Vloombox" subtitle={VLOOMBOX_BLURB}>
+        <ContentPage title="About Vloombox" subtitle="What we do and who runs it">
+            <p className="content-lead">{VLOOMBOX_BLURB}</p>
             {VLOOMBOX_ABOUT.map((para, i) => (
                 <p key={i}>{para}</p>
             ))}
@@ -54,7 +55,7 @@ export function BlogPage() {
     const posts = data?.posts || []
 
     return (
-        <ContentPage title="Blog" subtitle="Interview prep, system design and resume tips." prose={false}>
+        <ContentPage title="Blog" subtitle="Interview, design and resume tips" prose={false}>
             {isLoading ? (
                 <LoadingState label="Loading posts…" />
             ) : error ? (
@@ -62,17 +63,15 @@ export function BlogPage() {
             ) : posts.length === 0 ? (
                 <EmptyState art="doc" title="No posts yet" message="Check back soon." />
             ) : (
-                <ul className="blog-list">
+                <ul className="sys-rows" aria-label="Posts">
                     {posts.map((p) => (
                         <li key={p.slug}>
-                            <Link to={`/blog/${encodeURIComponent(p.slug)}`} className="blog-row">
-                                <span className="blog-row-title">{p.title}</span>
-                                <span className="blog-row-meta">
-                                    {p.category && <Pill tone="active" soft>{p.category}</Pill>}
-                                    <span>{fmtLongDate(p.published_at)}{p.reading_time_minutes ? ` · ${p.reading_time_minutes} min` : ''}</span>
-                                </span>
-                                {p.excerpt && <span className="blog-row-excerpt">{p.excerpt}</span>}
-                            </Link>
+                            <Row
+                                title={p.title}
+                                sub={`${fmtLongDate(p.published_at)}${p.reading_time_minutes ? ` · ${p.reading_time_minutes} min` : ''}`}
+                                meta={p.category || undefined}
+                                to={`/blog/${encodeURIComponent(p.slug)}`}
+                            />
                         </li>
                     ))}
                 </ul>
@@ -113,7 +112,7 @@ export function BlogPostPage() {
 // ── /legal/guidelines ────────────────────────────────────────────
 export function GuidelinesPage() {
     return (
-        <ContentPage title="Community Guidelines" subtitle="How to use the referral board and anything you share on Vloombox.">
+        <ContentPage title="Community Guidelines" subtitle="How to use the referral board">
             <p>
                 The referral board only works if people trust it. These guidelines apply to referral
                 requests, the company and role details on your profile, feedback you send, and anything
@@ -160,7 +159,7 @@ export function GuidelinesPage() {
 // ── /legal/privacy — short summary; full policy lives at /privacy ─
 export function LegalPrivacyScaffold() {
     return (
-        <ContentPage title="Privacy Policy" subtitle="The short version. The full policy is linked at the bottom.">
+        <ContentPage title="Privacy Policy" subtitle="The short version">
             <h2>What we collect</h2>
             <p>
                 Your email and name; any profile details you add (current company, role, years of
@@ -210,7 +209,7 @@ export function LegalPrivacyScaffold() {
 // ── /legal/terms — short summary; full terms live at /terms ──────
 export function LegalTermsScaffold() {
     return (
-        <ContentPage title="Terms of Service" subtitle="The short version. The full terms are linked at the bottom.">
+        <ContentPage title="Terms of Service" subtitle="The short version">
             <h2>Acceptable use</h2>
             <p>
                 One account per person. Don&rsquo;t resell or share paid access, scrape or bulk-download
@@ -267,7 +266,7 @@ export function SubscriptionSuccessPage() {
     }, [])
     const active = plan === 'pro' || plan === 'max'
     return (
-        <ContentPage title="You're subscribed" subtitle="Thanks for upgrading to Vloombox Premium.">
+        <ContentPage title="You're subscribed" subtitle="Thanks for upgrading">
             <p>
                 {active
                     ? <>Your <strong>{plan}</strong> plan is active. All premium features are unlocked.</>
@@ -311,7 +310,7 @@ const FAQ_ITEMS = [
 
 export function FaqPage() {
     return (
-        <ContentPage title="FAQ" subtitle="Quick answers about Vloombox.">
+        <ContentPage title="FAQ" subtitle="Quick answers about Vloombox">
             {FAQ_ITEMS.map((item) => (
                 <details key={item.q}>
                     <summary>{item.q}</summary>

@@ -112,6 +112,31 @@ export function useNeedsYou({ enabled = true } = {}) {
 }
 
 /**
+ * "Answers needed" count for the bottom-nav badge. Shares the ['aa','needs-you',uid] cache with
+ * useNeedsYou (no second copy of the list). Only users who finished Auto Apply setup can have a pack,
+ * so /needs-you is fetched for them only; everyone else costs just the (cached, 30 s stale) /me read.
+ * Pass { enabled: false } to read the cache only. Returns a number (0 while loading / signed out).
+ */
+export function useAnswersNeededCount({ enabled = true } = {}) {
+    const uid = useUid()
+    const me = useQuery({
+        queryKey: [...aaKeys.me, uid],
+        queryFn: () => aa('/me'),
+        enabled: !!uid && enabled,
+        staleTime: 5 * 60_000,
+    })
+    const onboarded = !!me.data?.onboarding_done
+    const q = useQuery({
+        queryKey: [...aaKeys.needsYou, uid],
+        queryFn: () => aa('/needs-you'),
+        enabled: !!uid && enabled && onboarded,
+        refetchInterval: 60_000,
+        staleTime: 20_000,
+    })
+    return uid && Array.isArray(q.data?.items) ? q.data.items.length : 0
+}
+
+/**
  * Inbox list, newest first, paginated with ?before=. tab: 'important' | 'all' | 'codes'; filters (all optional):
  * category ('code'|'received'|'rejected'|'important'|'other'), kind ('interview'|'assessment'|'offer'|'recruiter'|'rejection'),
  * company (text), unread (bool), q (search sender / subject / text).
@@ -426,10 +451,10 @@ export function useSetMustCompanies({ meta: metaOverride } = {}) {
 // Optimistic status guess only; the server's { batch } replaces it.
 const OPTIMISTIC_STATUS = { pause: 'paused', cancel: 'cancelled' }
 const ACTION_DONE = {
-    approve: 'Batch approved. Applying starts shortly.',
-    pause: 'Batch paused.',
-    resume: 'Batch resumed.',
-    cancel: 'Batch cancelled.',
+    approve: 'Approved. We start applying shortly.',
+    pause: 'Pack paused.',
+    resume: 'Pack resumed.',
+    cancel: 'Pack stopped.',
 }
 
 // action: 'approve' | 'pause' | 'resume' | 'cancel'
@@ -463,7 +488,7 @@ export function useRemoveTask({ meta: metaOverride } = {}) {
     return useMutation({
         mutationFn: ({ batchId, taskId }) =>
             aa(`/batches/${encodeURIComponent(batchId)}/tasks/${encodeURIComponent(taskId)}/remove`, { method: 'POST' }),
-        meta: { success: 'Job removed from this batch.', ...metaOverride },
+        meta: { success: 'Job removed from this pack.', ...metaOverride },
         onMutate: async ({ batchId, taskId }) => {
             await qc.cancelQueries({ queryKey: aaKeys.batch(batchId) })
             const snap = snapshot(qc, aaKeys.batch(batchId))

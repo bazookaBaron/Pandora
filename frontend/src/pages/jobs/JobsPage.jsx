@@ -1,33 +1,51 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { BarChart3, Briefcase, List, SlidersHorizontal } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { SlidersHorizontal } from 'lucide-react'
 import Navbar from '../../components/Navbar'
-import { PageContainer, PageHeader } from '../../components/shared/Layout'
+import { PageContainer } from '../../components/shared/Layout'
 import { useJobs, useSearchRequest } from '../../lib/useJobs'
 import { apiFetch } from '../../lib/apiClient'
+import { useMediaQuery } from '../../lib/useMediaQuery'
+import { AUTOAPPLY_ENABLED } from '../../lib/sections'
+import { CTA } from '../../lib/copy'
+import { track, TRACK } from '../../lib/track'
+import { num } from '../../lib/format'
 import MarketAnalytics from './MarketAnalytics'
-import JobCard, { SEN_LABEL } from './JobCard'
+import JobRow from './JobRow'
+import JobSheet from './JobSheet'
 import FacetCombobox from './FacetCombobox'
+import { SEN_LABEL } from './jobsShared'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
 import { LockedSlice } from '../../components/shared/PaywallGate'
 import Pagination from '../../components/shared/Pagination'
-import { Button, SectionHead, Segmented, Tabs, TabPanel } from '../../components/ui'
+import { Button, NextStep, PageHeader, Segmented, Sheet, SmallTabs, TabPanel } from '../../components/ui'
 import { useAuth } from '../../contexts/AuthContext'
 
 const LOCATION_TYPES = [
-    { value: '', label: 'Any' }, { value: 'remote', label: 'Remote', tone: 'success' },
-    { value: 'hybrid', label: 'Hybrid', tone: 'active' }, { value: 'onsite', label: 'Onsite', tone: 'history' },
+    { value: '', label: 'Any' }, { value: 'remote', label: 'Remote' },
+    { value: 'hybrid', label: 'Hybrid' }, { value: 'onsite', label: 'Onsite' },
 ]
 const COMPANY_TYPES = [
     { value: '', label: 'All' }, { value: 'product', label: 'Product' },
     { value: 'startup', label: 'Startup' }, { value: 'service', label: 'Service' },
 ]
+const BRIDGE_AFTER = 10 // rows before the Auto Apply bridge card
 
 // ── Listings tab ───────────────────────────────────────────────────
 // Filters live in the URL (?q=&company=&loc=…&page=) so a reload, back
 // button or shared link keeps them. Every setter resets the page in the same
 // update, so changing a filter never fetches the stale page first.
 const FILTER_PARAMS = { search: 'q', company: 'company', locations: 'loc', locationType: 'type', companyType: 'ctype', source: 'source', seniority: 'level', postedWithin: 'posted', sort: 'sort' }
+
+function Field({ label, children }) {
+    return (
+        <div className="jobs-field">
+            <span className="jobs-field-label">{label}</span>
+            {children}
+        </div>
+    )
+}
 
 function ListingsView() {
     const [params, setParams] = useSearchParams()
@@ -42,15 +60,19 @@ function ListingsView() {
     const postedWithin = params.get('posted') || ''
     const sort = params.get('sort') || 'newest'
     const page = Math.max(1, Number.parseInt(params.get('page') || '1', 10) || 1)
-    const [moreOpen, setMoreOpen] = useState(false)
+    const desktop = useMediaQuery('(min-width: 768px)')
+    const [filtersOpen, setFiltersOpen] = useState(false)
+    const [job, setJob] = useState(null)
 
     const setFilter = (name) => (value) => {
         setParams((prev) => {
-            const next = new URLSearchParams(prev)
             const key = FILTER_PARAMS[name]
             const v = Array.isArray(value) ? value.join(',') : String(value ?? '')
-            if (!v || (name === 'sort' && v === 'newest')) next.delete(key)
-            else next.set(key, v)
+            const norm = name === 'sort' && v === 'newest' ? '' : v
+            if ((prev.get(key) || '') === norm) return prev // unchanged: keep the page
+            const next = new URLSearchParams(prev)
+            if (!norm) next.delete(key)
+            else next.set(key, norm)
             next.delete('page')
             return next
         }, { replace: true })
@@ -73,6 +95,14 @@ function ListingsView() {
             else next.set('page', String(n))
             return next
         })
+    }
+    // Clears what the filter sheet holds (the search text stays).
+    const clearFilters = () => {
+        setParams((prev) => {
+            const next = new URLSearchParams(prev)
+            for (const k of ['type', 'ctype', 'source', 'level', 'posted', 'sort', 'page', ...(desktop ? [] : ['company', 'loc'])]) next.delete(k)
+            return next
+        }, { replace: true })
     }
 
     const { data, isLoading, isFetching, error, refetch } =
@@ -98,75 +128,139 @@ function ListingsView() {
         [data.facets],
     )
     const anyFilter = search || company || locations.length || locationType || companyType || source || seniority || postedWithin
-    // Secondary filters (collapsed behind "Filters" on phones).
-    const moreCount = [locationType, companyType, source, seniority, postedWithin, sort !== 'newest' && sort].filter(Boolean).length
+    // Filters inside the sheet (company + locations sit inline from 768px).
+    const sheetCount = [!desktop && company, !desktop && locations.length, locationType, companyType, source, seniority, postedWithin, sort !== 'newest' && sort]
+        .filter(Boolean).length
+
+    const chips = [
+        { id: 'remote', label: 'Remote', on: locationType === 'remote', toggle: () => setLocationType(locationType === 'remote' ? '' : 'remote') },
+        { id: 'new', label: 'New today', on: postedWithin === '1', toggle: () => setPostedWithin(postedWithin === '1' ? '' : '1') },
+        { id: 'product', label: 'Product companies', on: companyType === 'product', toggle: () => setCompanyType(companyType === 'product' ? '' : 'product') },
+    ]
+
+    const companyField = (
+        <FacetCombobox field="company" value={company} onChange={setCompany} className="jobs-fc-company"
+            label="Company" placeholder="Any company" />
+    )
+    const locationField = (
+        <FacetCombobox field="location" multiple value={locations} onChange={setLocations} className="jobs-fc-loc"
+            label="Locations" placeholder="Any location" />
+    )
+
+    const items = data.items
+    const first = items.slice(0, BRIDGE_AFTER)
+    const rest = items.slice(BRIDGE_AFTER)
+    const showBridge = AUTOAPPLY_ENABLED && items.length >= BRIDGE_AFTER
+    const rows = (list) => (
+        <ul className={`sys-rows jobs-rows${isFetching ? ' is-fetching' : ''}`}>
+            {list.map((j) => <li key={j.id}><JobRow j={j} onOpen={setJob} /></li>)}
+        </ul>
+    )
 
     return (
         <>
-            <div className={`pg-filterbar jobs-filters${moreOpen ? ' is-open' : ''}`}>
-                <div data-tour="jobs-filters" className="jobs-filters-row">
-                    <FacetCombobox field="title" value={search} onChange={setSearch} className="jobs-fc-q"
-                        label="Search job title or company" placeholder="Search job title or company…" />
-                    <FacetCombobox field="company" value={company} onChange={setCompany} className="jobs-fc-company"
-                        label="Company" placeholder="Company" />
-                    <FacetCombobox field="location" multiple value={locations} onChange={setLocations} className="jobs-fc-loc"
-                        label="Locations" placeholder="Locations" />
-                </div>
-                <Button className="jobs-filters-toggle" icon={SlidersHorizontal} aria-expanded={moreOpen}
-                    aria-controls="jobs-filters-more" onClick={() => setMoreOpen((o) => !o)}>
-                    Filters{moreCount ? ` · ${moreCount}` : ''}
-                </Button>
-                <div id="jobs-filters-more" className="jobs-filters-row jobs-filters-more">
-                    <Segmented label="Work type" value={locationType} onChange={setLocationType} options={LOCATION_TYPES} />
-                    <Segmented label="Company type" value={companyType} onChange={setCompanyType} options={COMPANY_TYPES} />
-                    <select className="sys-select" aria-label="Experience level" value={seniority} onChange={(e) => setSeniority(e.target.value)}>
-                        <option value="">Any level</option>
-                        {['intern', 'junior', 'mid', 'senior', 'staff', 'principal'].map((s) => (
-                            <option key={s} value={s}>{SEN_LABEL[s]}</option>
-                        ))}
-                    </select>
-                    <select className="sys-select" aria-label="Posted within" value={postedWithin} onChange={(e) => setPostedWithin(e.target.value)}>
-                        <option value="">Any time</option>
-                        <option value="1">Past 24 hours</option>
-                    </select>
-                    {sourceOptions.length > 1 && (
-                        <select className="sys-select" aria-label="Source" value={source} onChange={(e) => setSource(e.target.value)}>
-                            {sourceOptions.map((o) => <option key={o.value || 'all'} value={o.value}>{o.label}</option>)}
-                        </select>
-                    )}
-                    <select className="sys-select" aria-label="Sort" value={sort} onChange={(e) => setSort(e.target.value)}>
-                        <option value="newest">Latest first</option>
-                        <option value="oldest">Oldest first</option>
-                        <option value="company">By company</option>
-                    </select>
-                </div>
+            <div className="jobs-search" data-tour="jobs-filters">
+                <FacetCombobox field="title" value={search} onChange={setSearch} className="jobs-fc-q"
+                    label="Search jobs" placeholder="Search role or company" />
+                {desktop && companyField}
+                {desktop && locationField}
             </div>
+
+            <div className="jobs-chips" role="group" aria-label="Quick filters">
+                <button type="button" className={`jobs-chip is-filters${sheetCount ? ' is-on' : ''}`} aria-haspopup="dialog"
+                    onClick={() => setFiltersOpen(true)}>
+                    <SlidersHorizontal size={16} aria-hidden="true" />
+                    <span>Filters{sheetCount ? ` (${sheetCount})` : ''}</span>
+                </button>
+                {chips.map((c) => (
+                    <button key={c.id} type="button" className={`jobs-chip${c.on ? ' is-on' : ''}`} aria-pressed={c.on} onClick={c.toggle}>
+                        {c.label}
+                    </button>
+                ))}
+            </div>
+
+            <Sheet
+                open={filtersOpen}
+                onClose={() => setFiltersOpen(false)}
+                title="Filters"
+                footer={(
+                    <div className="jobs-filter-foot">
+                        <Button variant="ghost" onClick={clearFilters} disabled={!sheetCount}>Clear all</Button>
+                        <button type="button" className="sys-tone-btn" onClick={() => {
+                            track(TRACK.CTA_CLICK, { id: 'filters_apply', section: 'jobs', count: sheetCount })
+                            setFiltersOpen(false)
+                        }}>
+                            {isFetching ? 'Show jobs' : `Show ${num(data.total)} jobs`}
+                        </button>
+                    </div>
+                )}
+            >
+                <div className="jobs-filter-body">
+                    {!desktop && <Field label="Company">{companyField}</Field>}
+                    {!desktop && <Field label="Location">{locationField}</Field>}
+                    <Field label="Work type">
+                        <Segmented label="Work type" value={locationType} onChange={setLocationType} options={LOCATION_TYPES} />
+                    </Field>
+                    <Field label="Company type">
+                        <Segmented label="Company type" value={companyType} onChange={setCompanyType} options={COMPANY_TYPES} />
+                    </Field>
+                    <Field label="Experience">
+                        <select className="sys-select" aria-label="Experience" value={seniority} onChange={(e) => setSeniority(e.target.value)}>
+                            <option value="">Any level</option>
+                            {['intern', 'junior', 'mid', 'senior', 'staff', 'principal'].map((s) => (
+                                <option key={s} value={s}>{SEN_LABEL[s]}</option>
+                            ))}
+                        </select>
+                    </Field>
+                    <Field label="Posted">
+                        <select className="sys-select" aria-label="Posted" value={postedWithin} onChange={(e) => setPostedWithin(e.target.value)}>
+                            <option value="">Any time</option>
+                            <option value="1">Past 24 hours</option>
+                        </select>
+                    </Field>
+                    {sourceOptions.length > 1 && (
+                        <Field label="Source">
+                            <select className="sys-select" aria-label="Source" value={source} onChange={(e) => setSource(e.target.value)}>
+                                {sourceOptions.map((o) => <option key={o.value || 'all'} value={o.value}>{o.label}</option>)}
+                            </select>
+                        </Field>
+                    )}
+                    <Field label="Sort">
+                        <select className="sys-select" aria-label="Sort" value={sort} onChange={(e) => setSort(e.target.value)}>
+                            <option value="newest">Latest first</option>
+                            <option value="oldest">Oldest first</option>
+                            <option value="company">By company</option>
+                        </select>
+                    </Field>
+                </div>
+            </Sheet>
 
             {isLoading ? (
                 <LoadingState label="Loading jobs…" />
             ) : error ? (
                 <ErrorState err={error} onRetry={refetch} />
-            ) : data.items.length === 0 ? (
+            ) : items.length === 0 ? (
                 <EmptyState
                     art="jobs"
                     title={data.notReady ? 'Jobs feed not live yet' : 'No matching jobs'}
-                    message={data.notReady
-                        ? 'The crawler hasn’t run its first pass yet.'
-                        : (anyFilter ? 'Try loosening the filters.' : 'No open postings right now.')}
+                    message={data.notReady ? 'Check back in a few hours.' : (anyFilter ? 'Try fewer filters.' : 'No open jobs right now.')}
+                    action={anyFilter && !data.notReady
+                        ? <Button onClick={() => setParams(new URLSearchParams(), { replace: true })}>Clear filters</Button>
+                        : undefined}
                 />
             ) : (
-                <section aria-labelledby="jobs-results-h">
-                    <SectionHead
-                        id="jobs-results-h"
-                        icon={Briefcase}
-                        tone="active"
-                        title="Open roles"
-                        count={data.total}
-                        action={<span className="jobs-updating" aria-live="polite">{isFetching ? 'Updating…' : ''}</span>}
-                    />
-                    <div className={`job-list${isFetching ? ' is-fetching' : ''}`}>
-                        {data.items.map((j) => <JobCard key={j.id} j={j} />)}
-                    </div>
+                <section aria-labelledby="jobs-results-h" className="jobs-results">
+                    <h2 id="jobs-results-h" className="jobs-count">
+                        {num(data.total)} {data.total === 1 ? 'job' : 'jobs'}
+                        <span className="jobs-updating" aria-live="polite">{isFetching ? ' · Updating…' : ''}</span>
+                    </h2>
+                    {rows(first)}
+                    {showBridge && (
+                        <NextStep id="jobs-to-autoapply" section="autoapply" oncePerSession
+                            text="Applying to 50 jobs takes hours. Auto Apply does it for you."
+                            cta={{ label: CTA.seePacks, to: '/autoapply' }} />
+                    )}
+                    {rest.length > 0 && rows(rest)}
                     {user && search && !isLoading && data.total < 10 && (
                         <div className="jobs-more">
                             {reqState === 'queued' || searchReq.data?.request?.status === 'queued'
@@ -183,34 +277,56 @@ function ListingsView() {
                         <LockedSlice count={data.locked} noun="job listings" variant="row" rows={3} />
                     )}
                     <Pagination page={data.page} totalPages={data.pageCount} onChange={(p) => setPage(p)}
-                        accent="var(--sys-active)" label="Job pages" />
+                        accent="var(--accent)" label="Job pages" />
                 </section>
             )}
+
+            <JobSheet job={job} onClose={() => setJob(null)} />
         </>
     )
 }
 
 // ── page ───────────────────────────────────────────────────────────
 const TABS = [
-    { value: 'listings', label: 'Listings', icon: List },
-    { value: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { value: 'listings', label: 'Jobs' },
+    { value: 'analytics', label: 'Market' },
 ]
+
+// The India "new in 24h" number, only when it is already cached (the Market
+// tab loaded it). Never fires a request of its own.
+function useNewTodayCount() {
+    const { data } = useQuery({
+        queryKey: ['market-analytics', 'IN'],
+        queryFn: () => apiFetch('/api/market/analytics?country=IN'),
+        enabled: false,
+        staleTime: 10 * 60_000,
+    })
+    return data?.ready && Number.isFinite(data.new24h) && data.new24h > 0 ? data.new24h : 0
+}
 
 export default function JobsPage() {
     const [tab, setTab] = useState('listings')
+    const [, setParams] = useSearchParams()
+    const newToday = useNewTodayCount()
+    // Market -> a top hiring company row: show that company's jobs.
+    const showCompany = (name) => {
+        setParams((prev) => {
+            const next = new URLSearchParams(prev)
+            next.set('company', name)
+            next.delete('page')
+            return next
+        })
+        setTab('listings')
+    }
     return (
         <>
             <Navbar />
             <PageContainer>
-                <PageHeader
-                    title="Jobs"
-                    subtitle="Tech roles from ~500 companies, posted in the last 24 hours."
-                    actions={<Tabs idPrefix="jobs" label="Jobs views" value={tab} onChange={setTab} items={TABS} />}
-                />
-
+                <PageHeader section="jobs" subtitle={newToday ? `${num(newToday)} new jobs today` : undefined} />
                 <div style={{ minWidth: 0 }}>
+                    <SmallTabs idPrefix="jobs" label="Jobs views" section="jobs" value={tab} onChange={setTab} items={TABS} />
                     <TabPanel idPrefix="jobs" value="listings" active={tab === 'listings'}><ListingsView /></TabPanel>
-                    <TabPanel idPrefix="jobs" value="analytics" active={tab === 'analytics'}><MarketAnalytics /></TabPanel>
+                    <TabPanel idPrefix="jobs" value="analytics" active={tab === 'analytics'}><MarketAnalytics onCompany={showCompany} /></TabPanel>
                 </div>
             </PageContainer>
         </>

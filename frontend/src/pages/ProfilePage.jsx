@@ -1,18 +1,23 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { User, Shield, Eye, EyeOff, LogOut } from 'lucide-react'
+import { Bell, CreditCard, Eye, EyeOff, LifeBuoy, LogOut, UserRound } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useEntitlements } from '../lib/useEntitlements'
 import { planTone } from '../lib/brand'
-import { SectionHead, Button } from '../components/ui'
+import { Button, PageHeader, Row, Sheet } from '../components/ui'
 import Navbar from '../components/Navbar'
+import { PageContainer } from '../components/shared/Layout'
 import { toast } from '../lib/toast'
 import AvatarEditor from './profile/AvatarEditor'
 import ProgressSection from './profile/ProgressSection'
 import FeedbackSection from './profile/FeedbackSection'
 import ReferralProfileCard from './profile/ReferralProfileCard'
 import CompanySubscriptionsCard from './profile/CompanySubscriptionsCard'
+
+// Me (plan §4.6): avatar · name · plan pill, then one row per area. Each row
+// opens its existing content in a sheet (Plan & billing goes to /pricing).
+// Sign out lives here: the navbar no longer has it.
 
 // Password strength: 0-4 checks -> a semantic tone.
 const PW_LEVELS = [
@@ -43,7 +48,7 @@ function PwStrengthBar({ password }) {
     )
 }
 
-function Row({ label, children }) {
+function KV({ label, children }) {
     return (
         <div className="profile-kv">
             <span className="profile-kv-label">{label}</span>
@@ -52,9 +57,18 @@ function Row({ label, children }) {
     )
 }
 
+const HELP_LINKS = [
+    ['/faq', 'FAQ'],
+    ['/contact', 'Contact us'],
+    ['/terms', 'Terms'],
+    ['/privacy', 'Privacy'],
+    ['/refunds', 'Refunds'],
+]
+
 export default function ProfilePage() {
     const { user, logout } = useAuth()
     const { plan, isLoading: planLoading } = useEntitlements()
+    const [view, setView] = useState(null) // null | 'profile' | 'alerts' | 'help'
 
     const [newPw, setNewPw] = useState('')
     const [showNewPw, setShowNewPw] = useState(false)
@@ -88,7 +102,7 @@ export default function ProfilePage() {
             setPwStatus({ msg: error.message, type: 'error' })
         } else {
             toast.success('Password updated.')
-            setPwStatus({ msg: 'Password updated successfully!', type: 'ok' })
+            setPwStatus({ msg: 'Password updated.', type: 'ok' })
             setNewPw('')
         }
     }
@@ -117,130 +131,134 @@ export default function ProfilePage() {
     }
 
     const planLabel = plan === 'pro' ? 'Pro' : plan === 'max' ? 'Max' : 'Free'
+    const close = () => setView(null)
 
     return (
         <>
             <Navbar />
-            <main className="wrap profile-wrap">
-                {/* Hero */}
-                <div className="profile-hero" data-tour="profile-hero">
+            <PageContainer width="sm" className="me-page">
+                <PageHeader section="me" />
+
+                {/* Who: avatar · name · plan */}
+                <div className="me-hero" data-tour="profile-hero">
                     <AvatarEditor user={user} />
-                    <div className="profile-hero-info">
-                        <h1 className="profile-name">{displayName}</h1>
-                        <p className="profile-email">{user?.email}</p>
+                    <div className="me-hero-info">
+                        <p className="me-name">{displayName}</p>
                         {!planLoading && (
-                            <Link to="/pricing" className={`sys-pill tone-${planTone(plan).tone} profile-plan`}>{planLabel} plan</Link>
+                            <Link to="/pricing" className={`sys-pill tone-${planTone(plan).tone} me-plan`}>{planLabel} plan</Link>
                         )}
                     </div>
                 </div>
 
-                {/* Account (details + subscription) */}
-                <section className="card profile-card" aria-labelledby="pf-account-h">
-                    <SectionHead icon={User} title="Account" tone="active" id="pf-account-h" />
-                    <div className="profile-kvs">
-                        <Row label="Name">
-                            <span className="profile-kv-text">{displayName}</span>
-                            <button type="button" className="link-btn" onClick={() => setEditNameOpen(true)}>Edit</button>
-                        </Row>
-                        <Row label="Email"><span className="profile-kv-text">{user?.email || '—'}</span></Row>
-                        <Row label="Plan">
-                            {planLoading ? <span className="profile-kv-text">…</span> : (
-                                <>
-                                    <span className="profile-kv-text">{plan === 'free' ? 'Free' : `${planLabel} · active`}</span>
-                                    <Link to="/pricing" className="link-btn">{plan === 'free' ? 'Upgrade' : 'Manage'}</Link>
-                                </>
-                            )}
-                        </Row>
-                        <Row label="Joined"><span className="profile-kv-text">{joined}</span></Row>
-                        <Row label="Sign-in"><span className="profile-kv-text" style={{ textTransform: 'capitalize' }}>{provider}</span></Row>
-                    </div>
-                </section>
+                <ul className="sys-rows" aria-label="Account">
+                    <li>
+                        <Row leading={<UserRound size={18} aria-hidden="true" />} title="Profile"
+                            sub={user?.email} onClick={() => setView('profile')} />
+                    </li>
+                    <li>
+                        <Row leading={<CreditCard size={18} aria-hidden="true" />} title="Plan & billing"
+                            meta={planLoading ? undefined : planLabel} metaTone={planTone(plan).tone} to="/pricing" />
+                    </li>
+                    <li>
+                        <Row leading={<Bell size={18} aria-hidden="true" />} title="Job alerts" onClick={() => setView('alerts')} />
+                    </li>
+                    <li>
+                        <Row leading={<LifeBuoy size={18} aria-hidden="true" />} title="Help" onClick={() => setView('help')} />
+                    </li>
+                    <li>
+                        <Row leading={<LogOut size={18} aria-hidden="true" />} title={signingOut ? 'Signing out…' : 'Sign out'}
+                            chevron={false} disabled={signingOut} onClick={handleLogout} className="me-signout" />
+                    </li>
+                </ul>
+            </PageContainer>
 
-                {/* Progress overview */}
-                <ProgressSection user={user} />
-
-                {/* Referral profile */}
-                <ReferralProfileCard user={user} />
-
-                {/* Subscribed companies (job alerts) */}
-                <CompanySubscriptionsCard />
-
-                {/* Security — only for email/password accounts */}
-                {!isOAuth && (
-                    <section className="card profile-card" aria-labelledby="pf-security-h">
-                        <SectionHead icon={Shield} title="Security" tone="waiting" id="pf-security-h" />
-                        <form onSubmit={handleChangePassword} className="profile-form">
-                            <div className="sys-field">
-                                <label className="sys-field-label" htmlFor="pf-new-pw">New password</label>
-                                <div className="pw-row">
-                                    <input
-                                        id="pf-new-pw"
-                                        type={showNewPw ? 'text' : 'password'}
-                                        className="input-field"
-                                        placeholder="Min. 8 characters"
-                                        minLength={8}
-                                        autoComplete="new-password"
-                                        value={newPw}
-                                        onChange={e => setNewPw(e.target.value)}
-                                    />
-                                    <button type="button" className="icon-btn" onClick={() => setShowNewPw(v => !v)}
-                                        aria-label={showNewPw ? 'Hide password' : 'Show password'} aria-pressed={showNewPw}>
-                                        {showNewPw ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
-                                    </button>
+            {/* Profile: details, referral profile, progress, password */}
+            <Sheet open={view === 'profile'} onClose={close} title="Profile" size="full">
+                <div className="me-sheet">
+                    <section className="me-block" aria-labelledby="pf-account-h">
+                        <h2 className="me-block-title" id="pf-account-h">Account</h2>
+                        {editNameOpen ? (
+                            <form onSubmit={handleUpdateName} className="profile-form">
+                                <div className="sys-field">
+                                    <label htmlFor="pf-name" className="sys-field-label">Full name</label>
+                                    <input id="pf-name" type="text" className="input-field" placeholder="Jane Doe"
+                                        autoComplete="name" value={editName} onChange={e => setEditName(e.target.value)} required autoFocus />
                                 </div>
-                                <PwStrengthBar password={newPw} />
+                                {nameStatus.msg && (
+                                    <p className={`sys-note ${nameStatus.type === 'error' ? 'is-danger' : 'is-ok'}`} role="status">{nameStatus.msg}</p>
+                                )}
+                                <div className="profile-actions">
+                                    <Button onClick={() => setEditNameOpen(false)}>Cancel</Button>
+                                    <Button type="submit" variant="primary" busy={nameLoading} busyLabel="Saving…">Save</Button>
+                                </div>
+                            </form>
+                        ) : (
+                            <div className="profile-kvs">
+                                <KV label="Name">
+                                    <span className="profile-kv-text">{displayName}</span>
+                                    <button type="button" className="link-btn" onClick={() => setEditNameOpen(true)}>Edit</button>
+                                </KV>
+                                <KV label="Email"><span className="profile-kv-text">{user?.email || '—'}</span></KV>
+                                <KV label="Joined"><span className="profile-kv-text">{joined}</span></KV>
+                                <KV label="Sign-in"><span className="profile-kv-text" style={{ textTransform: 'capitalize' }}>{provider}</span></KV>
                             </div>
-                            <div className="profile-actions">
-                                <Button type="submit" variant="primary" busy={pwLoading} busyLabel="Updating…">Update password</Button>
-                            </div>
-                            {pwStatus.msg && (
-                                <p className={`sys-note ${pwStatus.type === 'error' ? 'is-danger' : 'is-ok'}`} role="status">{pwStatus.msg}</p>
-                            )}
-                        </form>
+                        )}
                     </section>
-                )}
 
-                {/* Feedback */}
-                <FeedbackSection />
+                    <ReferralProfileCard user={user} />
+                    <ProgressSection user={user} />
 
-                {/* Session */}
-                <div className="profile-signout">
-                    <Button icon={LogOut} onClick={handleLogout} busy={signingOut} busyLabel="Signing out…">Sign out</Button>
+                    {/* Password: only for email/password accounts */}
+                    {!isOAuth && (
+                        <section className="me-block" aria-labelledby="pf-security-h">
+                            <h2 className="me-block-title" id="pf-security-h">Password</h2>
+                            <form onSubmit={handleChangePassword} className="profile-form">
+                                <div className="sys-field">
+                                    <label className="sys-field-label" htmlFor="pf-new-pw">New password</label>
+                                    <div className="pw-row">
+                                        <input
+                                            id="pf-new-pw"
+                                            type={showNewPw ? 'text' : 'password'}
+                                            className="input-field"
+                                            placeholder="Min. 8 characters"
+                                            minLength={8}
+                                            autoComplete="new-password"
+                                            value={newPw}
+                                            onChange={e => setNewPw(e.target.value)}
+                                        />
+                                        <button type="button" className="icon-btn" onClick={() => setShowNewPw(v => !v)}
+                                            aria-label={showNewPw ? 'Hide password' : 'Show password'} aria-pressed={showNewPw}>
+                                            {showNewPw ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+                                        </button>
+                                    </div>
+                                    <PwStrengthBar password={newPw} />
+                                </div>
+                                <div className="profile-actions">
+                                    <Button type="submit" variant="primary" busy={pwLoading} busyLabel="Updating…">Update password</Button>
+                                </div>
+                                {pwStatus.msg && (
+                                    <p className={`sys-note ${pwStatus.type === 'error' ? 'is-danger' : 'is-ok'}`} role="status">{pwStatus.msg}</p>
+                                )}
+                            </form>
+                        </section>
+                    )}
                 </div>
-            </main>
+            </Sheet>
 
-            {/* Edit Name Modal */}
-            {editNameOpen && (
-                <div
-                    className="modal-overlay"
-                    onClick={e => { if (e.target === e.currentTarget) setEditNameOpen(false) }}
-                    onKeyDown={e => { if (e.key === 'Escape') setEditNameOpen(false) }}
-                >
-                    <div className="modal-card card" role="dialog" aria-modal="true" aria-labelledby="pf-name-h" style={{ maxWidth: 360, margin: '0 auto' }}>
-                        <h3 className="modal-title" id="pf-name-h">Display name</h3>
-                        <form onSubmit={handleUpdateName} className="profile-form">
-                            <label htmlFor="pf-name" className="sys-sr">Full name</label>
-                            <input
-                                id="pf-name"
-                                type="text"
-                                className="input-field"
-                                placeholder="Jane Doe"
-                                value={editName}
-                                onChange={e => setEditName(e.target.value)}
-                                required
-                                autoFocus
-                            />
-                            {nameStatus.msg && (
-                                <p className={`sys-note ${nameStatus.type === 'error' ? 'is-danger' : 'is-ok'}`} role="status">{nameStatus.msg}</p>
-                            )}
-                            <div className="profile-actions">
-                                <Button onClick={() => setEditNameOpen(false)}>Cancel</Button>
-                                <Button type="submit" variant="primary" busy={nameLoading} busyLabel="Saving…">Save</Button>
-                            </div>
-                        </form>
-                    </div>
+            <Sheet open={view === 'alerts'} onClose={close} title="Job alerts" description="Get an email when these companies post jobs.">
+                <div className="me-sheet"><CompanySubscriptionsCard /></div>
+            </Sheet>
+
+            <Sheet open={view === 'help'} onClose={close} title="Help" size="full">
+                <div className="me-sheet">
+                    <ul className="sys-rows" aria-label="Help pages">
+                        {HELP_LINKS.map(([to, label]) => (
+                            <li key={to}><Row title={label} to={to} /></li>
+                        ))}
+                    </ul>
+                    <FeedbackSection />
                 </div>
-            )}
+            </Sheet>
         </>
     )
 }

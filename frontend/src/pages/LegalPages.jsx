@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
-import { PageContainer, PageHeader } from '../components/shared/Layout'
+import { PageContainer } from '../components/shared/Layout'
+import { PageHeader } from '../components/ui'
 import { VLOOMBOX_BLURB } from '../lib/brand'
 
 // Business / contact constants — keep these in one place.
@@ -19,7 +20,8 @@ export const BIZ = {
 
 /**
  * One shell for every content page (legal, about, FAQ, blog, guidelines):
- * Navbar + PageContainer width="sm" + PageHeader + a .prose body + a back link.
+ * Navbar + PageContainer width="sm" + ui PageHeader (section "me") + a readable .prose
+ * article (16px, ~65 characters per line) + a back link.
  *   <ContentPage title="Privacy Policy" updated>…</ContentPage>
  * `updated` shows "Last updated: BIZ.effective" under the title when no subtitle is given.
  * `prose={false}` drops the .prose wrapper (for card lists such as the blog index).
@@ -31,8 +33,8 @@ export function ContentPage({ title, subtitle, updated = false, prose = true, ba
         <>
             <Navbar />
             <PageContainer width="sm" className="content-page">
-                <PageHeader title={title} subtitle={sub} />
-                {prose ? <div className="prose content-body">{children}</div> : <div className="content-body">{children}</div>}
+                <PageHeader section="me" title={title} subtitle={sub} />
+                {prose ? <article className="prose content-body">{children}</article> : <div className="content-body">{children}</div>}
                 {back && (
                     <p className="content-back">
                         <Link to="/">← Back to Vloombox</Link>

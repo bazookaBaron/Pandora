@@ -1,6 +1,8 @@
 // FluidCheckbox: animated check with optimistic state (pure CSS — no animation lib)
-// Props: checked (bool), onChange(newChecked), size (optional)
-export default function FluidCheckbox({ checked, onChange, size = 20 }) {
+// Props: checked (bool), onChange(newChecked), size (optional), label (optional accessible name,
+// e.g. "Mark Two sum as solved"). The 44px touch target comes from .fluid-checkbox::after (index.css)
+// or the caller's wrapper; the tick colour follows --check-tone (default --pop).
+export default function FluidCheckbox({ checked, onChange, size = 20, label }) {
     const handleClick = (e) => {
         e.stopPropagation()
         onChange(!checked)
@@ -15,8 +17,8 @@ export default function FluidCheckbox({ checked, onChange, size = 20 }) {
                 width: size,
                 height: size,
                 borderRadius: 5,
-                border: `2px solid ${checked ? 'var(--pop)' : 'var(--subtle-strong)'}`,
-                background: checked ? 'var(--pop)' : 'transparent',
+                border: `2px solid ${checked ? 'var(--check-tone, var(--pop))' : 'var(--subtle-strong)'}`,
+                background: checked ? 'var(--check-tone, var(--pop))' : 'transparent',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -26,7 +28,7 @@ export default function FluidCheckbox({ checked, onChange, size = 20 }) {
                 position: 'relative',
             }}
             title={checked ? 'Mark as unsolved' : 'Mark as solved'}
-            aria-label={checked ? 'Mark as unsolved' : 'Mark as solved'}
+            aria-label={label || (checked ? 'Mark as unsolved' : 'Mark as solved')}
             aria-pressed={!!checked}
         >
             {checked && (

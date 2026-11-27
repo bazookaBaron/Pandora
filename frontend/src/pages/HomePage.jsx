@@ -5,8 +5,10 @@ import { useEntitlements } from '../lib/useEntitlements'
 import { apiFetch, isUsageLimit } from '../lib/apiClient'
 import { LockedPanel, UsageMeter } from '../components/shared/PaywallGate'
 import { LimitReached, errorText } from '../components/shared/states'
-import { PageContainer, PageHeader, Card } from '../components/shared/Layout'
-import { SectionHead, Button } from '../components/ui'
+import { PageContainer, Card } from '../components/shared/Layout'
+import { SectionHead, Button, PageHeader } from '../components/ui'
+import { TERMS } from '../lib/copy'
+import { Expander } from '../components/interview/CollapsibleMarkdown'
 import { track, EVENTS } from '../lib/analytics'
 
 // Score -> semantic tone (ring + number colour).
@@ -89,6 +91,7 @@ export default function HomePage() {
 
     const handleGenerate = async () => {
         if (!canSubmit) return
+        trackUi(TRACK.CTA_CLICK, { id: 'resume_generate', section: 'prepare' })
 
         setLoading(true)
         setResults(null)
@@ -182,7 +185,8 @@ export default function HomePage() {
                     />
                 </div>
 
-                {/* Name + company (filename only) */}
+                {/* Name + company (filename only): optional, so collapsed */}
+                <Expander title="File name (optional)">
                 <div className="opt-row">
                     <div className="sys-field">
                         <label className="sys-field-label" htmlFor="opt-name">Your name</label>
@@ -194,6 +198,7 @@ export default function HomePage() {
                     </div>
                 </div>
                 <p className="opt-filename">File: <code>{filenamePreview}</code></p>
+                </Expander>
 
                 <Button variant="primary" size="lg" block icon={Sparkles} onClick={handleGenerate} disabled={!canSubmit}
                     busy={loading} busyLabel="Generating…">
@@ -268,13 +273,13 @@ export default function HomePage() {
         <>
             <Navbar />
             <PageContainer width="sm">
-                <PageHeader title="Resume Optimizer" subtitle="Upload your resume and a job description. Get a tailored, ATS-ready PDF." />
+                <PageHeader section="prepare" title={TERMS.resumeCheck.one} subtitle="Tailor your resume to one job" back={{ to: '/prepare', label: 'Prepare' }} />
 
                 {resumeLocked ? (
                     <LockedPanel
                         feature="resume_optimizer"
-                        title="Resume Optimizer is a Pro feature"
-                        subtitle="Upgrade to tailor your resume to any JD."
+                        title="Resume check needs Pro"
+                        subtitle="Upgrade to tailor your resume to any job."
                     />
                 ) : body}
             </PageContainer>

@@ -3,6 +3,7 @@ import { Bell, BellRing } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useEntitlements } from '../../lib/useEntitlements'
 import { useCompanySubscriptions, useSubscribeToCompany, useUnsubscribeFromCompany } from '../../lib/useCompanySubscriptions'
+import { track, TRACK } from '../../lib/track'
 
 // Per-card "subscribe to this company's job alerts" toggle — same feature and
 // server-side gating as JobsCompanyPage's SubscribeButton (config/tiers.js:
@@ -15,7 +16,7 @@ function BellButton({ on = false, label, onClick, disabled }) {
     return (
         <button type="button" title={label} aria-label={label} aria-pressed={on} onClick={onClick} disabled={disabled}
             className={`sys-btn sys-icon-btn is-ghost job-bell${on ? ' is-on' : ''}`}>
-            <Icon size={14} aria-hidden="true" />
+            <Icon size={18} aria-hidden="true" />
         </button>
     )
 }
@@ -33,7 +34,7 @@ export default function SubscribeBell({ slug, companyName }) {
     if (!user) {
         return (
             <BellButton label={`Log in to get alerts for ${companyName || 'this company'}`}
-                onClick={(e) => { e.preventDefault(); navigate('/auth') }} />
+                onClick={(e) => { e.preventDefault(); track(TRACK.CTA_CLICK, { id: 'job_bell', section: 'jobs', state: 'signin' }); navigate('/auth') }} />
         )
     }
     if (planLoading) return <span className="job-bell-slot" aria-hidden="true" />
@@ -41,7 +42,7 @@ export default function SubscribeBell({ slug, companyName }) {
     if (plan === 'free') {
         return (
             <BellButton label="Upgrade to Pro or Max to get job alerts for this company"
-                onClick={(e) => { e.preventDefault(); navigate('/pricing') }} />
+                onClick={(e) => { e.preventDefault(); track(TRACK.CTA_CLICK, { id: 'job_bell', section: 'jobs', state: 'upgrade' }); navigate('/pricing') }} />
         )
     }
 
@@ -57,7 +58,10 @@ export default function SubscribeBell({ slug, companyName }) {
         if (disabled) return
         try {
             if (isSubscribed) await unsubscribe.mutateAsync(slug)
-            else await subscribe.mutateAsync({ companySlug: slug, companyName: companyName || slug })
+            else {
+                track(TRACK.CTA_CLICK, { id: 'job_bell', section: 'jobs', state: 'subscribe' })
+                await subscribe.mutateAsync({ companySlug: slug, companyName: companyName || slug })
+            }
         } catch {
             /* the global mutation toast explains the failure (e.g. the plan's alert cap) */
         }

@@ -1,11 +1,9 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import Editor from '@monaco-editor/react'
 import { Panel, Group, Separator } from 'react-resizable-panels'
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { supabase } from '../../lib/supabase'
 import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
@@ -17,7 +15,9 @@ import { track, EVENTS } from '../../lib/analytics'
 import Navbar from '../../components/Navbar'
 import FluidCheckbox from '../../components/shared/FluidCheckbox'
 import DifficultyBadge from '../../components/shared/DifficultyBadge'
-import { Button, Tabs } from '../../components/ui'
+import { Button, PageHeader, SmallTabs } from '../../components/ui'
+import CollapsibleMarkdown, { Expander } from '../../components/interview/CollapsibleMarkdown'
+import { TERMS } from '../../lib/copy'
 import { ChevronLeft, Copy, Check, Download, Play } from 'lucide-react'
 
 // Feature flag: the sandboxed code runner (▶ Run → /api/run → Piston) is not
@@ -198,7 +198,7 @@ function ConsolePanel({ run, compile, apiError, status, onClose }) {
     )
 }
 
-const MOBILE_TAB_LABEL = { requirements: 'Requirement', diagram: 'Diagram', code: 'Code' }
+const MOBILE_TAB_LABEL = { requirements: 'Summary', diagram: 'Diagram', code: 'Code' }
 
 // ── Main component ─────────────────────────────────────────────────
 export default function LLDProblemPage() {
@@ -361,7 +361,7 @@ export default function LLDProblemPage() {
                 <div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}>
                     <ErrorState err={error} />
                     <p style={{ textAlign: 'center', marginTop: 12 }}>
-                        <Button to="/lld" icon={ChevronLeft}>Back to LLD</Button>
+                        <Button to="/lld" icon={ChevronLeft}>Back to {TERMS.lld.one}</Button>
                     </p>
                 </div>
             </>
@@ -373,9 +373,9 @@ export default function LLDProblemPage() {
             <>
                 <Navbar />
                 <div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}>
-                    <ErrorState title="Could not load this LLD problem." err={error} />
+                    <ErrorState title="Could not load this problem." err={error} />
                     <p style={{ textAlign: 'center', marginTop: 12 }}>
-                        <Button to="/lld" icon={ChevronLeft}>Back to LLD</Button>
+                        <Button to="/lld" icon={ChevronLeft}>Back to {TERMS.lld.one}</Button>
                     </p>
                 </div>
             </>
@@ -388,15 +388,13 @@ export default function LLDProblemPage() {
         return (
             <>
                 <Navbar />
-                <div style={{ height: '100vh', paddingTop: "var(--nav-h)", display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                    <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-                        <Link to="/lld" className="pr-crumb"><ChevronLeft size={14} aria-hidden="true" />LLD</Link>
-                        <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--bright)' }}>Locked problem</h2>
-                    </div>
+                <div className="pr-ws">
+                    <PageHeader section="prepare" className="pr-ws-ph" back={{ to: '/lld', label: TERMS.lld.one }}
+                        title="Locked problem" subtitle="Upgrade to open every problem" />
                     <div style={{ flex: 1, overflow: 'auto' }}>
                         <LockedPanel
-                            title="This LLD problem is locked on the free tier"
-                            subtitle="Upgrade to unlock all LLD problems."
+                            title="This problem needs a Pro plan"
+                            subtitle="Upgrade to open every low-level design problem."
                         />
                     </div>
                 </div>
@@ -413,7 +411,7 @@ export default function LLDProblemPage() {
                         art="code"
                         tone="attention"
                         title="Problem not found."
-                        action={<Button to="/lld" icon={ChevronLeft}>Back to LLD</Button>}
+                        action={<Button to="/lld" icon={ChevronLeft}>Back to {TERMS.lld.one}</Button>}
                     />
                 </div>
             </>
@@ -422,19 +420,13 @@ export default function LLDProblemPage() {
 
     // ── Pane contents ──────────────────────────────────────────────
     const RequirementsPane = (
-        <div style={{ padding: 16, height: '100%', overflowY: 'auto' }}>
-            <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Requirements</span>
-                {problem.difficulty && <DifficultyBadge difficulty={problem.difficulty} />}
-            </div>
-            <div className="markdown-body" style={{ fontSize: '0.83rem', lineHeight: 1.7 }}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{problem.requirements || '_No requirements provided._'}</ReactMarkdown>
-            </div>
+        <div className="pr-ws-pane">
+            <h2 className="pr-ws-h">What to build</h2>
+            <CollapsibleMarkdown className="markdown-body pr-md">{problem.requirements || '_No requirements yet._'}</CollapsibleMarkdown>
 
             {/* Notes */}
-            <div style={{ marginTop: 20, borderTop: '1px solid var(--subtle)', paddingTop: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Approach Notes</span>
+            <Expander title="Your notes" meta={notesSave === 'saved' && !notesOpen ? 'Saved' : undefined} defaultOpen={!!notesText}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 8 }}>
                     {notesOpen ? (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                             {notesSave === 'error' && <span role="alert" style={{ fontSize: '0.66rem', color: 'var(--red)' }}>Save failed</span>}
@@ -451,8 +443,6 @@ export default function LLDProblemPage() {
                                 {notesSave === 'error' ? 'Retry' : 'Save'}
                             </Button>
                         </span>
-                    ) : notesSave === 'saved' ? (
-                        <span role="status" style={{ fontSize: '0.66rem', color: 'var(--green)' }}>Saved</span>
                     ) : null}
                 </div>
                 {notesOpen ? (
@@ -461,23 +451,16 @@ export default function LLDProblemPage() {
                         onChange={e => setNotesText(e.target.value)}
                         placeholder="Your approach, patterns used, time complexity…"
                         rows={5}
-                        style={{
-                            width: '100%', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6,
-                            color: 'var(--bright)', font: 'inherit', fontSize: '0.8rem', padding: '8px 10px',
-                            resize: 'vertical',
-                        }}
+                        className="pr-ta"
                         aria-label="Approach notes"
                         autoFocus
                     />
                 ) : (
-                    <button type="button" onClick={() => { setNotesSave('idle'); setNotesOpen(true) }} style={{
-                        width: '100%', padding: '8px 12px', background: 'var(--panel)', border: '1px dashed var(--subtle)',
-                        borderRadius: 6, color: 'var(--faint)', cursor: 'pointer', fontSize: '0.78rem', textAlign: 'left',
-                    }}>
-                        {notesText || '+ Add notes…'}
+                    <button type="button" className="pr-note-btn" onClick={() => { setNotesSave('idle'); setNotesOpen(true) }}>
+                        {notesText || '+ Add your notes'}
                     </button>
                 )}
-            </div>
+            </Expander>
         </div>
     )
 
@@ -762,32 +745,35 @@ export default function LLDProblemPage() {
     return (
         <>
             <Navbar />
-            <div style={{ height: '100vh', paddingTop: "var(--nav-h)", display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                {/* Problem header bar */}
-                <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexWrap: 'wrap', flexShrink: 0 }}>
-                    <Link to="/lld" className="pr-crumb"><ChevronLeft size={14} aria-hidden="true" />LLD</Link>
-                    <h2 style={{ fontSize: isMobile ? '0.85rem' : '0.95rem', fontWeight: 900, color: 'var(--bright)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{problem.title}</h2>
-                    {problem.difficulty && <DifficultyBadge difficulty={problem.difficulty} />}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                        <FluidCheckbox
-                            checked={isSolved}
-                            onChange={() => {
-                                if (prog?.status !== 'solved') {
-                                    track(EVENTS.QUESTION_COMPLETED, { type: 'lld', problem_id: problem.id })
-                                }
-                                toggleStatus(problem.id, prog?.status ?? 'unsolved')
-                            }}
-                        />
-                        <span style={{ fontSize: '0.68rem', color: isSolved ? 'var(--warm)' : 'var(--muted)', fontWeight: 700 }}>
-                            {isSolved ? 'Practiced' : (isMobile ? 'Mark' : 'Mark practiced')}
-                        </span>
-                    </div>
-
-                    {/* Mobile tabs — own full-width row */}
+            <div className="pr-ws">
+                {/* Compact header: back · title · difficulty · practised toggle; small pane tabs on phones */}
+                <div className="pr-ws-top">
+                    <PageHeader
+                        section="prepare"
+                        className="pr-ws-ph"
+                        back={{ to: '/lld', label: TERMS.lld.one }}
+                        title={problem.title}
+                        subtitle={null}
+                        aside={problem.difficulty ? <DifficultyBadge difficulty={problem.difficulty} /> : null}
+                        action={
+                            <label className="pr-done">
+                                <FluidCheckbox
+                                    checked={isSolved}
+                                    label={isSolved ? 'Mark as not practised' : 'Mark as practised'}
+                                    onChange={() => {
+                                        if (prog?.status !== 'solved') {
+                                            track(EVENTS.QUESTION_COMPLETED, { type: 'lld', problem_id: problem.id })
+                                        }
+                                        toggleStatus(problem.id, prog?.status ?? 'unsolved')
+                                    }}
+                                />
+                                <span aria-hidden="true">{isSolved ? 'Practised' : 'Mark done'}</span>
+                            </label>
+                        }
+                    />
                     {isMobile && (
-                        <Tabs idPrefix="lld" label="Problem panes" value={activeMobileTab} onChange={setMobileTab} block
-                            items={mobileTabs.map(t => ({ value: t, label: MOBILE_TAB_LABEL[t] || t }))}
-                            style={{ width: '100%' }} />
+                        <SmallTabs idPrefix="lld" label="Problem panes" section="prepare" value={activeMobileTab} onChange={setMobileTab} block
+                            items={mobileTabs.map(t => ({ value: t, label: MOBILE_TAB_LABEL[t] || t }))} />
                     )}
                 </div>
 

@@ -1,20 +1,26 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Bell, BellRing, Briefcase } from 'lucide-react'
+import { Bell, BellRing, Lock } from 'lucide-react'
 import Navbar from '../../components/Navbar'
+import { PageContainer } from '../../components/shared/Layout'
 import { useJobsCompany } from '../../lib/useJobs'
+import { useCompanies } from '../../lib/useCompanies'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
 import { useAuth } from '../../contexts/AuthContext'
 import { useEntitlements } from '../../lib/useEntitlements'
 import { useCompanySubscriptions, useSubscribeToCompany, useUnsubscribeFromCompany } from '../../lib/useCompanySubscriptions'
-import { UpgradeButton } from '../../components/shared/PaywallGate'
-import { Button, SectionHead } from '../../components/ui'
-import JobCard from './JobCard'
+import { CTA } from '../../lib/copy'
+import { track, TRACK } from '../../lib/track'
+import { NextStep, PageHeader } from '../../components/ui'
+import JobRow from './JobRow'
+import JobSheet from './JobSheet'
+import { JobLogo } from './jobsShared'
 
-// "Subscribe to <Company>" — job-alert subscriptions are a Pro/Max feature
-// (config/tiers.js: company_subscriptions_max). Free/logged-out visitors see
-// a locked upsell affordance instead of the toggle, mirroring the PaywallGate
-// pattern used elsewhere rather than a bespoke gate.
+const trackSub = (state) => track(TRACK.CTA_CLICK, { id: 'company_subscribe', section: 'jobs', state })
+
+// "Subscribe" (job alerts) is a Pro/Max feature (config/tiers.js:
+// company_subscriptions_max). Signed-out visitors go to sign in, free users
+// to pricing; the server enforces the plan cap either way.
 function SubscribeButton({ slug, companyName }) {
     const { user } = useAuth()
     const { plan, isLoading: planLoading } = useEntitlements()
@@ -24,19 +30,19 @@ function SubscribeButton({ slug, companyName }) {
     const [err, setErr] = useState('')
 
     if (!user) {
-        return <Button to="/auth" icon={Bell}>Log in for alerts</Button>
+        return (
+            <Link to="/auth" className="sys-tone-btn" onClick={() => trackSub('signin')}>
+                <Bell size={16} aria-hidden="true" /><span>Get job alerts</span>
+            </Link>
+        )
     }
-
     if (planLoading) return null
-
     if (plan === 'free') {
         return (
-            <div className="jobs-co-sub-row">
-                <span className="jobs-co-sub-hint">
-                    Get emailed when {companyName || 'this company'} posts new roles
-                </span>
-                <UpgradeButton size="sm">Unlock job alerts</UpgradeButton>
-            </div>
+            <Link to="/pricing" className="sys-tone-btn" onClick={() => trackSub('upgrade')}
+                title="Job alerts are part of Pro and Max">
+                <Lock size={16} aria-hidden="true" /><span>Get job alerts</span>
+            </Link>
         )
     }
 
@@ -52,112 +58,99 @@ function SubscribeButton({ slug, companyName }) {
             if (isSubscribed) {
                 await unsubscribe.mutateAsync(slug)
             } else {
+                trackSub('subscribe')
                 await subscribe.mutateAsync({ companySlug: slug, companyName: companyName || slug })
             }
         } catch (e) {
             setErr(e?.body?.error === 'usage_limit' || e?.code === 'usage_limit'
-                ? `You've reached your plan's limit of ${limit} company subscriptions.`
+                ? `Your plan allows ${limit} company alerts.`
                 : e?.message || 'Something went wrong.')
         }
     }
 
+    const Icon = isSubscribed ? BellRing : Bell
     return (
         <div className="jobs-co-sub">
-            <Button
-                variant={isSubscribed ? 'secondary' : 'primary'}
-                icon={isSubscribed ? BellRing : Bell}
-                onClick={toggle}
-                busy={busy}
-                busyLabel="Saving…"
-                disabled={atCap && !isSubscribed}
-                aria-pressed={isSubscribed}
-                title={atCap && !isSubscribed ? `Limit reached (${subscriptions.length}/${limit})` : undefined}
-            >
-                {isSubscribed ? 'Subscribed' : atCap ? `Limit reached (${subscriptions.length}/${limit})` : 'Subscribe for alerts'}
-            </Button>
+            <button type="button" className={`sys-tone-btn${isSubscribed ? ' jobs-sub-on' : ''}`} onClick={toggle}
+                disabled={busy || atCap} aria-busy={busy || undefined} aria-pressed={isSubscribed}
+                title={atCap ? `Limit reached (${subscriptions.length}/${limit})` : undefined}>
+                {busy ? <span className="sys-spin" aria-hidden="true" /> : <Icon size={16} aria-hidden="true" />}
+                <span>{isSubscribed ? 'Subscribed' : atCap ? `Limit reached (${subscriptions.length}/${limit})` : 'Subscribe'}</span>
+            </button>
             {err && <span className="jobs-co-err" role="alert">{err}</span>}
         </div>
     )
 }
 
-// Programmatic per-company jobs hub (/jobs/company/:slug) — P1 "page factory".
-// Server decides the robots directive (see server.js's getJobsCompanyPayload +
-// lib/seoHead.js's evaluateJobHubIndexability); this page just renders
-// whatever it gets, curated or not, so a company short on evidence still has
-// a real, useful page for the visitors who do land on it.
+const normName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+
+// Prepare bridge: a company DSA list only when the DSA catalogue knows this
+// company (same names as the DSA company filter); otherwise the general list.
+function DsaBridge({ name }) {
+    const { data: companies = [], isLoading, isError } = useCompanies()
+    if (isLoading || !name) return null
+    const key = normName(name)
+    const match = !isError && key ? companies.find((c) => normName(c) === key) : null
+    return match ? (
+        <NextStep id={`jobsco-dsa-${normName(match)}`} section="prepare"
+            text={`Practice ${match} DSA questions`}
+            cta={{ label: CTA.startPractice, to: `/dsa/company/${encodeURIComponent(match)}` }} />
+    ) : (
+        <NextStep id="jobsco-dsa" section="prepare"
+            text="Practice the DSA questions tech interviews ask"
+            cta={{ label: CTA.startPractice, to: '/dsa' }} />
+    )
+}
+
+// Programmatic per-company jobs hub (/jobs/company/:slug). The server decides
+// the robots directive (server.js getJobsCompanyPayload + lib/seoHead.js
+// evaluateJobHubIndexability); this page renders whatever it gets.
 export default function JobsCompanyPage() {
     const { slug } = useParams()
     const { data, isLoading, error, refetch } = useJobsCompany(slug)
-    const { company, postings, eligible } = data
+    const { company, postings } = data
+    const [job, setJob] = useState(null)
+    const name = company?.name || slug
+    const ready = !isLoading && !error
+    const n = postings.length
 
     return (
         <>
             <Navbar />
-            <div className="has-tilebar" style={{ paddingTop: 56 }}>
-                <div className="jobs-co-head">
-                    <div className="jobs-co-wrap">
-                        <Link to="/" className="jobs-co-back">
-                            <ArrowLeft size={13} aria-hidden="true" /> All jobs
-                        </Link>
-                        <div className="jobs-co-row">
-                            <div className="jobs-co-id">
-                                <div className="jobs-co-logo" aria-hidden="true">
-                                    {(company?.name || slug || '?').charAt(0).toUpperCase()}
-                                </div>
-                                <div style={{ minWidth: 0 }}>
-                                    <h1 className="pg-title">
-                                        {company?.name || slug} Jobs
-                                    </h1>
-                                    <p className="pg-subtitle">
-                                        {postings.length > 0
-                                            ? `${postings.length} open position${postings.length === 1 ? '' : 's'}, crawled from their careers page.`
-                                            : 'Crawled from their careers page through the day.'}
-                                    </p>
-                                </div>
-                            </div>
-                            {!isLoading && !error && company && (
-                                <SubscribeButton slug={slug} companyName={company.name} />
-                            )}
-                        </div>
-                        {!isLoading && !error && !eligible && (
-                            <p className="jobs-co-note">
-                                This page isn't submitted for search indexing yet — it's still real and linkable, just not part of the curated launch set.
-                            </p>
-                        )}
-                    </div>
-                </div>
+            <PageContainer>
+                <PageHeader
+                    section="jobs"
+                    className="jobs-co-ph"
+                    back={{ to: '/', label: 'All jobs' }}
+                    title={<><JobLogo name={name} size="lg" /><span className="jobs-co-name">{name} Jobs</span></>}
+                    subtitle={ready ? (n > 0 ? `${n} open role${n === 1 ? '' : 's'}` : 'No open roles right now') : null}
+                    action={ready && company ? <SubscribeButton slug={slug} companyName={company.name} /> : undefined}
+                />
 
-                <div className="jobs-co-wrap">
-                    {isLoading && <LoadingState label="Loading open roles…" />}
-                    {error && (
-                        <ErrorState
-                            title={error.status === 404 ? 'Unknown company' : 'Something went wrong'}
-                            message={error.status === 404 ? `We don't have a jobs page for "${slug}".` : undefined}
-                            err={error.status === 404 ? null : error}
-                            onRetry={error.status === 404 ? undefined : refetch}
-                        />
-                    )}
-                    {!isLoading && !error && postings.length === 0 && (
-                        <EmptyState
-                            art="jobs"
-                            title="No open roles right now"
-                            message="This company doesn't have any postings in the last 24 hours — check back soon."
-                        />
-                    )}
-                    {!isLoading && !error && postings.length > 0 && (
-                        <section aria-labelledby="jobs-co-h">
-                            <SectionHead id="jobs-co-h" icon={Briefcase} tone="active" title="Open roles" count={postings.length} />
-                            <ul className="job-list" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                                {postings.map((job) => (
-                                    <li key={job.id} style={{ minWidth: 0 }}>
-                                        <JobCard j={job} showCompany={false} showBell={false} rel="noopener noreferrer nofollow" />
-                                    </li>
-                                ))}
-                            </ul>
-                        </section>
-                    )}
-                </div>
-            </div>
+                {isLoading && <LoadingState label="Loading open roles…" />}
+                {error && (
+                    <ErrorState
+                        title={error.status === 404 ? 'Unknown company' : 'Something went wrong'}
+                        message={error.status === 404 ? `We don't have a jobs page for "${slug}".` : undefined}
+                        err={error.status === 404 ? null : error}
+                        onRetry={error.status === 404 ? undefined : refetch}
+                    />
+                )}
+                {ready && n === 0 && (
+                    <EmptyState art="jobs" title="No open roles right now" message="Check back soon." />
+                )}
+                {ready && n > 0 && (
+                    <section aria-label={`Open roles at ${name}`}>
+                        <ul className="sys-rows jobs-rows">
+                            {postings.map((j) => (
+                                <li key={j.id}><JobRow j={j} showCompany={false} onOpen={setJob} /></li>
+                            ))}
+                        </ul>
+                    </section>
+                )}
+                {ready && company && <DsaBridge name={company.name} />}
+            </PageContainer>
+            <JobSheet job={job} onClose={() => setJob(null)} rel="noopener noreferrer nofollow" showBell={false} linkCompany={false} />
         </>
     )
 }

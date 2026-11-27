@@ -4,84 +4,70 @@ import Navbar from '../components/Navbar'
 import { TIERS, PLAN_ORDER, priceInrPaise, priceUsdCents } from '../../config/tiers.js'
 import { useEntitlements } from '../lib/useEntitlements'
 import { useAuth } from '../contexts/AuthContext'
-import { useMediaQuery } from '../lib/useMediaQuery'
 import { ErrorState } from '../components/shared/states'
+import { PageContainer } from '../components/shared/Layout'
 import { track, EVENTS } from '../lib/analytics'
+import { track as trackUi, TRACK } from '../lib/track'
 import { startCheckout as startRazorpayCheckoutFlow } from '../lib/razorpay'
 import { apiFetch } from '../lib/apiClient'
 import { useAutoApplyMe } from '../lib/useAutoApply'
-import { PACK_KINDS, PACK_SIZES, packPrice } from './autoapply/ui'
-import { Check, X } from 'lucide-react'
+import { PACK_SIZES, packPrice } from './autoapply/ui'
+import { Check, X, Zap } from 'lucide-react'
 import { PLAN_TONE } from '../lib/brand'
-import { Segmented, Pill, Button } from '../components/ui'
+import { AUTOAPPLY_ENABLED } from '../lib/sections'
+import { TERMS } from '../lib/copy'
+import { Segmented, Pill, Button, PageHeader, Row, Sheet } from '../components/ui'
 
-// ── Pricing (config-driven) ─────────────────────────────────────────
-// Renders Free / Pro / Max straight from `config/tiers.js`. The Pro/Max CTAs
-// open Razorpay Standard Checkout (one-time payment for a monthly / yearly
-// term). On a verified payment we re-poll entitlements.
-//
-// Desktop: the usual 3-card grid. Mobile: a Free/Pro/Max segmented switcher
-// (defaults to Pro) shows ONE full plan card at a time — same <PlanCard> either way.
-// Plan colours come from lib/brand.js PLAN_TONE (free history, pro plan, max active).
+// ── Pricing (config-driven, plan §4.6) ──────────────────────────────
+// Two stacked plan cards (Pro, Max) straight from `config/tiers.js`, 3 benefits
+// and one CTA each. Everything else (Free, the full feature list, coupon) sits
+// in sheets. The CTAs open Razorpay Standard Checkout (one-time payment for a
+// monthly / yearly term); on a verified payment we re-poll entitlements.
+
+const PAID_PLANS = PLAN_ORDER.filter((id) => id !== 'free')
 
 const PLAN_META = {
-    free: { name: 'Free', tagline: 'Kick the tyres', cta: 'Start free' },
-    pro: { name: 'Pro', tagline: 'Everything, no limits', featured: true, badge: 'Most popular', cta: 'Get Pro' },
-    max: { name: 'Max', tagline: 'For serious, daily prep', cta: 'Get Max' },
+    free: { name: 'Free', tagline: 'Try every feature', cta: 'Start free' },
+    pro: { name: 'Pro', tagline: 'Everything you need to prep', badge: 'Most popular', cta: 'Get Pro', benefits: ['jobs', 'referrals', 'optimizer'] },
+    max: { name: 'Max', tagline: 'No limits, for daily prep', cta: 'Get Max', benefits: ['hld', 'referrals', 'optimizer'] },
 }
 const toneOf = (id) => (PLAN_TONE[id] || PLAN_TONE.free).tone
 
-const TRUST = ['Cancel anytime', 'No auto-renewal', 'Secure checkout by Razorpay']
-
 const FAQ_BASE = [
-    ['Is there a free plan?', 'Yes — Free gives you a limited amount of every feature, forever. Upgrade only when you hit the limits.'],
-    ['Can I change plans later?', 'Yes — upgrade or downgrade whenever you like. A new term starts from the day you switch.'],
-    ['What happens when my term ends?', 'Nothing auto-renews. You drop back to Free and can subscribe again whenever you want.'],
+    ['Is there a free plan?', 'Yes. Free gives you some of every feature, forever.'],
+    ['Can I change plans later?', 'Yes. A new term starts on the day you switch.'],
+    ['What happens when my term ends?', 'Nothing renews. You go back to Free.'],
 ]
 const PAYMENT_FAQ = {
-    INR: ['Which payment methods work?', 'All major Indian cards, UPI and net-banking, handled securely by Razorpay.'],
-    USD: ['Which payment methods work?', 'PayPal and major international cards, handled securely by Razorpay.'],
+    INR: ['Which payment methods work?', 'Indian cards, UPI and net banking, through Razorpay.'],
+    USD: ['Which payment methods work?', 'PayPal and international cards, through Razorpay.'],
 }
 
 const isInf = (v) => v === Infinity || v === 'unlimited'
 const rupees = (paise) => `₹${Math.round((paise || 0) / 100).toLocaleString('en-IN')}`
 const dollars = (cents) => `$${(Math.round((cents || 0)) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 // Geo-based currency (lib/geo.js on the server): India (and unknown, the
-// safe default) sees/pays INR; everyone else sees/pays USD. One switch here
-// instead of scattering `currency === 'USD' ? ... : ...` through the page.
+// safe default) sees/pays INR; everyone else sees/pays USD.
 const priceOf = (plan, period, currency) => (currency === 'USD' ? priceUsdCents(plan, period) : priceInrPaise(plan, period))
 const money = (amount, currency) => (currency === 'USD' ? dollars(amount) : rupees(amount))
 
-// ── Feature checklist (shared by desktop cards + the mobile tab view) ─
-// One row per feature; `label(v)` renders the "on" copy for that tier's
-// limit, `offLabel` is the plain noun shown crossed out when the tier
-// doesn't have the feature at all (limit === 0).
+// ── Feature list (benefits on the cards + the compare sheet) ─────────
+// `label(v)` renders the "on" copy for that tier's limit, `offLabel` is the
+// plain noun shown crossed out when the tier doesn't have the feature (limit 0).
 const FEATURE_ROWS = [
-    {
-        key: 'dsa',
-        limitKey: 'dsa_catalog_visible',
-        label: (v) => (isInf(v) ? 'All DSA problems' : `${v} DSA problems`),
-    },
-    {
-        key: 'lld',
-        limitKey: 'lld_catalog_visible',
-        label: (v) => (isInf(v) ? 'All LLD problems' : `${v} LLD problems`),
-    },
+    { key: 'dsa', limitKey: 'dsa_catalog_visible', label: (v) => (isInf(v) ? 'All DSA problems' : `${v} DSA problems`) },
+    { key: 'lld', limitKey: 'lld_catalog_visible', label: (v) => (isInf(v) ? `All ${TERMS.lld.one.toLowerCase()} problems` : `${v} ${TERMS.lld.one.toLowerCase()} problems`) },
     {
         key: 'hld',
         limitKey: 'hld_practice_per_month',
-        label: (v) => (isInf(v) ? 'Unlimited HLD practice' : `${v} HLD practice${v === 1 ? '' : 's'} / mo`),
-        offLabel: 'HLD practice',
+        label: (v) => (isInf(v) ? `Unlimited ${TERMS.hld.one.toLowerCase()} practice` : `${v} ${TERMS.hld.one.toLowerCase()} practice${v === 1 ? '' : 's'} / mo`),
+        offLabel: `${TERMS.hld.one} practice`,
     },
-    {
-        key: 'jobs',
-        limitKey: 'jobs_visible',
-        label: (v) => (isInf(v) ? 'All job listings' : `${v} job listings`),
-    },
+    { key: 'jobs', limitKey: 'jobs_visible', label: (v) => (isInf(v) ? 'All job listings' : `${v} job listings`) },
     {
         key: 'jobAlerts',
         limitKey: 'company_subscriptions_max',
-        label: (v) => (isInf(v) ? 'Unlimited company job alerts' : `${v} company job alert${v === 1 ? '' : 's'}`),
+        label: (v) => (isInf(v) ? 'Unlimited job alerts' : `${v} company job alert${v === 1 ? '' : 's'}`),
         offLabel: 'Company job alerts',
     },
     {
@@ -90,16 +76,12 @@ const FEATURE_ROWS = [
         label: (v) => (isInf(v) ? 'Unlimited referral requests' : `${v} referral requests / mo`),
         offLabel: 'Referral requests',
     },
-    {
-        key: 'interview',
-        limitKey: 'interview_q_per_subcategory',
-        label: (v) => (isInf(v) ? 'All interview questions' : `${v} interview questions / topic`),
-    },
+    { key: 'interview', limitKey: 'interview_q_per_subcategory', label: (v) => (isInf(v) ? 'All interview questions' : `${v} interview questions / topic`) },
     {
         key: 'optimizer',
         limitKey: 'resume_optimizer_per_month',
-        label: (v) => (isInf(v) ? 'Unlimited resume optimizer' : `${v} job-specific resume optimizations / mo`),
-        offLabel: 'Job-specific resume optimizer',
+        label: (v) => (isInf(v) ? 'Unlimited resume checks' : `${v} resume checks / mo`),
+        offLabel: 'Resume check',
     },
 ]
 
@@ -117,7 +99,7 @@ function FeatureChecklist({ rows }) {
         <ul className="pricing-features">
             {rows.map((r) => (
                 <li key={r.key} className={r.included ? 'is-on' : 'is-off'}>
-                    {r.included ? <Check size={14} aria-hidden="true" /> : <X size={14} aria-hidden="true" />}
+                    {r.included ? <Check size={16} aria-hidden="true" /> : <X size={16} aria-hidden="true" />}
                     <span>{r.label}</span>
                     {!r.included && <span className="sys-sr">(not included)</span>}
                 </li>
@@ -126,55 +108,43 @@ function FeatureChecklist({ rows }) {
     )
 }
 
-// One full plan card — price block + checklist + CTA. Used for every card on
-// desktop and for the single selected plan on mobile.
+// One plan card: name · price · 3 benefits · one CTA.
 function PlanCard({ id, billing, currency, isCurrent, pending, onCheckout }) {
     const meta = PLAN_META[id] || { name: id }
     const amount = priceOf(id, billing, currency)
-    const featured = !!meta.featured
     const yearlyAmount = priceOf(id, 'yearly', currency)
-    const zero = currency === 'USD' ? '$0' : '₹0'
-    const headline = id === 'free' ? zero : billing === 'yearly' ? money(yearlyAmount / 12, currency) : money(amount, currency)
-    const rows = planFeatureRows(id)
-    const savingsPct = (() => {
-        const m = priceOf(id, 'monthly', currency)
-        return m && yearlyAmount ? Math.round((1 - yearlyAmount / (m * 12)) * 100) : 0
-    })()
-    const variant = isCurrent || id === 'free' ? 'secondary' : featured ? 'upgrade' : 'primary'
+    const headline = billing === 'yearly' ? money(yearlyAmount / 12, currency) : money(amount, currency)
+    const benefitKeys = meta.benefits || []
+    const rows = planFeatureRows(id).filter((r) => benefitKeys.includes(r.key))
+    const featured = !!meta.badge
 
     return (
         <article className={`pricing-card tone-${toneOf(id)}${featured ? ' is-featured' : ''}`} aria-label={`${meta.name} plan`}>
-            {featured && meta.badge && !isCurrent && <span className="pricing-badge">{meta.badge}</span>}
-
             <div className="pricing-card-head">
                 <span className="pricing-name tone-text">{meta.name}</span>
-                {isCurrent && <Pill tone={toneOf(id)}>Current</Pill>}
+                {isCurrent ? <Pill tone={toneOf(id)}>Current</Pill> : featured && <Pill tone={toneOf(id)} soft>{meta.badge}</Pill>}
             </div>
-            <p className="pricing-tagline">{meta.tagline}</p>
             <div className="pricing-price">
                 <span className="pricing-amount">{headline}</span>
-                <span className="pricing-per">{id === 'free' ? 'forever' : '/mo'}</span>
+                <span className="pricing-per">/mo</span>
             </div>
-            {id !== 'free' && (
-                <p className="pricing-billed">
-                    {billing === 'yearly'
-                        ? `${money(yearlyAmount, currency)} billed once a year`
-                        : `or ${money(yearlyAmount, currency)}/yr — save ${savingsPct}%`}
-                </p>
-            )}
+            <p className="pricing-billed">
+                {billing === 'yearly' ? `${money(yearlyAmount, currency)} once a year` : meta.tagline}
+            </p>
 
             <FeatureChecklist rows={rows} />
 
             <Button
-                variant={variant}
+                variant={isCurrent ? 'secondary' : featured ? 'upgrade' : 'primary'}
                 size="lg"
                 block
                 className="pricing-cta"
                 onClick={() => {
-                    if (isCurrent || id === 'free' || pending) return
+                    if (isCurrent || pending) return
+                    trackUi(TRACK.CTA_CLICK, { id: `pricing_${id}`, section: 'me' })
                     onCheckout(id)
                 }}
-                disabled={isCurrent || id === 'free' || pending === id}
+                disabled={isCurrent || pending === id}
                 busy={pending === id}
                 busyLabel="Starting…"
             >
@@ -184,48 +154,27 @@ function PlanCard({ id, billing, currency, isCurrent, pending, onCheckout }) {
     )
 }
 
-// ── AutoApply packs (prices come from GET /api/autoapply/me -> config.packs) ─
-function AutoApplySection({ currentPlan }) {
+// Auto Apply packs (prices come from GET /api/autoapply/me -> config.packs): one row.
+function AutoApplyRow({ currentPlan }) {
     const me = useAutoApplyMe()
     const config = me.data?.config
-    const cap = config?.monthly_cap ?? 1000
     const eligible = me.data ? !!me.data.eligible : currentPlan === 'pro' || currentPlan === 'max'
+    const prices = ['service', 'product']
+        .flatMap((kind) => PACK_SIZES.map((size) => packPrice(config, kind, size)))
+        .filter((p) => p != null)
+    const from = prices.length ? Math.min(...prices) : null
     return (
-        <section aria-labelledby="pricing-autoapply" className="pricing-block">
-            <div className="pricing-block-head">
-                <Pill tone="attention" soft>Add-on · Pro &amp; Max</Pill>
-                <h2 id="pricing-autoapply" className="pricing-h2">AutoApply packs</h2>
-                <p className="pricing-sub">
-                    We apply on company career sites for you. Credits are used only when an application is submitted
-                    &mdash; up to {cap.toLocaleString('en-IN')} a month.
-                </p>
-            </div>
-            <div className="pricing-packs">
-                {['service', 'product'].map((kind) => (
-                    <div key={kind} className={`pricing-pack tone-${kind === 'service' ? 'active' : 'attention'}`}>
-                        <div className="pricing-name tone-text">{PACK_KINDS[kind].name}</div>
-                        <div className="pricing-tagline">{PACK_KINDS[kind].blurb}</div>
-                        <ul>
-                            {PACK_SIZES.map((size) => {
-                                const p = packPrice(config, kind, size)
-                                return (
-                                    <li key={size}>
-                                        <span>{size} applications</span>
-                                        <strong>{p != null ? rupees(p) : (me.isLoading ? '…' : 'Coming soon')}</strong>
-                                    </li>
-                                )
-                            })}
-                        </ul>
-                    </div>
-                ))}
-            </div>
-            <p className="pricing-center">
-                <Button variant={eligible ? 'primary' : 'secondary'} to={eligible ? '/autoapply/buy' : '/autoapply'}>
-                    {eligible ? 'Buy an AutoApply pack' : 'Learn about AutoApply'}
-                </Button>
-            </p>
-            {!eligible && <p className="pricing-fine">Needs an active Pro or Max plan.</p>}
-        </section>
+        <ul className="sys-rows pricing-aa" aria-label="Add-ons">
+            <li>
+                <Row
+                    leading={<Zap size={18} aria-hidden="true" />}
+                    tone="var(--pop)"
+                    title={`Auto Apply ${TERMS.pack.plural.toLowerCase()}`}
+                    sub={from != null ? `From ${rupees(from)} · needs Pro or Max` : 'Needs Pro or Max'}
+                    to={eligible ? '/autoapply/buy' : '/autoapply'}
+                />
+            </li>
+        </ul>
     )
 }
 
@@ -233,11 +182,10 @@ export default function PricingPage() {
     const { plan: currentPlan, currency, refetch } = useEntitlements()
     const { user } = useAuth()
     const navigate = useNavigate()
-    const isMobile = useMediaQuery('(max-width: 767px)')
     const [billing, setBilling] = useState('monthly') // 'monthly' | 'yearly'
-    const [mobilePlan, setMobilePlan] = useState('pro') // mobile tab selection — defaults to Pro
     const [note, setNote] = useState('')
     const [pending, setPending] = useState('') // plan id whose modal is open / verifying
+    const [sheet, setSheet] = useState(null) // null | 'compare' | 'coupon'
 
     useEffect(() => {
         track(EVENTS.PRICING_VIEWED)
@@ -248,7 +196,7 @@ export default function PricingPage() {
         const y = priceOf(plan, 'yearly', currency)
         return m && y ? Math.round((1 - y / (m * 12)) * 100) : 0
     }
-    const bestSavings = Math.max(savingsPct('pro'), savingsPct('max'))
+    const bestSavings = Math.max(...PAID_PLANS.map(savingsPct))
 
     async function startCheckout(plan) {
         if (!user) { setNote('Please sign in first.'); return }
@@ -294,7 +242,7 @@ export default function PricingPage() {
         }
     }
 
-    const visiblePlans = isMobile ? [mobilePlan] : PLAN_ORDER
+    const closeSheet = () => setSheet(null)
 
     return (
         <>
@@ -307,29 +255,17 @@ export default function PricingPage() {
                     </div>
                 </div>
             )}
-            <main className="wrap pricing-wrap">
-                <header className="pricing-header">
-                    <h1 className="pricing-h1">Prep like it&rsquo;s your job.</h1>
-                    <p className="pricing-sub">
-                        One plan for DSA, LLD, HLD, jobs, referrals, interview questions and the resume optimizer.
-                        Nothing auto-renews.
-                    </p>
+            <PageContainer width="sm" className="pricing-wrap">
+                <PageHeader section="me" title="Plans" subtitle="Nothing auto-renews. Cancel anytime." />
 
-                    <div className="pricing-controls">
-                        <Segmented label="Billing period" value={billing} onChange={setBilling}
-                            options={[{ value: 'monthly', label: 'Monthly' }, { value: 'yearly', label: 'Yearly', tone: 'success' }]} />
-                        {bestSavings > 0 && <Pill tone="success" soft>Save up to {bestSavings}%</Pill>}
-                    </div>
-
-                    {/* Mobile: Free / Pro / Max switcher — replaces the 3 stacked cards. */}
-                    {isMobile && (
-                        <Segmented label="Choose a plan" block value={mobilePlan} onChange={setMobilePlan} className="pricing-plan-switch"
-                            options={PLAN_ORDER.map((id) => ({ value: id, label: (PLAN_META[id] || { name: id }).name, tone: toneOf(id) }))} />
-                    )}
-                </header>
+                <div className="pricing-controls">
+                    <Segmented label="Billing period" value={billing} onChange={setBilling}
+                        options={[{ value: 'monthly', label: 'Monthly' }, { value: 'yearly', label: 'Yearly', tone: 'success' }]} />
+                    {bestSavings > 0 && <Pill tone="success" soft>Save {bestSavings}%</Pill>}
+                </div>
 
                 <div className="pricing-grid">
-                    {visiblePlans.map((id) => (
+                    {PAID_PLANS.map((id) => (
                         <PlanCard
                             key={id}
                             id={id}
@@ -342,32 +278,16 @@ export default function PricingPage() {
                     ))}
                 </div>
 
-                <ul className="pricing-trust">
-                    {TRUST.map((t) => (
-                        <li key={t}><Check size={13} aria-hidden="true" />{t}</li>
-                    ))}
-                </ul>
+                {note && <ErrorState compact title="Checkout" message={note} />}
 
-                {note && (
-                    <ErrorState compact title="Checkout" message={note} style={{ marginTop: 18 }} />
-                )}
+                <div className="pricing-links">
+                    <button type="button" className="link-btn" onClick={() => setSheet('compare')}>Compare all features</button>
+                    <button type="button" className="link-btn" onClick={() => setSheet('coupon')}>Have a code?</button>
+                </div>
 
-                <form onSubmit={(e) => { e.preventDefault(); redeemPlanCoupon() }} className="pricing-coupon">
-                    <label htmlFor="plan-coupon" className="sys-sr">Coupon code</label>
-                    <input id="plan-coupon" className="input-field" placeholder="Coupon code" maxLength={40} value={couponCode}
-                        onChange={(e) => { setCouponCode(e.target.value); setCouponMsg(null) }}
-                        disabled={couponBusy} />
-                    <Button type="submit" disabled={!couponCode.trim()} busy={couponBusy} busyLabel="Applying…">Apply</Button>
-                    {couponMsg && (
-                        <span role="status" className={`pricing-coupon-msg tone-text tone-${couponMsg.ok ? 'success' : 'danger'}`}>
-                            {couponMsg.text}
-                        </span>
-                    )}
-                </form>
+                {AUTOAPPLY_ENABLED && <AutoApplyRow currentPlan={currentPlan} />}
 
-                {import.meta.env.VITE_AUTOAPPLY === '1' && <AutoApplySection currentPlan={currentPlan} />}
-
-                <section className="pricing-block pricing-faq prose" aria-labelledby="pricing-faq-h">
+                <section className="pricing-faq prose" aria-labelledby="pricing-faq-h">
                     <h2 id="pricing-faq-h" className="pricing-h2">Questions</h2>
                     {[...FAQ_BASE, PAYMENT_FAQ[currency] || PAYMENT_FAQ.INR].map(([q, a]) => (
                         <details key={q}>
@@ -378,10 +298,41 @@ export default function PricingPage() {
                 </section>
 
                 <p className="pricing-fine">
-                    Prices in {currency === 'USD' ? 'USD' : 'INR'}, processed securely by Razorpay. Every plan is a one-time payment
-                    for the selected term — nothing auto-renews.
+                    Prices in {currency === 'USD' ? 'USD' : 'INR'}. Secure checkout by Razorpay. One payment per term.
                 </p>
-            </main>
+            </PageContainer>
+
+            <Sheet open={sheet === 'compare'} onClose={closeSheet} title="Compare all features" size="full">
+                <div className="pricing-compare">
+                    {PLAN_ORDER.map((id) => (
+                        <section key={id} className={`pricing-compare-plan tone-${toneOf(id)}`} aria-label={`${(PLAN_META[id] || { name: id }).name} plan features`}>
+                            <h3 className="pricing-name tone-text">
+                                {(PLAN_META[id] || { name: id }).name}
+                                <span className="pricing-compare-price">
+                                    {id === 'free' ? (currency === 'USD' ? '$0' : '₹0') : `${money(priceOf(id, 'monthly', currency), currency)}/mo`}
+                                </span>
+                            </h3>
+                            <FeatureChecklist rows={planFeatureRows(id)} />
+                        </section>
+                    ))}
+                </div>
+            </Sheet>
+
+            <Sheet open={sheet === 'coupon'} onClose={closeSheet} title="Have a code?" description="Enter your coupon to unlock a plan.">
+                <form onSubmit={(e) => { e.preventDefault(); redeemPlanCoupon() }} className="pricing-coupon">
+                    <label htmlFor="plan-coupon" className="sys-field-label">Coupon code</label>
+                    <input id="plan-coupon" className="input-field" placeholder="e.g. WELCOME" maxLength={40} value={couponCode}
+                        autoComplete="off" autoCapitalize="characters"
+                        onChange={(e) => { setCouponCode(e.target.value); setCouponMsg(null) }}
+                        disabled={couponBusy} />
+                    <Button type="submit" variant="primary" size="lg" block disabled={!couponCode.trim()} busy={couponBusy} busyLabel="Applying…">Apply code</Button>
+                    {couponMsg && (
+                        <p role="status" className={`pricing-coupon-msg tone-text tone-${couponMsg.ok ? 'success' : 'danger'}`}>
+                            {couponMsg.text}
+                        </p>
+                    )}
+                </form>
+            </Sheet>
         </>
     )
 }

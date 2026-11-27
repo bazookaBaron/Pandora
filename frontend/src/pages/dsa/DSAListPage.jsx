@@ -1,26 +1,25 @@
-import { memo, useState, useEffect, useCallback, useRef, createContext, useContext } from 'react'
+import { memo, useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { Lock, Bookmark, CheckCircle2, CircleDot, Shuffle, SlidersHorizontal } from 'lucide-react'
+import { Lock, Bookmark, Shuffle, SlidersHorizontal } from 'lucide-react'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
 import { apiFetch } from '../../lib/apiClient'
 import { consumeInitialData } from '../../lib/initialData'
 import Navbar from '../../components/Navbar'
-import FluidCheckbox from '../../components/shared/FluidCheckbox'
-import DifficultyBadge, { DIFFICULTY_TONE } from '../../components/shared/DifficultyBadge'
 import CompanySelector from '../../components/shared/CompanySelector'
 import CompanyLogo from '../../components/shared/CompanyLogo'
 import Pagination from '../../components/shared/Pagination'
-import { useMediaQuery } from '../../lib/useMediaQuery'
 import { LockedSlice } from '../../components/shared/PaywallGate'
 import { ErrorState, EmptyState } from '../../components/shared/states'
-import { StatTile, StatTiles, Segmented, SearchInput, Button } from '../../components/ui'
+import { PageContainer } from '../../components/shared/Layout'
+import { SearchInput, Button, PageHeader, Progress, Sheet, HelpChip, NextStep } from '../../components/ui'
+import { CheckRow, ChipSelect, difficultyChip } from '../../components/interview/PrepList'
 import { track, EVENTS } from '../../lib/analytics'
+import { track as trackUi, TRACK } from '../../lib/track'
+import { TERMS } from '../../lib/copy'
 
-const DIFFICULTIES = ['Easy', 'Medium', 'Hard']
-// Server sorts: 'id' (default table order), 'alpha', 'difficulty'. The old
-// client-only 'shuffle' is gone — the server has no equivalent.
+// Server sorts: 'id' (default table order), 'alpha', 'difficulty'.
 const SORT_OPTIONS = [
     { value: 'id', label: 'Default' },
     { value: 'alpha', label: 'A–Z' },
@@ -28,67 +27,20 @@ const SORT_OPTIONS = [
 ]
 const STATUS_OPTIONS = [
     { value: '', label: 'All' },
-    { value: 'solved', label: 'Solved', tone: 'success' },
-    { value: 'attempted', label: 'Attempted', tone: 'waiting' },
+    { value: 'solved', label: 'Solved' },
+    { value: 'attempted', label: 'Attempted' },
     { value: 'unsolved', label: 'To do' },
-    { value: 'bookmarked', label: 'Saved', tone: 'waiting' },
+    { value: 'bookmarked', label: 'Saved' },
 ]
 
-// Clicking a company logo on a row toggles that company in the current filter (no navigation)
-const CompanyPickContext = createContext(null)
+// Same slug rule the server uses for /dsa/company/:slug (sitemap).
+const slugify = (s = '') => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+const prettyCompany = (s = '') => /[A-Z]/.test(s) ? s : s.split(/[-\s]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join(' ')
 
-function CompanyBadges({ companies = [], isMobile = false }) {
-    const pick = useContext(CompanyPickContext)
-    const [expanded, setExpanded] = useState(false)
-    if (!companies.length) return <span className="pr-logos" />
-
-    const limit = isMobile ? 3 : 6
-    const overflow = companies.length - limit
-    const shown = expanded ? companies : companies.slice(0, limit)
-
-    return (
-        <div className={`pr-logos${expanded ? ' is-open' : ''}`}>
-            {shown.map(c => {
-                const on = pick?.selected.includes(c)
-                return (
-                    <button key={c} type="button" title={on ? `Remove ${c} from filter` : `Filter by ${c}`}
-                        aria-label={on ? `Remove ${c} from filter` : `Filter by ${c}`}
-                        className={`pr-logo-btn${pick && pick.selected.length && !on ? ' is-dim' : ''}`}
-                        onClick={e => { e.preventDefault(); e.stopPropagation(); pick?.toggle(c) }}>
-                        <CompanyLogo company={c} />
-                    </button>
-                )
-            })}
-            {overflow > 0 && (
-                <button
-                    type="button"
-                    className="pr-more-btn"
-                    onClick={e => { e.stopPropagation(); setExpanded(v => !v) }}
-                    title={expanded ? 'Show fewer' : `Show ${overflow} more`}
-                    aria-expanded={expanded}
-                >
-                    {expanded ? '− less' : `+${overflow}`}
-                </button>
-            )}
-        </div>
-    )
-}
-
-// Placeholder for a company-matched question hidden behind Premium (task 2).
-// No title / tags / metadata — only a lock. Roughly matches ProblemRow size.
-function LockedQuestionCard({ onClick }) {
-    return (
-        <button type="button" className="pr-lock-row" onClick={onClick} title="Upgrade to unlock this question">
-            <Lock size={14} aria-hidden="true" />
-            <span>Premium question</span>
-        </button>
-    )
-}
-
-// Memoised: props are stable per row (useProgress's toggles are stable
-// callbacks and untouched rows keep their object identity), so a toggle
-// re-renders only the row that changed.
-const ProblemRow = memo(function ProblemRow({ p, prog, isMobile, onToggleStatus, onToggleBookmark }) {
+// One line: solved checkbox (44px hit) · title · difficulty dot · chevron.
+// The bookmark sits outside the link and shows from 768px (keeps "Saved" working).
+// Memoised: a toggle re-renders only the row that changed.
+const ProblemRow = memo(function ProblemRow({ p, prog, onToggleStatus, onToggleBookmark }) {
     const isSolved = prog?.status === 'solved'
     const isBookmarked = !!prog?.is_bookmarked
 
@@ -100,34 +52,43 @@ const ProblemRow = memo(function ProblemRow({ p, prog, isMobile, onToggleStatus,
         onToggleStatus(p.id, prog?.status ?? 'unsolved')
     }
 
-    // Left border = difficulty tone (the only difficulty cue on phones).
-    const tone = DIFFICULTY_TONE[p.difficulty]
     return (
-        <div className={`pr-row pr-grid${tone ? ` tone-${tone}` : ''}${isSolved ? ' is-done' : ''}`} role="listitem">
-            <FluidCheckbox checked={isSolved} onChange={handleToggleStatus} />
-            <div className="pr-row-title">
-                <a href={p.link} target="_blank" rel="noopener noreferrer" className="pr-title"
-                    onClick={() => track(EVENTS.QUESTION_STARTED, { type: 'dsa', problem_id: p.id, difficulty: p.difficulty })}>
-                    {p.title}
-                </a>
-                <button type="button" className="pr-bookmark" onClick={() => onToggleBookmark(p.id)}
+        <CheckRow
+            checked={isSolved}
+            onToggle={handleToggleStatus}
+            checkLabel={isSolved ? `Mark ${p.title} as not solved` : `Mark ${p.title} as solved`}
+            title={p.title}
+            difficulty={p.difficulty}
+            href={p.link}
+            target="_blank"
+            aria-label={`${p.title}, ${p.difficulty || 'no level'}, opens LeetCode`}
+            onClick={() => track(EVENTS.QUESTION_STARTED, { type: 'dsa', problem_id: p.id, difficulty: p.difficulty })}
+            extra={
+                <button type="button" className="pr-bookmark pr-desk" onClick={() => onToggleBookmark(p.id)}
                     aria-pressed={isBookmarked} aria-label={isBookmarked ? `Remove bookmark: ${p.title}` : `Bookmark ${p.title}`}
                     title="Bookmark">
-                    <Bookmark size={12} fill={isBookmarked ? 'currentColor' : 'none'} aria-hidden="true" />
+                    <Bookmark size={14} fill={isBookmarked ? 'currentColor' : 'none'} aria-hidden="true" />
                 </button>
-            </div>
-            <DifficultyBadge difficulty={p.difficulty} />
-            <CompanyBadges companies={p.company || []} isMobile={isMobile} />
-        </div>
+            }
+        />
     )
 })
 
+// Placeholder for a company-matched question hidden behind Premium.
+// No title / tags / metadata — only a lock.
+function LockedQuestionCard({ onClick }) {
+    return (
+        <button type="button" className="pr-lock-row" onClick={onClick} title="Upgrade to unlock this question">
+            <Lock size={14} aria-hidden="true" />
+            <span>Premium question</span>
+        </button>
+    )
+}
 
 export default function DSAListPage({ filterCompany }) {
     const [searchParams, setSearchParams] = useSearchParams()
     const { user } = useAuth()
     const navigate = useNavigate()
-    const isMobile = useMediaQuery('(max-width: 767px)')
 
     // Read filters from URL params. `q` is written on a 300ms debounce below, so
     // reading it back here gives us the debounced search term for the query key.
@@ -139,7 +100,7 @@ export default function DSAListPage({ filterCompany }) {
     const difficulties = searchParams.get('difficulty') ? searchParams.get('difficulty').split(',') : []
     const sort = searchParams.get('sort') || 'id'
     const statusFilter = searchParams.get('status') || ''
-    const [showMoreFilters, setShowMoreFilters] = useState(false)
+    const [filtersOpen, setFiltersOpen] = useState(false)
     const [searchInput, setSearchInput] = useState(search)
     const companyKey = companies.join(',')
     const difficultyKey = difficulties.join(',')
@@ -293,214 +254,169 @@ export default function DSAListPage({ filterCompany }) {
         }
     }
 
-    const companyPick = {
-        selected: companies,
-        toggle: (c) => updateParam('company', companies.includes(c) ? companies.filter(x => x !== c) : [...companies, c]),
-    }
 
+    const setDifficulty = (v) => updateParam('difficulty', v ? [v] : [])
+    const diffChip = difficultyChip(difficulties)
+    const sheetCount = (search ? 1 : 0) + (statusFilter ? 1 : 0) + (sort !== 'id' ? 1 : 0)
 
-    const progRows = Object.values(progressMap)
-    const attemptedCount = progRows.filter(r => r.status === 'attempted').length
-    const bookmarkedCount = progRows.filter(r => r.is_bookmarked).length
-    const toggleStatusFilter = (s) => updateParam('status', statusFilter === s ? '' : s)
+    // Company page: proper display name from the rows (slug "google" -> "Google").
+    const company = filterCompany
+        ? (items.flatMap(p => p.company || []).find(c => slugify(c) === slugify(filterCompany)) || prettyCompany(filterCompany))
+        : ''
+    const progress = user && total > 0
+        ? <Progress value={solved} max={total} tone="success" thin text={`${solved}/${total} solved`} label="DSA questions solved" />
+        : null
 
     return (
-        <CompanyPickContext.Provider value={companyPick}>
-            {/* the company wrapper (DSACompanyPage) renders its own Navbar */}
-            {!filterCompany && <Navbar />}
-            <div className="has-tilebar" style={{ minHeight: '100vh' }}>
-                <div className="pr-page">
+        <>
+            <Navbar />
+            <PageContainer width="sm" className="pr-list">
+                {filterCompany ? (
+                    <PageHeader
+                        section="prepare"
+                        back={{ to: '/dsa', label: 'All DSA' }}
+                        title={company}
+                        subtitle={`DSA questions asked at ${company}`}
+                        aside={<CompanyLogo company={company} />}
+                    >{progress}</PageHeader>
+                ) : (
+                    <PageHeader
+                        section="prepare"
+                        back={{ to: '/prepare', label: 'Prepare' }}
+                        title={`${TERMS.dsa.one} questions`}
+                        subtitle="Coding questions, sorted by company"
+                        aside={<HelpChip term="dsa" />}
+                    >{progress}</PageHeader>
+                )}
 
-                    {/* Header */}
-                    <div className="pr-head">
-                        <div>
-                            <h1 className="pg-title">DSA Problems</h1>
-                            <p className="pg-subtitle">LeetCode, company-wise · {total} problems</p>
-                        </div>
-                        <div className="pr-head-actions">
-                            <Button variant="ghost" icon={Shuffle} onClick={pickRandom} title="Open a random unsolved problem">Random</Button>
-                        </div>
+                {/* One row: company search · Difficulty chip · more filters (sheet) */}
+                <div data-tour="dsa-list" className="pr-bar">
+                    <div className="pr-bar-main">
+                        <CompanySelector selected={companies} onChange={v => updateParam('company', v)} />
                     </div>
+                    <ChipSelect label="Difficulty" value={diffChip.value} options={diffChip.options}
+                        active={difficulties.length > 0} onChange={setDifficulty} />
+                    <button type="button" className={`pr-chip pr-chip-btn${sheetCount ? ' is-on' : ''}`}
+                        onClick={() => setFiltersOpen(true)} aria-haspopup="dialog"
+                        aria-label={sheetCount ? `More filters, ${sheetCount} on` : 'More filters'}>
+                        <SlidersHorizontal size={16} aria-hidden="true" />
+                        {sheetCount > 0 && <span className="pr-chip-count">{sheetCount}</span>}
+                    </button>
+                </div>
 
-                    {/* Progress: tiles double as status filters */}
-                    <StatTiles cols={3} className="pr-tiles">
-                        <StatTile icon={CheckCircle2} label="Solved" value={solved} total={total} tone="success" onClick={() => toggleStatusFilter('solved')} />
-                        <StatTile icon={CircleDot} label="Attempted" value={attemptedCount} tone="waiting" onClick={() => toggleStatusFilter('attempted')} />
-                        <StatTile icon={Bookmark} label="Saved" value={bookmarkedCount} tone="active" onClick={() => toggleStatusFilter('bookmarked')} />
-                    </StatTiles>
-
-                    {/* Difficulty breakdown — over the rows currently in view */}
-                    {items.length > 0 && (
-                        <div className="pr-breakdown">
-                            {DIFFICULTIES.map(d => {
-                                const dTotal = items.filter(p => p.difficulty === d).length
-                                const done = items.filter(p => p.difficulty === d && progressMap[p.id]?.status === 'solved').length
-                                return (
-                                    <span key={d}>
-                                        <DifficultyBadge difficulty={d} />
-                                        {done}/{dTotal}
-                                    </span>
-                                )
-                            })}
-                        </div>
-                    )}
-
-                    {/* --- Filter bar --- */}
-                    <div data-tour="dsa-list" className="pr-filters">
+                <Sheet
+                    open={filtersOpen}
+                    onClose={() => setFiltersOpen(false)}
+                    title="Filters"
+                    footer={<button type="button" className="sys-tone-btn is-block pr-tone" onClick={() => setFiltersOpen(false)}>Show questions</button>}
+                >
+                    <div className="pr-sheet">
                         <SearchInput
                             id="dsa-search"
-                            label="Search DSA problems"
+                            label="Search by title or topic"
                             value={searchInput}
                             onChange={updateSearch}
-                            placeholder={isMobile ? 'Search problems…' : 'Search title or topics… ( / )'}
+                            placeholder="Title or topic, e.g. graphs"
                         />
-
-                        {/* Difficulty toggles (multi-select) */}
-                        <div className="pr-toggles" role="group" aria-label="Difficulty">
-                            {DIFFICULTIES.map(d => {
-                                const active = difficulties.includes(d)
-                                return (
-                                    <button key={d} type="button" aria-pressed={active}
-                                        className={`pr-toggle tone-${DIFFICULTY_TONE[d]}`}
-                                        onClick={() => {
-                                            const next = active ? difficulties.filter(x => x !== d) : [...difficulties, d]
-                                            updateParam('difficulty', next)
-                                        }}>{d}</button>
-                                )
-                            })}
-                        </div>
-
-                        <CompanySelector
-                            selected={companies}
-                            onChange={v => updateParam('company', v)}
-                        />
-
-                        <select
-                            className="sys-select"
-                            aria-label="Sort problems"
-                            value={sort}
-                            onChange={e => updateParam('sort', e.target.value)}
-                        >
-                            {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-
-                        <Button
-                            variant={showMoreFilters || statusActive ? 'primary' : 'secondary'}
-                            icon={SlidersHorizontal}
-                            iconOnly
-                            aria-label={showMoreFilters ? 'Hide status filter' : 'Show status filter'}
-                            aria-expanded={showMoreFilters}
-                            aria-controls="dsa-more-filters"
-                            title="Status filter"
-                            onClick={() => setShowMoreFilters(v => !v)}
-                        />
+                        <fieldset className="pr-fs">
+                            <legend className="pr-fs-label">Status</legend>
+                            <div className="pr-toggles is-wrap">
+                                {STATUS_OPTIONS.map(o => (
+                                    <button key={o.value || 'all'} type="button" className="pr-toggle" aria-pressed={statusFilter === o.value}
+                                        onClick={() => updateParam('status', o.value)}>{o.label}</button>
+                                ))}
+                            </div>
+                        </fieldset>
+                        <label className="pr-fs">
+                            <span className="pr-fs-label">Sort</span>
+                            <select className="sys-select" value={sort} onChange={e => updateParam('sort', e.target.value)}>
+                                {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                        </label>
+                        <Button variant="secondary" icon={Shuffle} block onClick={() => {
+                            trackUi(TRACK.CTA_CLICK, { id: 'dsa_random', section: 'prepare' })
+                            setFiltersOpen(false)
+                            pickRandom()
+                        }}>Open a random question</Button>
                     </div>
+                </Sheet>
 
-                    {/* More filters */}
-                    {(showMoreFilters || statusActive) && (
-                        <div id="dsa-more-filters" className="pr-more">
-                            <Segmented
-                                label="Status"
-                                value={statusFilter}
-                                onChange={s => updateParam('status', s)}
-                                options={STATUS_OPTIONS}
-                            />
-                        </div>
-                    )}
-
-                    {isLoading ? (
-                        <div className="pr-table" role="status" aria-label="Loading problems">
-                            {Array.from({ length: 12 }).map((_, i) => (
-                                <div key={i} className="pr-skel">
-                                    <i style={{ width: 18, height: 18 }} />
-                                    <i style={{ flex: 1 }} />
-                                    <i style={{ width: 60 }} />
-                                </div>
+                {isLoading ? (
+                    <ul className="sys-rows" role="status" aria-label="Loading questions">
+                        {Array.from({ length: 10 }).map((_, i) => (
+                            <li key={i} className="pr-skel"><i style={{ width: 20, height: 20 }} /><i style={{ flex: 1 }} /></li>
+                        ))}
+                    </ul>
+                ) : isError ? (
+                    <ErrorState title="Could not load DSA questions." err={error} onRetry={() => refetch()} />
+                ) : viewItems.length === 0 ? (
+                    <EmptyState
+                        art="code"
+                        tone="active"
+                        title="No questions match."
+                        action={<Button onClick={() => { setSearchInput(''); setSearchParams({}) }}>Clear filters</Button>}
+                    />
+                ) : (
+                    <>
+                        <ul className={`sys-rows pr-rows${isFetching ? ' is-fetching' : ''}`} aria-label="DSA questions" aria-busy={isFetching || undefined}>
+                            {viewItems.map(p => (
+                                <ProblemRow
+                                    key={p.id}
+                                    p={p}
+                                    prog={progressMap[p.id]}
+                                    onToggleStatus={toggleStatus}
+                                    onToggleBookmark={toggleBookmark}
+                                />
                             ))}
-                        </div>
-                    ) : isError ? (
-                        <ErrorState
-                            title="Could not load DSA problems."
-                            err={error}
-                            onRetry={() => refetch()}
-                        />
-                    ) : viewItems.length === 0 ? (
-                        <EmptyState
-                            art="code"
-                            tone="active"
-                            title="No problems match your filters."
-                            action={<Button onClick={() => setSearchParams({})}>Clear filters</Button>}
-                        />
-                    ) : (
-                        <>
-                            <div className={`pr-table${isFetching ? ' is-fetching' : ''}`} aria-busy={isFetching || undefined}>
-                                {/* Table header */}
-                                {!isMobile && (
-                                    <div className="pr-thead pr-grid" aria-hidden="true">
-                                        <span></span>
-                                        <span>Problem</span>
-                                        <span>Difficulty</span>
-                                        <span>Companies</span>
-                                    </div>
-                                )}
-                                <div role="list" aria-label="DSA problems">
-                                    {viewItems.map(p => (
-                                        <ProblemRow
-                                            key={p.id}
-                                            p={p}
-                                            prog={progressMap[p.id]}
-                                            isMobile={isMobile}
-                                            onToggleStatus={toggleStatus}
-                                            onToggleBookmark={toggleBookmark}
-                                        />
+                        </ul>
+
+                        {companyLock && lockedCount > 0 && (
+                            <>
+                                <div className="sys-locked pr-lock-note">
+                                    <Lock size={14} className="sys-locked-icon" aria-hidden="true" />
+                                    <span className="sys-locked-title"><strong>{lockedCount}</strong> more with Premium</span>
+                                    <Link to="/pricing" className="sys-locked-cta"
+                                        onClick={() => trackUi(TRACK.CTA_CLICK, { id: 'dsa_upgrade', section: 'prepare' })}>Upgrade</Link>
+                                </div>
+                                <div className="pr-lock-list" style={{ opacity: isFetching ? 0.6 : 1 }}>
+                                    {/* one placeholder per hidden question; capped so a company
+                                        with hundreds of matches doesn't blow up the DOM. */}
+                                    {Array.from({ length: Math.min(lockedCount, 100) }).map((_, i) => (
+                                        <LockedQuestionCard key={`lock-${i}`} onClick={() => navigate('/pricing')} />
                                     ))}
                                 </div>
-                            </div>
+                            </>
+                        )}
 
-                            {companyLock && lockedCount > 0 && (
-                                <>
-                                    <div className="sys-locked pr-lock-note">
-                                        <Lock size={14} className="sys-locked-icon" aria-hidden="true" />
-                                        <span className="sys-locked-title"><strong>{lockedCount}</strong> more with Premium</span>
-                                        <Link to="/pricing" className="sys-locked-cta">Upgrade</Link>
-                                    </div>
-                                    <div className="pr-lock-list" style={{ opacity: isFetching ? 0.6 : 1 }}>
-                                        {/* one placeholder per hidden question; capped so a company
-                                            with hundreds of matches doesn't blow up the DOM. */}
-                                        {Array.from({ length: Math.min(lockedCount, 100) }).map((_, i) => (
-                                            <LockedQuestionCard key={`lock-${i}`} onClick={() => navigate('/pricing')} />
-                                        ))}
-                                    </div>
-                                </>
-                            )}
+                        {!companyLock && locked > 0 && (
+                            <LockedSlice count={locked} noun="DSA problems" variant="row" />
+                        )}
 
-                            {!companyLock && locked > 0 && (
-                                <LockedSlice count={locked} noun="DSA problems" variant="row" />
-                            )}
+                        {pageCount > 1 && (
+                            <Pagination page={currentPage} totalPages={pageCount} accent="var(--green)" label="DSA pages"
+                                onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
+                        )}
+                    </>
+                )}
 
-                            {pageCount > 1 && (
-                                <Pagination page={currentPage} totalPages={pageCount} accent="var(--sys-active)" label="DSA pages"
-                                    onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
-                            )}
-                        </>
-                    )}
+                {!isLoading && !isError && !unlimited && (
+                    <p className="pr-foot" aria-live="polite">
+                        Showing {items.length} of {total} · <Link to="/pricing"
+                            onClick={() => trackUi(TRACK.CTA_CLICK, { id: 'dsa_see_all', section: 'prepare' })}>Get all questions</Link>
+                    </p>
+                )}
 
-                    {!isLoading && !isError && (
-                        <div className="pr-foot" aria-live="polite">
-                            {unlimited ? (
-                                <>
-                                    {statusActive ? filteredItems.length : items.length} of {statusActive ? filteredItems.length : filteredCount}
-                                    <span className="pr-kbd-hint"> · Press <kbd>/</kbd> to search</span>
-                                </>
-                            ) : (
-                                <>
-                                    Preview: {items.length} of {total} · <Link to="/pricing">upgrade for all</Link>
-                                </>
-                            )}
-                        </div>
-                    )}
-                </div>
-            </div>
-        </CompanyPickContext.Provider>
+                {/* Prepare -> Jobs bridge. No cheap company -> jobs-hub mapping exists, so this
+                    searches the job list for the company name instead of /jobs/company/:slug. */}
+                {filterCompany && !isLoading && (
+                    <NextStep
+                        id={`dsa-company-jobs-${slugify(filterCompany)}`}
+                        section="jobs"
+                        text={`Want to work at ${company}? See its open jobs.`}
+                        cta={{ label: 'View jobs', to: `/?q=${encodeURIComponent(company)}` }}
+                    />
+                )}
+            </PageContainer>
+        </>
     )
 }

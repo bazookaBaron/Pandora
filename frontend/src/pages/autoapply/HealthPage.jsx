@@ -1,6 +1,7 @@
 import { EmptyState, ErrorState, LoadingState } from '../../components/shared/states'
 import { useAdminHealth, useAutoApplyMe } from '../../lib/useAutoApply'
-import { AALayout, PageHeader, fmtAgo, fmtDate } from './ui'
+import { PageHeader } from '../../components/ui'
+import { AALayout, fmtAgo, fmtDate } from './ui'
 
 const LEVEL = {
     error: ['Error', 't-red'],
@@ -72,7 +73,7 @@ export default function HealthPage() {
 
     return (
         <AALayout>
-            <PageHeader eyebrow="Admin" title="AutoApply health" lead="Heartbeats from discovery, the scheduler and every worker." />
+            <PageHeader section="autoapply" title="Auto Apply health" subtitle="Heartbeats from every worker." back={{ to: '/autoapply', label: 'Auto Apply' }} />
             {body}
         </AALayout>
     )

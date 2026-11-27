@@ -21,11 +21,16 @@
 
 .ny-multi { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .ny-check { display: inline-flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--accent); cursor: pointer; }
-.ny-check input { accent-color: var(--pop); width: 15px; height: 15px; }
+.ny-check input { accent-color: var(--pop); width: 18px; height: 18px; }
+.ny-check { min-height: var(--tap); font-size: var(--fs-body); }
+.ny-big { padding: 4px 0; font-weight: var(--fw-strong); color: var(--bright); }
+.ny-label { font-size: var(--fs-body) !important; }
+.ny-field .input-field { min-height: var(--tap); font-size: var(--fs-body); }
+.ny-seg-opt { min-height: var(--tap); font-size: var(--fs-small); }
 
 .ny-jobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.ny-job { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.8rem; color: var(--accent); min-width: 0; }
-.ny-link { display: inline-flex; align-items: center; gap: 3px; color: var(--pop); font-size: 0.72rem; font-weight: 700; text-decoration: none; }
+.ny-job { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-body); color: var(--accent); min-width: 0; }
+.ny-link { display: inline-flex; align-items: center; justify-content: center; min-width: var(--tap); min-height: var(--tap); gap: 3px; color: var(--pop); font-size: 0.72rem; font-weight: 700; text-decoration: none; }
 .ny-link:hover { text-decoration: underline; }
 .ny-job-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--subtle); }
 .ny-job-row:last-child { border-bottom: 0; }
@@ -35,7 +40,7 @@
 .ny-site + .ny-site { margin-top: 8px; }
 .ny-site-name { font-size: 0.7rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 4px; }
 
-.ny-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; bottom: 0; padding: 12px 0; background: var(--surface); }
+.ny-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; bottom: var(--bnav-h); z-index: 20; padding: 12px 0; background: var(--surface); }
 
 .ny-job-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

@@ -1,33 +1,32 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Inbox, ListChecks, Send } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import Navbar from '../../components/Navbar'
-import { PageContainer, PageHeader } from '../../components/shared/Layout'
+import { PageContainer } from '../../components/shared/Layout'
 import { useAuth } from '../../contexts/AuthContext'
 import { useEntitlements } from '../../lib/useEntitlements'
 import { LoadingState } from '../../components/shared/states'
-import { Button, EmptyArt, Tabs, TabPanel } from '../../components/ui'
+import { EmptyArt, PageHeader, SmallTabs, StatusBanner, TabPanel } from '../../components/ui'
+import { getSection } from '../../lib/sections'
+import { CTA } from '../../lib/copy'
 import PostTab from './PostTab'
 import OpenTab from './OpenTab'
 import MineTab from './MineTab'
 
-// ── Page ───────────────────────────────────────────────────────────
+// Referrals (plan §4.5): "Get referred" · Ask · Give · Mine.
 const TABS = [
-    { value: 'open', label: 'For my company', icon: Inbox },
-    { value: 'post', label: 'Post request', icon: Send },
-    { value: 'mine', label: 'My requests', icon: ListChecks },
+    { value: 'post', label: 'Ask' },
+    { value: 'open', label: 'Give' },
+    { value: 'mine', label: 'Mine' },
 ]
+const TONE = getSection('referrals').tone
 
-// Signed-out visitors can see what the referral board is, but every tab is
-// user-specific — so we show one sign-in prompt instead of the tabs.
+// Every tab is user-specific, so signed-out visitors get one sign-in prompt.
 function SignedOutReferrals() {
     return (
-        <div className="sys-card ref-signedout">
-            <EmptyArt kind="referrals" tone="active" size={48} />
-            <p className="lead">
-                Ask members at a company you&rsquo;re targeting to refer you, or refer candidates to yours.
-            </p>
-            <p className="note">Posting a request is a Pro feature.</p>
-            <Button variant="upgrade" size="lg" to="/auth">Sign in</Button>
+        <div className="rf-empty" style={{ '--tone': TONE }}>
+            <EmptyArt kind="referrals" tone="active" size={56} />
+            <p className="rf-empty-text">Sign in to ask for referrals</p>
+            <Link to="/auth" className="sys-tone-btn">{CTA.signIn}</Link>
         </div>
     )
 }
@@ -35,7 +34,7 @@ function SignedOutReferrals() {
 export default function ReferralsPage() {
     const { user } = useAuth()
     const { limits, isLoading: entLoading } = useEntitlements()
-    const [tab, setTab] = useState('open')
+    const [tab, setTab] = useState('post')
     const [notice, setNotice] = useState('')
 
     useEffect(() => {
@@ -45,48 +44,40 @@ export default function ReferralsPage() {
     }, [notice])
 
     const onPosted = () => {
-        setNotice('Request posted — matching employees have been notified.')
+        setNotice('Request sent. Matching employees were told.')
         setTab('mine')
     }
 
     return (
         <>
             <Navbar />
-            <PageContainer>
-                <PageHeader
-                    title="Referrals"
-                    subtitle="Get referred by verified employees, or refer candidates to your company."
-                />
+            <PageContainer width="sm" className="rf-page">
+                <PageHeader section="referrals" />
 
-                <div aria-live="polite" style={notice ? undefined : { display: 'contents' }}>
-                    {notice && (
-                        <p className="sys-note is-ok has-icon" role="status" style={{ margin: 0 }}>
-                            <CheckCircle2 size={15} aria-hidden="true" />
-                            <span>{notice}</span>
-                        </p>
-                    )}
+                <div aria-live="polite" className="rf-live">
+                    {notice && <StatusBanner tone="ok" text={notice} onDismiss={() => setNotice('')} />}
                 </div>
 
                 {!user ? (
                     <SignedOutReferrals />
                 ) : (
                     <>
-                        <Tabs
+                        <SmallTabs
                             idPrefix="ref"
-                            label="Referral views"
+                            label="Referrals"
+                            section="referrals"
                             value={tab}
                             onChange={setTab}
                             items={TABS}
                             data-tour="referrals-tabs"
-                            style={{ alignSelf: 'flex-start' }}
                         />
 
-                        <div style={{ minWidth: 0 }}>
-                            <TabPanel idPrefix="ref" value="open" active={tab === 'open'}><OpenTab /></TabPanel>
+                        <div className="rf-panels">
                             <TabPanel idPrefix="ref" value="post" active={tab === 'post'}>
                                 {entLoading ? <LoadingState /> : <PostTab limits={limits} onPosted={onPosted} />}
                             </TabPanel>
-                            <TabPanel idPrefix="ref" value="mine" active={tab === 'mine'}><MineTab /></TabPanel>
+                            <TabPanel idPrefix="ref" value="open" active={tab === 'open'}><OpenTab /></TabPanel>
+                            <TabPanel idPrefix="ref" value="mine" active={tab === 'mine'}><MineTab onAsk={() => setTab('post')} /></TabPanel>
                         </div>
                     </>
                 )}

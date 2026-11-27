@@ -1,16 +1,20 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { CheckCircle2, Clock, ExternalLink, FileCheck2, Hand, ListChecks, Loader, Mail, MinusCircle, Star } from 'lucide-react'
+import { ExternalLink, FileCheck2, Loader, Mail, Settings2 } from 'lucide-react'
 import { safeHref } from './InterviewCard'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
+import { HelpChip, PageHeader, Progress, Row, Sheet, SmallTabs, StatusBanner, TabPanel } from '../../components/ui'
+import { CTA, TERMS } from '../../lib/copy'
 import { fetchTaskProof, useAutoApplyRealtime, useBatch, useBatchAction, useCompanySuggest, useSetMustCompanies } from '../../lib/useAutoApply'
 import {
-    AALayout, BatchStatusPill, EmptyArt, InlineConfirm, MustCompaniesInput, PACK_KINDS, PageHeader, ProfileMissing, Progress, SectionHead,
-    batchTone, fmtDate, num, rupees,
+    AALayout, BatchStatusPill, EmptyArt, InlineConfirm, MustCompaniesInput, fmtDate, num, packTitle, reasonText, rupees, setupLinkFor,
 } from './ui'
 
-// Ticks every second on its own, so only this <strong> re-renders, not the
-// whole page (and its task table).
+// Pack detail: progress bar, then Applied · Answers needed · Skipped as small tabs of one-line rows.
+// A row opens a sheet with the details (company, role, time, proof link, the reason in plain words).
+// Pause / resume / approve and must-apply companies live in the "Manage pack" sheet.
+
+// Ticks every second on its own, so only this text re-renders, not the whole page.
 function Countdown({ iso, fallback }) {
     const text = useCountdown(iso)
     return <>{text || fallback}</>
@@ -43,13 +47,12 @@ function useCountdown(iso) {
     if (ms <= 0) return 'any moment now'
     const h = Math.floor(ms / 3600000)
     const m = Math.floor((ms % 3600000) / 60000)
-    const s = Math.floor((ms % 60000) / 1000)
-    return `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`
+    return `${h}h ${String(m).padStart(2, '0')}m`
 }
 
 const CONFIRM_COPY = {
-    pause: ['Pause this batch? Nothing new is submitted until you resume. Credits are kept.', 'Pause', 'neutral'],
-    resume: ['Resume applying for this batch?', 'Resume', 'neutral'],
+    pause: ['Pause this pack? Nothing new is sent until you resume. Unused applications stay saved.', 'Pause', 'neutral'],
+    resume: ['Resume applying for this pack?', 'Resume', 'neutral'],
     approve: ['Start applying now instead of waiting for the review window to end?', 'Approve now', 'neutral'],
 }
 
@@ -63,7 +66,7 @@ function Controls({ batch }) {
         approve: s === 'review',
         pause: ['shortlisting', 'review', 'running', 'waiting_supply', 'waiting_profile', 'paid'].includes(s),
         resume: s === 'paused',
-        cancel: false, // no-refund policy: a paid batch is paused, never cancelled (admin-only refunds)
+        cancel: false, // no-refund policy: a paid pack is paused, never cancelled (admin-only refunds)
     }
     if (!Object.values(can).some(Boolean)) return null
 
@@ -91,7 +94,6 @@ function Controls({ batch }) {
                     {can.approve && <button type="button" className="aa-btn is-primary" disabled={action.isPending} onClick={() => setPending('approve')}>Approve now</button>}
                     {can.pause && <button type="button" className="aa-btn" disabled={action.isPending} onClick={() => setPending('pause')}>Pause</button>}
                     {can.resume && <button type="button" className="aa-btn is-primary" disabled={action.isPending} onClick={() => setPending('resume')}>Resume</button>}
-                    {can.cancel && <button type="button" className="aa-btn is-danger" disabled={action.isPending} onClick={() => setPending('cancel')}>Cancel batch</button>}
                 </div>
             )}
             {err && <ErrorState compact message={errorText(err)} />}
@@ -117,13 +119,12 @@ function ProofButton({ batchId, task }) {
             setBusy(false)
         }
     }
-    const label = `View proof of the ${task.company} application`
     return (
         <>
-            <button type="button" className="aa-btn aa-icon-btn" onClick={open} disabled={busy} aria-label={label} title={err || 'Proof'}>
-                {busy ? <Loader size={13} aria-hidden="true" /> : <FileCheck2 size={13} aria-hidden="true" />}
+            <button type="button" className="aa-btn aa-sheet-btn" onClick={open} disabled={busy} aria-label={`View proof of the ${task.company} application`}>
+                {busy ? <Loader size={16} aria-hidden="true" /> : <FileCheck2 size={16} aria-hidden="true" />} See proof
             </button>
-            {err && <span className="aa-sr" role="alert">{err}</span>}
+            {err && <p className="buy-err" role="alert">{err}</p>}
         </>
     )
 }
@@ -138,11 +139,13 @@ function MustCompaniesEditor({ batch }) {
     const editable = ['paid', 'shortlisting', 'review', 'running', 'paused', 'waiting_supply', 'waiting_profile'].includes(batch.status)
     if (!current.length && !editable) return null
     return (
-        <section className="aa-card aa-seg tone-active" aria-labelledby="must-h">
-            <SectionHead id="must-h" icon={Star} tone="active" title="Must-apply companies" count={current.length || null}
-                action={editable && !editing && <button type="button" className="aa-btn" onClick={() => { setDraft(current); setEditing(true) }}>{current.length ? 'Edit' : 'Add'}</button>} />
+        <section className="aa-stack" aria-labelledby="must-h" style={{ gap: 8 }}>
+            <div className="aa-spread">
+                <h3 id="must-h" className="aa-h">Must-apply companies</h3>
+                {editable && !editing && <button type="button" className="aa-btn" onClick={() => { setDraft(current); setEditing(true) }}>{current.length ? 'Edit' : 'Add'}</button>}
+            </div>
             {editing ? (
-                <div className="aa-stack" style={{ marginTop: 10 }}>
+                <div className="aa-stack">
                     <MustCompaniesInput idPrefix="batch-must" value={draft} onChange={setDraft} query={query} onQuery={setQuery} suggestions={suggest.data?.companies || []} disabled={save.isPending} />
                     <div className="aa-row">
                         <button type="button" className="aa-btn is-primary" disabled={save.isPending}
@@ -153,52 +156,28 @@ function MustCompaniesEditor({ batch }) {
                     </div>
                 </div>
             ) : current.length ? (
-                <div className="aa-chips" style={{ marginTop: 10 }}>{current.map((c) => <span key={c} className="aa-chip">{c}</span>)}</div>
+                <div className="aa-chips">{current.map((c) => <span key={c} className="aa-chip">{c}</span>)}</div>
             ) : (
-                <p className="aa-faint" style={{ margin: '8px 0 0' }}>None. Add up to 10 to apply to first.</p>
+                <p className="aa-faint" style={{ margin: 0 }}>None. Add up to 10 to apply to first.</p>
             )}
         </section>
     )
 }
 
-// Only what the user acts on or keeps: applied jobs (with proof / confirmation) and jobs that need them.
-// Skipped, removed, cancelled and unmatched jobs are counted ("Not applied") but never listed.
-// One compact line per job (two on phones): company · title · date · icon actions.
+const SKIPPED = ['skipped', 'failed', 'removed', 'cancelled']
+
+// One compact line per job: "Company · Role" and a date (or the reason, on Skipped). Tap opens the sheet.
 // Memoised: the page re-renders on every realtime/poll update; the list only needs to when its tasks change.
-const TaskList = memo(function TaskList({ batchId, tasks, attention = false, empty = null }) {
-    if (!tasks.length) return empty
+const TaskList = memo(function TaskList({ tasks, kind, onOpen }) {
     return (
-        <ul className="aa-tl" aria-label={attention ? 'Jobs that need you' : 'Applied jobs'}>
+        <ul className="aa-tl" aria-label={kind === 'answers' ? 'Jobs that need your answer' : kind === 'skipped' ? 'Skipped jobs' : 'Applied jobs'}>
             {tasks.map((t) => {
-                const when = t.submitted_at || (attention ? t.updated_at : null)
-                const job = safeHref(t.apply_url)
-                const full = `${t.company} · ${t.title}`
+                const when = t.submitted_at || t.updated_at
+                const meta = kind === 'skipped' ? reasonText(t.reason_code) || 'Skipped' : when ? shortDate(when) : ''
                 return (
-                    <li key={t.id} className="aa-tl-row">
-                        <span className="aa-tl-main" title={full}>
-                            <span className="aa-tl-co">{t.company}</span>
-                            <span className="aa-tl-sep" aria-hidden="true"> · </span>
-                            <span className="aa-tl-title">{t.title}</span>
-                        </span>
-                        <span className="aa-tl-when">
-                            {when ? <time dateTime={when} title={`${attention ? 'Since' : 'Submitted'} ${fmtDate(when)}`}>{fmtDate(when, false)}</time> : '—'}
-                        </span>
-                        <span className="aa-tl-acts">
-                            {attention && <Link to="/autoapply/needs-you" className="aa-btn is-warm aa-tl-answer"><Hand size={12} aria-hidden="true" /> Answer</Link>}
-                            {!attention && t.has_proof && <ProofButton batchId={batchId} task={t} />}
-                            {job && (
-                                <a className="aa-btn aa-icon-btn" href={job} target="_blank" rel="noopener noreferrer" aria-label={`Open ${t.company} job posting`} title="Job posting">
-                                    <ExternalLink size={13} aria-hidden="true" />
-                                </a>
-                            )}
-                            {!attention && t.confirmation_mail && (
-                                <Link className="aa-btn aa-icon-btn" to={`/autoapply/inbox?mail=${encodeURIComponent(t.confirmation_mail.id)}`}
-                                    aria-label={`Confirmation mail from ${t.company}: ${t.confirmation_mail.subject || '(no subject)'}`}
-                                    title={`Confirmation mail: ${t.confirmation_mail.subject || '(no subject)'}`}>
-                                    <Mail size={13} aria-hidden="true" />
-                                </Link>
-                            )}
-                        </span>
+                    <li key={t.id}>
+                        <Row title={`${t.company} · ${t.title}`} meta={meta} metaTone={kind === 'answers' ? 'attention' : undefined} onClick={() => onOpen(t)}
+                            aria-label={`${t.company}, ${t.title}${meta ? `, ${meta}` : ''}`} />
                     </li>
                 )
             })}
@@ -206,34 +185,53 @@ const TaskList = memo(function TaskList({ batchId, tasks, attention = false, emp
     )
 })
 
-const FLOW_STEPS = [
-    ['queued', 'Queued', Clock],
-    ['applying', 'Applying', Loader],
-    ['applied', 'Applied', CheckCircle2],
-    ['needs_you', 'Needs you', Hand],
-    ['not_applied', 'Not applied', MinusCircle],
-]
-
-// Queued -> Applying -> Applied, plus the two side outcomes, and one plain sentence about what happens now.
-function LiveFlow({ live }) {
-    const b = live.buckets || {}
-    const busy = live.phase === 'applying' || live.phase === 'starting'
+function TaskSheet({ task, batchId, onClose }) {
+    if (!task) return null
+    const job = safeHref(task.apply_url)
+    const isApplied = task.status === 'applied'
+    const isAnswers = task.status === 'needs_you'
+    const when = task.submitted_at || task.updated_at
     return (
-        <div style={{ marginTop: 12 }}>
-            <ol className="aa-flow" aria-label="Applications by stage">
-                {FLOW_STEPS.map(([k, label, Icon]) => (
-                    <li key={k} className={`aa-flow-step is-${k}${b[k] ? ' has' : ''}`}>
-                        <Icon size={14} aria-hidden="true" />
-                        <span className="aa-flow-n">{num(b[k] || 0)}</span>
-                        <span className="aa-flow-label">{label}</span>
-                    </li>
-                ))}
-            </ol>
-            <p className="aa-flow-msg" role="status" aria-live="polite">
-                {busy && <span className="aa-flow-dot" aria-hidden="true" />}
-                {live.message}
-            </p>
-        </div>
+        <Sheet open={!!task} onClose={onClose} title={task.company} description={task.title}
+            footer={isAnswers ? <Link to="/autoapply/needs-you" className="sys-tone-btn aa-tone">{CTA.answerNow}</Link> : undefined}>
+            <dl className="aa-dl">
+                <div><dt>Status</dt><dd>{isApplied ? 'Applied' : isAnswers ? TERMS.answersNeeded.one : TERMS.skipped.one}</dd></div>
+                {when && <div><dt>{isApplied ? 'Applied on' : 'Updated'}</dt><dd><time dateTime={when}>{fmtDate(when)}</time></dd></div>}
+                {!isApplied && !isAnswers && <div><dt>Why</dt><dd>{reasonText(task.reason_code) || 'We could not apply to this job.'} No credit used.</dd></div>}
+                {isAnswers && <div><dt>Why</dt><dd>The form asked something we do not know yet.</dd></div>}
+            </dl>
+            <div className="aa-stack" style={{ marginTop: 14, gap: 8 }}>
+                {isApplied && task.has_proof && <ProofButton batchId={batchId} task={task} />}
+                {isApplied && task.confirmation_mail && (
+                    <Link className="aa-btn aa-sheet-btn" to={`/autoapply/inbox?mail=${encodeURIComponent(task.confirmation_mail.id)}`}>
+                        <Mail size={16} aria-hidden="true" /> Confirmation mail
+                    </Link>
+                )}
+                {job && (
+                    <a className="aa-btn aa-sheet-btn" href={job} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink size={16} aria-hidden="true" /> Open job posting
+                    </a>
+                )}
+            </div>
+        </Sheet>
+    )
+}
+
+function ManageSheet({ open, onClose, batch, live }) {
+    return (
+        <Sheet open={open} onClose={onClose} title="Manage pack">
+            <div className="aa-stack" style={{ gap: 18 }}>
+                <dl className="aa-dl">
+                    {batch.purchased_at && <div><dt>Bought</dt><dd>{shortDate(batch.purchased_at)}</dd></div>}
+                    {batch.price_paise != null && <div><dt>Paid</dt><dd>{rupees(batch.price_paise)}</dd></div>}
+                    {batch.expires_at && <div><dt>Ends</dt><dd>{shortDate(batch.expires_at)}</dd></div>}
+                    <div><dt>Updates</dt><dd>{live ? 'Live' : 'Every 15 s'}</dd></div>
+                </dl>
+                <p className="aa-muted" style={{ margin: 0 }}>Credits are only used for submitted applications.</p>
+                <Controls batch={batch} />
+                <MustCompaniesEditor key={(batch.must_companies || []).join('|')} batch={batch} />
+            </div>
+        </Sheet>
     )
 }
 
@@ -246,90 +244,99 @@ export default function BatchDetailPage() {
     const allTasks = q.data?.tasks
     const needTasks = useMemo(() => (allTasks || []).filter((t) => t.status === 'needs_you'), [allTasks])
     const appliedTasks = useMemo(() => (allTasks || []).filter((t) => t.status === 'applied'), [allTasks])
+    const skippedTasks = useMemo(() => (allTasks || []).filter((t) => SKIPPED.includes(t.status)), [allTasks])
     const notApplied = q.data?.live?.buckets?.not_applied || 0
+    const skippedCount = Math.max(notApplied, skippedTasks.length)
+    const [tab, setTab] = useState(null)
+    const [openTask, setOpenTask] = useState(null)
+    const [manage, setManage] = useState(false)
+    const curTab = tab || (needTasks.length ? 'answers' : 'applied')
+
+    let banner = null
+    if (batch) {
+        if (params.get('new')) {
+            banner = <StatusBanner tone="ok" text={batch.status === 'waiting_profile' ? 'Payment confirmed. Finish your profile to start.' : 'Payment confirmed. We are finding jobs now.'} />
+        } else if (needTasks.length) {
+            banner = <StatusBanner tone="action" text={`${num(needTasks.length)} job${needTasks.length === 1 ? ' needs' : 's need'} your answer`} action={{ label: CTA.answerNow, to: '/autoapply/needs-you' }} />
+        } else if (batch.status === 'waiting_profile') {
+            banner = <StatusBanner tone="warn" text="Waiting for your profile" action={{ label: 'Finish', to: setupLinkFor(batch.waiting_detail?.missing) }} />
+        } else if (batch.status === 'review') {
+            banner = <StatusBanner tone="info" text={<>Applying starts in <Countdown iso={batch.review_until} fallback="a few hours" /></>} action={{ label: 'Approve', onClick: () => setManage(true) }} />
+        } else if (batch.status === 'waiting_supply') {
+            banner = <StatusBanner tone="info" text="Waiting for new matching jobs" />
+        }
+    }
 
     return (
         <AALayout gate>
             {q.isLoading ? (
-                <LoadingState label="Loading batch…" />
+                <LoadingState label="Loading pack…" />
             ) : q.isError ? (
-                <ErrorState err={q.error} onRetry={() => q.refetch()} title={q.error?.status === 404 ? 'Batch not found' : 'Could not load batch'} />
+                <ErrorState err={q.error} onRetry={() => q.refetch()} title={q.error?.status === 404 ? 'Pack not found' : 'Could not load pack'} />
             ) : !batch ? (
-                <EmptyState title="Batch not found" action={<Link to="/autoapply" className="aa-btn">Overview</Link>} />
+                <EmptyState title="Pack not found" action={<Link to="/autoapply" className="aa-btn">Auto Apply</Link>} />
             ) : (
                 <>
-                    <p style={{ margin: '0 0 10px' }}><Link to="/autoapply" style={{ color: 'var(--pop)', fontSize: '0.76rem', textDecoration: 'none' }}>← Overview</Link></p>
                     <PageHeader
-                        eyebrow={live ? 'Live' : 'Batch'}
-                        title={`${PACK_KINDS[batch.pack_kind]?.short || batch.pack_kind} · ${batch.pack_size}`}
-                        lead={[
-                            batch.purchased_at && `Bought ${shortDate(batch.purchased_at)}`,
-                            batch.price_paise != null && rupees(batch.price_paise),
-                            batch.expires_at && `expires ${shortDate(batch.expires_at)}`,
-                        ].filter(Boolean).join(' · ')}
-                        actions={<BatchStatusPill status={batch.status} />}
+                        section="autoapply"
+                        title={packTitle(batch)}
+                        subtitle={`${num(batch.credits_used)} of ${num(batch.credits_total)} applied`}
+                        back={{ to: '/autoapply', label: 'Auto Apply' }}
+                        aside={<BatchStatusPill status={batch.status} />}
                     />
-                    {params.get('new') && (
-                        <div className="aa-note is-ok" role="status" style={{ marginBottom: 14 }}>
-                            {batch.status === 'waiting_profile' ? 'Payment confirmed. Finish your profile to start.' : 'Payment confirmed. Shortlisting jobs now.'}
-                        </div>
-                    )}
-                    <div className="aa-stack">
-                        <section className={`aa-card aa-seg tone-${batchTone(batch.status)}`} aria-labelledby="prog-h">
-                            <SectionHead id="prog-h" icon={ListChecks} tone={batchTone(batch.status)} title="Progress" />
-                            <Progress used={batch.credits_used} total={batch.credits_total} />
-                            <p className="aa-faint" style={{ margin: '6px 0 0' }}>Credits are only used for submitted applications.</p>
-                            {q.data?.live && <LiveFlow live={q.data.live} />}
-                            {!q.data?.live && ['refund_due', 'refunding', 'refunded'].includes(batch.status) && (
-                                // fallback only: the live line above already says this in one sentence (with the amount when > 0)
-                                <p className="aa-muted" style={{ margin: '12px 0 0' }}>
-                                    {batch.status === 'refunded'
-                                        ? (Number(batch.refund_paise) > 0 ? `Refunded ${rupees(batch.refund_paise)}.` : 'This payment was refunded.')
-                                        : 'This payment is being refunded.'}
-                                </p>
-                            )}
-                            {batch.status === 'waiting_profile' && (
-                                <ProfileMissing
-                                    style={{ marginTop: 12 }}
-                                    missing={batch.waiting_detail?.missing}
-                                    lead="Waiting for your profile. Missing:"
-                                />
-                            )}
-                            {batch.status === 'waiting_supply' && (
-                                <p className="aa-muted" style={{ margin: '12px 0 0' }}>Waiting for new matching jobs.</p>
-                            )}
-                        </section>
+                    {banner && <div className="aa-gap">{banner}</div>}
 
-                        {batch.status === 'review' && (
-                            <section className="aa-card aa-seg is-tinted tone-waiting" aria-labelledby="rv-h">
-                                <SectionHead id="rv-h" icon={Clock} tone="waiting" title="Review window" />
-                                <p className="aa-muted" style={{ margin: '0 0 12px' }}>
-                                    Applying starts in{' '}
-                                    <strong style={{ color: 'var(--bright)' }} aria-live="off"><Countdown iso={batch.review_until} fallback="a few hours" /></strong>, or approve now.
-                                </p>
-                            </section>
+                    <section className="aa-gap" aria-label="Progress">
+                        <Progress value={batch.credits_used} max={batch.credits_total} label="Applications sent" showText={false} />
+                        {q.data?.live?.message && (
+                            <p className="aa-pack-msg" role="status" aria-live="polite">
+                                {(q.data.live.phase === 'applying' || q.data.live.phase === 'starting') && <span className="aa-flow-dot" aria-hidden="true" />}
+                                <span>{q.data.live.message}</span>
+                            </p>
                         )}
-
-                        <MustCompaniesEditor key={(batch.must_companies || []).join('|')} batch={batch} />
-
-                        <Controls batch={batch} />
-
-                        {needTasks.length > 0 && (
-                            <section className="aa-card aa-seg is-tinted tone-attention" aria-labelledby="need-h">
-                                <SectionHead id="need-h" icon={Hand} tone="attention" title="Needs you" count={needTasks.length}
-/>
-                                <TaskList batchId={batch.id} tasks={needTasks} attention />
-                            </section>
+                        {!q.data?.live && ['refund_due', 'refunding', 'refunded'].includes(batch.status) && (
+                            // fallback only: the live line above already says this in one sentence (with the amount when > 0)
+                            <p className="aa-pack-msg">
+                                {batch.status === 'refunded'
+                                    ? (Number(batch.refund_paise) > 0 ? `Refunded ${rupees(batch.refund_paise)}.` : 'This payment was refunded.')
+                                    : 'This payment is being refunded.'}
+                            </p>
                         )}
+                    </section>
 
-                        <section className="aa-card aa-seg tone-success" aria-labelledby="tasks-h">
-                            <SectionHead id="tasks-h" icon={CheckCircle2} tone="success" title="Applied" count={appliedTasks.length}
-                                sub={notApplied > 0 ? `${num(notApplied)} not applied (free)` : undefined} />
-                            <TaskList batchId={batch.id} tasks={appliedTasks}
-                                empty={<EmptyState compact icon={<EmptyArt kind="jobs" tone="success" />} title="No applications submitted yet"
-                                    message="Updates on its own." />} />
-                        </section>
+                    <div className="aa-tabsbar">
+                        <SmallTabs idPrefix="pack" label="Pack jobs" section="autoapply" value={curTab} onChange={setTab}
+                            items={[
+                                { value: 'applied', label: TERMS.applied.one, count: appliedTasks.length },
+                                { value: 'answers', label: TERMS.answersNeeded.one, count: needTasks.length },
+                                { value: 'skipped', label: TERMS.skipped.one, count: skippedCount },
+                            ]} />
+                        <HelpChip term="skipped" />
+                        <button type="button" className="aa-icon-only" onClick={() => setManage(true)} aria-label="Manage pack">
+                            <Settings2 size={20} aria-hidden="true" />
+                        </button>
                     </div>
+
+                    <TabPanel idPrefix="pack" value="applied" active={curTab === 'applied'}>
+                        {appliedTasks.length ? <TaskList tasks={appliedTasks} kind="applied" onOpen={setOpenTask} /> : (
+                            <EmptyState compact icon={<EmptyArt kind="jobs" tone="success" />} title="Nothing sent yet" message="This updates on its own." />
+                        )}
+                    </TabPanel>
+                    <TabPanel idPrefix="pack" value="answers" active={curTab === 'answers'}>
+                        {needTasks.length ? <TaskList tasks={needTasks} kind="answers" onOpen={setOpenTask} /> : (
+                            <EmptyState compact icon={<EmptyArt kind="jobs" tone="success" />} title="No questions for you" />
+                        )}
+                    </TabPanel>
+                    <TabPanel idPrefix="pack" value="skipped" active={curTab === 'skipped'}>
+                        {skippedTasks.length ? <TaskList tasks={skippedTasks} kind="skipped" onOpen={setOpenTask} /> : null}
+                        {skippedCount > skippedTasks.length && (
+                            <p className="aa-faint" style={{ marginTop: 10 }}>{num(skippedCount - skippedTasks.length)} older skipped jobs are cleared after 30 days. No credit used.</p>
+                        )}
+                        {!skippedCount && <EmptyState compact icon={<EmptyArt kind="jobs" tone="history" />} title="Nothing skipped" />}
+                    </TabPanel>
+
+                    <TaskSheet task={openTask} batchId={batch.id} onClose={() => setOpenTask(null)} />
+                    <ManageSheet open={manage} onClose={() => setManage(false)} batch={batch} live={live} />
                 </>
             )}
         </AALayout>

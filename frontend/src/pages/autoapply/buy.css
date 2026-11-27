@@ -1,42 +1,62 @@
-/* Buy page: compact pickers, match count, sample rows. Brand tokens from src/index.css only. */
+/* Buy page (375px first): size toggle, 2 stacked pack cards, rows to sheets, coupon link, sticky Pay bar.
+   Brand tokens from src/index.css only. */
 
-.buy-opts { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.buy-opts .aa-choice { padding: 10px 12px; gap: 2px; }
-.buy-opts .aa-choice-price { font-size: 1.05rem; }
-.buy-h2-gap { margin-top: 14px; }
-
-.buy-count { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
-.buy-count-num { font-size: 2rem; font-weight: 900; line-height: 1; color: var(--pop); letter-spacing: -0.03em; }
-.buy-count-num.is-low { color: var(--warm); }
-.buy-count-text { font-size: 0.9rem; font-weight: 800; color: var(--bright); }
-.buy-count-sub { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
-
-.buy-switch {
-    margin-top: 4px; padding: 0; border: 0; background: none; font: inherit; font-size: 0.72rem; color: var(--accent);
-    cursor: pointer; text-decoration: underline; text-underline-offset: 2px; text-align: left;
+.buy-size { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; margin-bottom: 12px; border: 1px solid var(--subtle); border-radius: 10px; background: var(--surface); }
+.buy-size-opt {
+    min-height: 40px; border: 0; border-radius: 7px; background: none; color: var(--muted);
+    font: inherit; font-size: 0.9375rem; font-weight: var(--fw-strong); cursor: pointer;
 }
-.buy-switch:hover:not(:disabled) { color: var(--pop); }
-.buy-switch:disabled { opacity: 0.5; cursor: not-allowed; }
+.buy-size-opt[aria-checked="true"] { background: var(--pop); color: var(--surface); }
+.buy-size-opt:disabled { opacity: 0.4; cursor: not-allowed; }
+.buy-size-opt:focus-visible { outline: 2px solid var(--pop); outline-offset: 2px; }
+.buy-left { margin: -4px 0 12px; }
 
-.buy-sample { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.74rem; }
-.buy-sample td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--subtle); color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.buy-sample tr:last-child td { border-bottom: 0; }
-.buy-sample .buy-sample-co { width: 32%; color: var(--bright); font-weight: 700; }
-.buy-sample .buy-sample-when { width: 86px; padding-right: 0; text-align: right; color: var(--faint); font-variant-numeric: tabular-nums; }
-
-.buy-keep { margin: 0; font-size: 0.72rem; color: var(--muted); }
-
-.buy-more { padding: 12px 14px; }
-.buy-more > summary { cursor: pointer; font-size: 0.72rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-.buy-more[open] > summary { color: var(--bright); }
-
-/* phones: each sample row is one line, "company · title", truncated */
-@media (max-width: 480px) {
-    .buy-count-num { font-size: 1.7rem; }
-    .buy-sample, .buy-sample tbody { display: block; }
-    .buy-sample tr { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 0; border-bottom: 1px solid var(--subtle); }
-    .buy-sample tr:last-child { border-bottom: 0; }
-    .buy-sample td { display: inline; padding: 0; border: 0; }
-    .buy-sample .buy-sample-co::after { content: ' · '; color: var(--faint); font-weight: 400; }
-    .buy-sample .buy-sample-when { display: none; }
+.buy-cards { display: grid; gap: 10px; margin-bottom: 12px; }
+.buy-card {
+    display: grid; gap: 6px; width: 100%; padding: 14px 16px; text-align: left; cursor: pointer;
+    border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--panel); color: var(--bright); font: inherit;
 }
+.buy-card.is-on { border-color: var(--pop); background: var(--pop-dim); box-shadow: inset 0 0 0 1px var(--pop); }
+.buy-card:disabled { opacity: 0.5; cursor: not-allowed; }
+.buy-card:focus-visible { outline: 2px solid var(--pop); outline-offset: 2px; }
+.buy-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.buy-card-name { font-size: var(--fs-body); font-weight: var(--fw-strong); }
+.buy-card-price { font-size: 1.25rem; font-weight: var(--fw-strong); font-variant-numeric: tabular-nums; }
+.buy-card-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: var(--fs-small); }
+.buy-card-match { color: var(--pop); font-weight: var(--fw-strong); }
+.buy-card-low { color: var(--warm); font-weight: var(--fw-strong); }
+.buy-card-per { color: var(--muted); white-space: nowrap; }
+
+.buy-plan { margin: 0 0 12px; font-size: var(--fs-small); color: var(--muted); }
+.buy-plan a { color: var(--pop); font-weight: var(--fw-strong); }
+
+.buy-rows { margin-bottom: 12px; }
+
+.buy-code { margin-bottom: 16px; }
+.buy-code .input-field { min-height: var(--tap); font-size: var(--fs-body); }
+.buy-code-btn { min-height: var(--tap); padding: 0 16px; }
+.buy-code-link {
+    min-height: var(--tap); padding: 0; border: 0; background: none; font: inherit; font-size: 0.9375rem;
+    color: var(--pop); text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.buy-err { margin: 8px 0 0; font-size: var(--fs-small); color: var(--red); }
+.buy-ack { margin-bottom: 12px; }
+
+/* sticky Pay bar: above the bottom tab bar on phones */
+.buy-bar {
+    position: sticky; bottom: var(--bnav-h); z-index: 20; display: flex; align-items: center; gap: 12px;
+    margin: 8px -16px 0; padding: 12px 16px; background: var(--surface); border-top: 1px solid var(--subtle);
+}
+html[data-nav-compact] .buy-bar { padding-bottom: calc(12px + var(--safe-b)); }
+.buy-bar-total { flex: 1 1 auto; min-width: 0; display: grid; }
+.buy-bar-total strong { font-size: 1.25rem; font-weight: var(--fw-strong); color: var(--bright); font-variant-numeric: tabular-nums; }
+.buy-bar-total span { font-size: 0.75rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.buy-bar-was { margin-left: 8px; font-size: var(--fs-small); color: var(--faint); font-weight: var(--fw-regular); }
+.buy-bar-btn { flex: none; --tone: var(--pop); min-width: 132px; }
+@media (min-width: 768px) {
+    .buy-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .buy-bar { margin: 8px 0 0; padding: 14px 16px calc(14px + var(--safe-b)); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+}
+
+.buy-overlay { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: var(--overlay); backdrop-filter: blur(2px); }
+.buy-overlay-box { display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--bright); font-size: var(--fs-small); font-weight: var(--fw-strong); }

@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { BarChart3, Briefcase, Building2, Layers, Sparkles, TrendingUp, Trophy, Users } from 'lucide-react'
+import { JobLogo } from './jobsShared'
 import { useMarketAnalytics } from '../../lib/useJobs'
 import { LoadingState, ErrorState, EmptyState } from '../../components/shared/states'
-import { SectionHead, Segmented, StackBar, StatTile, StatTiles } from '../../components/ui'
+import { Button, Row, SectionHead, Segmented, Sheet, StackBar, StatTile, StatTiles } from '../../components/ui'
 import { num } from '../../lib/format'
 
-// Jobs -> Analytics: every number comes from our own crawler pool
+// Jobs -> Market tab: 3 tiles + the top hiring companies as rows; every other
+// chart sits in a "More numbers" sheet. Every number comes from our own crawler pool
 // (server: /api/market/analytics). Plain CSS/SVG, theme tokens only.
 const COUNTRIES = [{ value: 'IN', label: 'India' }, { value: 'US', label: 'USA' }]
 const SEN_LABEL = { intern: 'Intern', junior: 'Junior', mid: 'Mid', senior: 'Senior', staff: 'Staff', principal: 'Principal', unknown: 'Not stated' }
@@ -83,8 +85,9 @@ function Trend({ points }) {
     )
 }
 
-export default function MarketAnalytics() {
+export default function MarketAnalytics({ onCompany }) {
     const [country, setCountry] = useState('IN')
+    const [moreOpen, setMoreOpen] = useState(false)
     const { data, isLoading, error, refetch } = useMarketAnalytics(country)
 
     const toggle = <Segmented label="Country" value={country} onChange={setCountry} options={COUNTRIES} />
@@ -95,7 +98,7 @@ export default function MarketAnalytics() {
         return (
             <>
                 {toggle}
-                <EmptyState art="stats" title="Analytics are warming up" message="Market numbers appear after the next crawler pass." />
+                <EmptyState art="stats" title="Numbers are on the way" message="They appear after the next crawl." />
             </>
         )
     }
@@ -114,49 +117,52 @@ export default function MarketAnalytics() {
     const typeTotal = types.reduce((a, t) => a + t.count, 0)
     const trend = (data.trend || []).filter((p) => Number.isFinite(p.open))
     const countryLabel = COUNTRIES.find((c) => c.value === country).label
+    const top = (data.topCompanies || []).slice(0, 5)
 
     return (
         <div className="mkt">
             {toggle}
             <StatTiles cols={3}>
                 <StatTile icon={Briefcase} label="Open jobs" value={data.openNow} tone="active" />
-                <StatTile icon={Sparkles} label="New 24h" value={data.new24h} tone="success" />
+                <StatTile icon={Sparkles} label="New today" value={data.new24h} tone="success" />
                 <StatTile icon={Building2} label="Companies" value={data.companies} tone="plan" />
             </StatTiles>
 
-            {trend.length >= 2 && <Trend points={trend} />}
+            {top.length > 0 && (
+                <section aria-labelledby="mkt-top-h">
+                    <h2 id="mkt-top-h" className="jobs-count">Top hiring companies</h2>
+                    <ul className="sys-rows">
+                        {top.map((c) => (
+                            <li key={c.name}>
+                                <Row leading={<JobLogo name={c.name} />} title={c.name} meta={`${fmt(c.count)} jobs`}
+                                    onClick={onCompany ? () => onCompany(c.name) : undefined} />
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
 
-            <div className="mkt-grid">
-                <Split icon={Layers} title={`Tech vs product (${countryLabel})`} parts={roleParts} />
-                <Split icon={Users} title="India vs USA (whole pool)" parts={countryParts} />
-            </div>
+            <Button className="mkt-more-btn" icon={BarChart3} onClick={() => setMoreOpen(true)}>More numbers</Button>
 
-            <div className="mkt-grid">
-                <Bars icon={BarChart3} title="Role categories" rows={fam} tone="active" />
-                <Bars icon={Users} title="Experience level" rows={sen} tone="plan" />
-            </div>
-
-            <Card icon={Trophy} title="Top hiring companies" tone="attention">
-                <ol className="mkt-top">
-                    {(data.topCompanies || []).map((c, i) => (
-                        <li key={c.name}>
-                            <span className="mkt-top-rank">{i + 1}</span>
-                            <span className="mkt-top-name">{c.name}</span>
-                            <span className="mkt-top-type">{TYPE_LABEL[c.type] || ''}</span>
-                            <span className="mkt-top-count">{fmt(c.count)}</span>
-                        </li>
-                    ))}
-                </ol>
-                {typeTotal > 0 && (
-                    <div className="mkt-types">
-                        {types.map((t) => `${TYPE_LABEL[t.label] || t.label} ${Math.round((t.count / typeTotal) * 100)}%`).join(' · ')}
-                    </div>
-                )}
-            </Card>
-
-            <p className="mkt-foot">
-                Based on {fmt(data.openNow)} tech and product jobs posted in the last {days} days from {fmt(data.companies)} company career sites + LinkedIn.
-            </p>
+            <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} title="Job market" description={`${countryLabel}, last ${days} days`} size="full">
+                <div className="mkt">
+                    {trend.length >= 2 && <Trend points={trend} />}
+                    <Split icon={Layers} title={`Tech vs product (${countryLabel})`} parts={roleParts} />
+                    <Split icon={Users} title="India vs USA (whole pool)" parts={countryParts} />
+                    <Bars icon={BarChart3} title="Role categories" rows={fam} tone="active" />
+                    <Bars icon={Users} title="Experience level" rows={sen} tone="plan" />
+                    {typeTotal > 0 && (
+                        <Card icon={Trophy} title="Company types" tone="attention">
+                            <div className="mkt-types">
+                                {types.map((t) => `${TYPE_LABEL[t.label] || t.label} ${Math.round((t.count / typeTotal) * 100)}%`).join(' · ')}
+                            </div>
+                        </Card>
+                    )}
+                    <p className="mkt-foot">
+                        From {fmt(data.openNow)} jobs at {fmt(data.companies)} companies, last {days} days.
+                    </p>
+                </div>
+            </Sheet>
         </div>
     )
 }

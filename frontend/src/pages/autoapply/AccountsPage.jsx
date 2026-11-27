@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Eye, EyeOff, KeyRound, Search } from 'lucide-react'
+import { Row, Sheet } from '../../components/ui'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { useAccounts, useRevealPassword } from '../../lib/useAutoApply'
-import { CopyButton, EmptyArt, SectionHead, fmtDate } from './ui'
+import { CopyButton, EmptyArt, fmtDate } from './ui'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 
@@ -136,66 +137,73 @@ function companyOf(host) {
     return parts[0] || String(host || '')
 }
 
+function pendingRevealHost() {
+    try { return sessionStorage.getItem(REVEAL_AFTER_AUTH) } catch { return null }
+}
+
+// Search + one line per site; tapping a row opens a sheet with the login and the password reveal.
 export default function SitesSection() {
     const q = useAccounts()
     const [term, setTerm] = useState('')
+    // back from an OAuth re-sign-in: reopen that site's sheet so its Reveal resumes
+    const [openHost, setOpenHost] = useState(pendingRevealHost)
     const accounts = useMemo(() => q.data?.accounts || [], [q.data?.accounts])
     const needle = term.trim().toLowerCase().slice(0, 80)
     const shown = useMemo(() => (needle
         ? accounts.filter((a) => [a.tenant_host, companyOf(a.tenant_host), a.login_email].some((v) => String(v || '').toLowerCase().includes(needle)))
         : accounts), [accounts, needle])
+    const open = accounts.find((a) => a.tenant_host === openHost) || null
 
+    if (q.isLoading) return <LoadingState label="Loading logins…" />
+    if (q.isError) return <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load logins" />
+    if (accounts.length === 0) {
+        return <EmptyState icon={<EmptyArt kind="accounts" tone="active" />} title="No logins yet" message="Sites where we make a login for you show up here." />
+    }
     return (
-        <section aria-labelledby="sites-h">
-            <SectionHead id="sites-h" icon={KeyRound} tone="active" title="Job-site accounts" count={accounts.length || null}
-                sub="Passwords are encrypted; each reveal is logged." />
-            {q.isLoading ? (
-                <LoadingState label="Loading accounts…" />
-            ) : q.isError ? (
-                <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load accounts" />
-            ) : accounts.length === 0 ? (
-                <EmptyState icon={<EmptyArt kind="accounts" tone="active" />} title="No accounts yet" message="Sites where we created a login for you show up here." />
+        <section aria-label="Job portal logins">
+            <div className="aa-acct-search" role="search">
+                <label htmlFor="acct-q" className="aa-sr">Search by company or site</label>
+                <Search size={16} aria-hidden="true" className="aa-acct-search-icon" />
+                <input id="acct-q" type="search" className="input-field" value={term} maxLength={80}
+                    onChange={(e) => setTerm(e.target.value)} placeholder="Search a company" autoComplete="off" />
+            </div>
+            <p className="aa-faint" role="status" aria-live="polite" style={{ margin: '0 0 8px' }}>
+                {needle ? `${shown.length} of ${accounts.length} match` : `${accounts.length} login${accounts.length === 1 ? '' : 's'} · passwords are encrypted`}
+            </p>
+            {shown.length === 0 ? (
+                <EmptyState compact icon={<EmptyArt kind="search" tone="history" />} title="No login for that company"
+                    action={<button type="button" className="aa-btn" onClick={() => setTerm('')}>Clear search</button>} />
             ) : (
-                <>
-                    <div className="aa-row aa-acct-search" role="search">
-                        <label htmlFor="acct-q" className="aa-sr">Search by company or site</label>
-                        <span style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-                            <Search size={14} aria-hidden="true" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-                            <input id="acct-q" type="search" className="input-field" style={{ paddingLeft: 30 }} value={term} maxLength={80}
-                                onChange={(e) => setTerm(e.target.value)} placeholder="Search a company, e.g. Razorpay" autoComplete="off" />
-                        </span>
-                    </div>
-                    <p className="aa-faint" role="status" aria-live="polite" style={{ margin: '0 0 8px' }}>
-                        {needle ? `${shown.length} of ${accounts.length} account${accounts.length === 1 ? '' : 's'} match “${term.trim()}”` : `${accounts.length} account${accounts.length === 1 ? '' : 's'}`}
-                    </p>
-                    {shown.length === 0 ? (
-                        <EmptyState compact icon={<EmptyArt kind="search" tone="history" />} title="No account for that company"
-                            message="No login on that site yet." action={<button type="button" className="aa-btn" onClick={() => setTerm('')}>Clear search</button>} />
-                    ) : (
-                        <div className="aa-table-wrap">
-                            <table className="aa-table is-lines">
-                                <caption className="aa-sr">Career-site accounts</caption>
-                                <thead><tr><th scope="col">Company</th><th scope="col">Site</th><th scope="col">Login</th><th scope="col">Status</th><th scope="col">Last used</th><th scope="col">Password</th></tr></thead>
-                                <tbody>
-                                    {shown.map((a) => {
-                                        const [label, tone] = STATUS[a.status] || [a.status, 't-muted']
-                                        return (
-                                            <tr key={a.tenant_host}>
-                                                <td className="aa-strong aa-m-main" data-label="Company" style={{ textTransform: 'capitalize' }} title={a.tenant_host}>{companyOf(a.tenant_host)}</td>
-                                                <td className="aa-m-hide" data-label="Site" style={{ overflowWrap: 'anywhere' }}>{a.tenant_host}</td>
-                                                <td className="aa-m-hide" data-label="Login" style={{ overflowWrap: 'anywhere' }}>{a.login_email}</td>
-                                                <td data-label="Status"><span className={`aa-pill ${tone}`}>{label}</span></td>
-                                                <td className="aa-m-hide" data-label="Last used">{a.last_used_at ? fmtDate(a.last_used_at) : `Created ${fmtDate(a.created_at, false)}`}</td>
-                                                <td className="aa-m-act" data-label="Password"><Reveal host={a.tenant_host} /></td>
-                                            </tr>
-                                        )
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </>
+                <ul className="sys-rows">
+                    {shown.map((a) => {
+                        const [label] = STATUS[a.status] || [a.status]
+                        const metaTone = a.status === 'active' ? 'success' : a.status === 'locked' ? 'danger' : a.status === 'pending_verify' ? 'waiting' : 'active'
+                        return (
+                            <li key={a.tenant_host}>
+                                <Row leading={<KeyRound size={18} />} title={<span style={{ textTransform: 'capitalize' }}>{companyOf(a.tenant_host)}</span>}
+                                    meta={label} metaTone={metaTone} onClick={() => setOpenHost(a.tenant_host)} aria-label={`${companyOf(a.tenant_host)}, ${label}`} />
+                            </li>
+                        )
+                    })}
+                </ul>
             )}
+            <Sheet open={!!open} onClose={() => setOpenHost(null)} title={open ? companyOf(open.tenant_host) : 'Login'} description={open?.tenant_host}>
+                {open && (
+                    <div className="aa-stack" style={{ gap: 14 }}>
+                        <dl className="aa-dl">
+                            <div><dt>Login</dt><dd style={{ overflowWrap: 'anywhere' }}>{open.login_email}</dd></div>
+                            <div><dt>Status</dt><dd>{(STATUS[open.status] || [open.status])[0]}</dd></div>
+                            <div><dt>{open.last_used_at ? 'Last used' : 'Made'}</dt><dd>{open.last_used_at ? fmtDate(open.last_used_at) : fmtDate(open.created_at, false)}</dd></div>
+                        </dl>
+                        <div className="aa-row" style={{ gap: 8 }}>
+                            <CopyButton text={open.login_email} label="Copy login" className="aa-btn aa-sheet-btn" />
+                        </div>
+                        <Reveal host={open.tenant_host} />
+                        <p className="aa-faint" style={{ margin: 0 }}>Each reveal is logged.</p>
+                    </div>
+                )}
+            </Sheet>
         </section>
     )
 }
+

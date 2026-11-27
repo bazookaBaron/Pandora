@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useInterviewAnswer } from '../../lib/useInterviewQuestions'
 import { track, EVENTS } from '../../lib/analytics'
 import MarkdownRenderer from './MarkdownRenderer'
+import CollapsibleMarkdown from './CollapsibleMarkdown'
 import ChartBlock from './ChartBlock'
 import StatusBadge from './StatusBadge'
 import { LoadingState, ErrorState, EmptyState } from '../shared/states'
@@ -74,9 +75,9 @@ export default function AnswerViewer({ questionId, questionText, tone = 'active'
 
             {data.chart_config && <ChartBlock config={data.chart_config} />}
 
-            {/* Markdown answer */}
-            <div style={{ fontSize: '0.84rem', lineHeight: 1.75, color: 'var(--accent)' }}>
-                <MarkdownRenderer>{answer}</MarkdownRenderer>
+            {/* Markdown answer: the opening summary first, each heading section behind an expander */}
+            <div className="iq-answer-body">
+                <CollapsibleMarkdown render={(md) => <MarkdownRenderer>{md}</MarkdownRenderer>}>{answer}</CollapsibleMarkdown>
             </div>
         </div>
     )

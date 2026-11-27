@@ -105,7 +105,7 @@ export default function CommandPalette() {
                         value={query}
                         onChange={e => setQuery(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Search DSA + LLD problems…"
+                        placeholder="Search DSA and design problems…"
                         style={{
                             flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--bright)',
                             font: 'inherit', fontSize: '0.9rem',
@@ -124,7 +124,7 @@ export default function CommandPalette() {
                     )}
                     {!query && (
                         <div style={{ padding: 16, color: 'var(--faint)', fontSize: '0.78rem', textAlign: 'center' }}>
-                            Type to search across all DSA &amp; LLD problems
+                            Type to search DSA and low-level design problems
                         </div>
                     )}
                     {results.map((item, i) => (
@@ -141,14 +141,14 @@ export default function CommandPalette() {
                             }}
                         >
                             <span style={{
-                                fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em',
+                                fontSize: '0.6875rem', fontWeight: 600,
                                 padding: '2px 6px', borderRadius: 4,
                                 background: item.type === 'dsa' ? 'var(--pop-dim)' : 'var(--warm-dim)',
                                 color: item.type === 'dsa' ? 'var(--pop)' : 'var(--warm)',
                                 border: `1px solid color-mix(in srgb, ${item.type === 'dsa' ? 'var(--pop)' : 'var(--warm)'} 20%, transparent)`,
                                 flexShrink: 0,
                             }}>
-                                {item.type}
+                                {item.type === 'dsa' ? 'DSA' : 'Design'}
                             </span>
                             <span style={{ color: 'var(--bright)', fontSize: '0.88rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</span>
                             {item.difficulty && (

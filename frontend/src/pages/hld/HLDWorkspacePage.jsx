@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import ReactFlow, {
     addEdge, MiniMap, Controls, Background,
@@ -7,8 +7,6 @@ import ReactFlow, {
     Handle, Position, BaseEdge, EdgeLabelRenderer, getBezierPath,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { useProgress } from '../../lib/useProgress'
 import { useAuth } from '../../contexts/AuthContext'
 import { useMediaQuery } from '../../lib/useMediaQuery'
@@ -18,7 +16,10 @@ import { LoadingState, ErrorState, EmptyState, LimitReached } from '../../compon
 import { track, EVENTS } from '../../lib/analytics'
 import Navbar from '../../components/Navbar'
 import DifficultyBadge from '../../components/shared/DifficultyBadge'
-import { Button, Tabs, EmptyArt } from '../../components/ui'
+import { Button, SmallTabs, EmptyArt, PageHeader } from '../../components/ui'
+import CollapsibleMarkdown, { Expander } from '../../components/interview/CollapsibleMarkdown'
+import { track as trackUi, TRACK } from '../../lib/track'
+import { TERMS } from '../../lib/copy'
 import { ChevronLeft, Scale, RotateCcw, Plus, X, Trash2, ThumbsUp, Wrench } from 'lucide-react'
 
 // ── Node palette config ──────────────────────────────────────────────
@@ -313,8 +314,9 @@ function HLDWorkspaceInner() {
     const isMobile = useMediaQuery('(max-width: 767px)')
     const { progressMap, saveNotes, isSuccess: progressLoaded } = useProgress('hld')
 
-    // Mobile single-pane switcher: 'brief' | 'canvas' | 'judge' (default canvas)
-    const [mobilePane, setMobilePane] = useState('canvas')
+    // Mobile single-pane switcher: 'brief' | 'canvas' | 'judge'. Opens on the
+    // brief so phones see a short summary before the tools.
+    const [mobilePane, setMobilePane] = useState('brief')
     const [paletteOpen, setPaletteOpen] = useState(false)
 
     const [nodes, setNodes, onNodesChange] = useNodesState([])
@@ -575,11 +577,11 @@ function HLDWorkspaceInner() {
     }
 
     if (isLoading) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><LoadingState label="Loading…" /></div></>
-    if (isError && error?.status === 401) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><ErrorState err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Button to="/hld" icon={ChevronLeft}>Back to HLD</Button></p></div></>
+    if (isError && error?.status === 401) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><ErrorState err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Button to="/hld" icon={ChevronLeft}>Back to {TERMS.hld.one}</Button></p></div></>
     // tierLocked (403 upgrade_required) keeps the header bar + a LockedPanel body,
     // handled in the main return below — so don't fall into "not found"/error here.
-    if (isError && !tierLocked) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><ErrorState title="Could not load this HLD question." err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Button to="/hld" icon={ChevronLeft}>Back to HLD</Button></p></div></>
-    if (!problem && !tierLocked) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><EmptyState art="diagram" tone="plan" title="Question not found." action={<Button to="/hld" icon={ChevronLeft}>Back to HLD</Button>} /></div></>
+    if (isError && !tierLocked) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><ErrorState title="Could not load this question." err={error} /><p style={{ textAlign: 'center', marginTop: 12 }}><Button to="/hld" icon={ChevronLeft}>Back to {TERMS.hld.one}</Button></p></div></>
+    if (!problem && !tierLocked) return <><Navbar /><div style={{ paddingTop: "calc(var(--nav-h) + 16px)" }}><EmptyState art="diagram" tone="plan" title="Question not found." action={<Button to="/hld" icon={ChevronLeft}>Back to {TERMS.hld.one}</Button>} /></div></>
 
     // Inline "monthly HLD-practice limit reached" note — shown near the FR/NFR
     // block and the Judge button when /api/hld/generate or /api/hld/judge 402s.
@@ -639,7 +641,7 @@ function HLDWorkspaceInner() {
         }}>
             {/* Tab bar: Requirements | API | Capacity */}
                         <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--subtle)', flexShrink: 0, background: 'var(--surface-2)' }}>
-                            <Tabs idPrefix="hld-brief" label="Brief sections" value={activeLeftTab} onChange={setActiveLeftTab} block
+                            <SmallTabs idPrefix="hld-brief" label="Brief sections" section="prepare" value={activeLeftTab} onChange={setActiveLeftTab} block
                                 items={[{ value: 'req', label: 'Brief' }, { value: 'api', label: 'API' }, { value: 'capacity', label: 'Capacity' }]} />
                         </div>
 
@@ -648,49 +650,42 @@ function HLDWorkspaceInner() {
                             {/* ── Requirements tab (Notes + FR + NFR merged) ── */}
                             {activeLeftTab === 'req' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                                    {/* Problem description */}
+                                    {/* Problem: short summary first, long sections collapsed */}
                                     <div>
-                                        <label style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>Description</label>
-                                        <div className="markdown-body" style={{ fontSize: '0.78rem', lineHeight: 1.7, color: 'var(--accent)' }}>
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{problem.description || problem.question || problem.title}</ReactMarkdown>
-                                        </div>
+                                        <h2 className="pr-ws-h">What to design</h2>
+                                        <CollapsibleMarkdown className="markdown-body pr-md">{problem.description || problem.question || problem.title}</CollapsibleMarkdown>
                                     </div>
 
                                     {/* Notes */}
-                                    <div style={{ borderTop: '1px solid var(--subtle)', paddingTop: 12 }}>
-                                        <label style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>My Notes</label>
+                                    <Expander title="Your notes" defaultOpen={!!notesText}>
                                         <textarea value={notesText} onChange={e => setNotesText(e.target.value)}
+                                            aria-label="Your notes"
                                             placeholder="Jot your approach, trade-offs…"
                                             rows={4}
-                                            style={{ width: '100%', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6, color: 'var(--bright)', font: 'inherit', fontSize: '0.75rem', padding: '8px 10px', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
-                                    </div>
+                                            className="pr-ta" />
+                                    </Expander>
 
-                                    {usageLimitNote && (
-                                        <div style={{ borderTop: '1px solid var(--subtle)', paddingTop: 12 }}>{usageLimitNote}</div>
-                                    )}
+                                    {usageLimitNote && <div>{usageLimitNote}</div>}
 
                                     {/* FR */}
-                                    <div style={{ borderTop: '1px solid var(--subtle)', paddingTop: 12 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                            <label style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>
-                                                Functional Requirements
-                                                {frNfrLoading && <span style={{ color: ACCENT, marginLeft: 8, fontWeight: 400 }}>generating…</span>}
-                                            </label>
-                                            <Button variant="ghost" iconOnly icon={RotateCcw} onClick={regenerateFrNfr} disabled={frNfrLoading}
-                                                aria-label="Regenerate requirements" title="Regenerate" />
+                                    <Expander title="What it must do" meta={frNfrLoading ? 'Writing…' : undefined}>
+                                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+                                            <Button variant="ghost" icon={RotateCcw} onClick={regenerateFrNfr} disabled={frNfrLoading}
+                                                aria-label="Write the requirements again" title="Write again">Rewrite</Button>
                                         </div>
                                         <textarea value={frNfr.fr} onChange={e => setFrNfr(p => ({ ...p, fr: e.target.value }))}
-                                            placeholder="FR will auto-generate…" rows={6}
-                                            style={{ width: '100%', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6, color: 'var(--bright)', font: 'inherit', fontSize: '0.75rem', padding: '8px 10px', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
-                                    </div>
+                                            aria-label="Functional requirements"
+                                            placeholder="These fill in by themselves…" rows={6}
+                                            className="pr-ta" />
+                                    </Expander>
 
                                     {/* NFR */}
-                                    <div>
-                                        <label style={{ fontSize: '0.62rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>Non-Functional Requirements</label>
+                                    <Expander title="How well it must work" meta={frNfrLoading ? 'Writing…' : undefined}>
                                         <textarea value={frNfr.nfr} onChange={e => setFrNfr(p => ({ ...p, nfr: e.target.value }))}
-                                            placeholder="NFR will auto-generate…" rows={6}
-                                            style={{ width: '100%', background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6, color: 'var(--bright)', font: 'inherit', fontSize: '0.75rem', padding: '8px 10px', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
-                                    </div>
+                                            aria-label="Non-functional requirements"
+                                            placeholder="Scale, speed, uptime. Fills in by itself…" rows={6}
+                                            className="pr-ta" />
+                                    </Expander>
                                 </div>
                             )}
 
@@ -792,10 +787,12 @@ function HLDWorkspaceInner() {
             overflow: 'hidden', background: 'var(--surface-2)', ...(isMobile ? { flex: 1, minHeight: 0 } : null),
         }}>
                         <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--subtle)', flexShrink: 0 }}>
-                            <p style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px' }}>Evaluate Design</p>
-                            <Button variant="upgrade" block icon={Scale} busy={judging} busyLabel="Judging…" onClick={handleJudge}>
-                                Judge my design
-                            </Button>
+                            <p className="pr-ws-hint">Get an AI score for your diagram.</p>
+                            <button type="button" className="sys-tone-btn is-block pr-tone" disabled={judging} aria-busy={judging || undefined}
+                                onClick={() => { trackUi(TRACK.CTA_CLICK, { id: 'hld_judge', section: 'prepare' }); handleJudge() }}>
+                                {judging ? <span className="sys-spin" aria-hidden="true" /> : <Scale size={16} aria-hidden="true" />}
+                                <span>{judging ? 'Checking…' : 'Score my design'}</span>
+                            </button>
                             {usageLimitNote && <div style={{ marginTop: 10 }}>{usageLimitNote}</div>}
                         </div>
 
@@ -857,13 +854,17 @@ function HLDWorkspaceInner() {
     return (
         <>
             <Navbar />
-            <div style={{ height: '100vh', paddingTop: "var(--nav-h)", display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                {/* Header bar */}
-                <div style={{ borderBottom: '1px solid var(--subtle)', background: 'var(--surface-2)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
-                    <Link to="/hld" className="pr-crumb"><ChevronLeft size={14} aria-hidden="true" />HLD</Link>
-                    <h2 style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--bright)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{problem ? (problem.question || problem.title) : 'HLD question'}</h2>
-                    {problem?.difficulty && <DifficultyBadge difficulty={problem.difficulty} />}
-                    {!tierLocked && saveState !== 'idle' && (
+            <div className="pr-ws">
+                {/* Compact header: back · title · difficulty · save state; small pane tabs on phones */}
+                <div className="pr-ws-top">
+                    <PageHeader
+                        section="prepare"
+                        className="pr-ws-ph"
+                        back={{ to: '/hld', label: TERMS.hld.one }}
+                        title={problem ? (problem.question || problem.title) : 'System design question'}
+                        subtitle={null}
+                        aside={problem?.difficulty ? <DifficultyBadge difficulty={problem.difficulty} /> : null}
+                        action={!tierLocked && saveState !== 'idle' ? (
                         saveState === 'error' ? (
                             <button type="button" onClick={retrySave} role="alert" style={{
                                 fontSize: '0.65rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4, flexShrink: 0, cursor: 'pointer',
@@ -875,13 +876,13 @@ function HLDWorkspaceInner() {
                                 color: saveState === 'saved' ? 'var(--green)' : 'var(--muted)', border: '1px solid var(--subtle)',
                             }}>{saveState === 'saving' ? 'Saving…' : 'Saved'}</span>
                         )
-                    )}
+                    ) : null}
+                    />
 
                     {/* Mobile pane switcher */}
                     {isMobile && !tierLocked && (
-                        <Tabs idPrefix="hld" label="Workspace panes" value={mobilePane} onChange={setMobilePane} block
-                            items={[{ value: 'brief', label: 'Brief' }, { value: 'canvas', label: 'Canvas' }, { value: 'judge', label: 'Judge' }]}
-                            style={{ flexBasis: '100%' }} />
+                        <SmallTabs idPrefix="hld" label="Workspace panes" section="prepare" value={mobilePane} onChange={setMobilePane} block
+                            items={[{ value: 'brief', label: 'Brief' }, { value: 'canvas', label: 'Draw' }, { value: 'judge', label: 'Score' }]} />
                     )}
                 </div>
 
@@ -893,8 +894,8 @@ function HLDWorkspaceInner() {
                             used={error?.used}
                             limit={error?.limit}
                             resetsAt={error?.resetsAt}
-                            title="HLD practice is locked"
-                            subtitle="Free tier includes browsing only. Upgrade to build & get AI review."
+                            title="System design practice needs a Pro plan"
+                            subtitle="Free plans can browse. Upgrade to draw and get an AI score."
                         />
                     </div>
                 ) : !isMobile ? (

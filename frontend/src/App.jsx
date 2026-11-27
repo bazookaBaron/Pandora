@@ -10,6 +10,8 @@ import SessionExpiredBanner from './components/shared/SessionExpiredBanner'
 import FirstRunHost from './components/onboarding/FirstRunHost'
 import FirstVisitPicker from './components/onboarding/FirstVisitPicker'
 import BottomNav from './components/ui/BottomNav'
+import { useAnswersNeededCount } from './lib/useAutoApply'
+import { AUTOAPPLY_ENABLED } from './lib/sections'
 import { usePlanChangeRefetch } from './lib/useEntitlements'
 import { trackPageview } from './lib/analytics'
 import { createMutationCache } from './lib/mutationCache'
@@ -137,6 +139,12 @@ function RouteFallback() {
     )
 }
 
+// Bottom bar with the Auto Apply "answers needed" badge (shares the needs-you query cache).
+function AppBottomNav() {
+    const answers = useAnswersNeededCount({ enabled: AUTOAPPLY_ENABLED })
+    return <BottomNav badges={AUTOAPPLY_ENABLED && answers ? { autoapply: answers } : undefined} />
+}
+
 export default function App() {
     return (
         <QueryClientProvider client={queryClient}>
@@ -206,7 +214,7 @@ export default function App() {
                     {/* Global footer — appears under every route. */}
                     <Footer />
                     {/* Phone tab bar (< 768px, CSS-hidden above). Body padding keeps content clear of it. */}
-                    <BottomNav />
+                    <AppBottomNav />
                 </AuthProvider>
             </BrowserRouter>
         </QueryClientProvider>

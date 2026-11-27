@@ -7,13 +7,8 @@ import SubcategoryList from '../../components/interview/SubcategoryList'
 import QuestionList from '../../components/interview/QuestionList'
 import AnswerViewer from '../../components/interview/AnswerViewer'
 import { toneForSubcategory } from '../../components/interview/categoryTheme'
-import { Tabs, Pill } from '../../components/ui'
-
-const MOBILE_TABS = [
-    { value: 'subcategories', label: 'Topics' },
-    { value: 'questions', label: 'Questions' },
-    { value: 'answer', label: 'Answer' },
-]
+import { Pill, PageHeader, SmallTabs } from '../../components/ui'
+import { TERMS } from '../../lib/copy'
 
 // ── sessionStorage keys ────────────────────────────────────────────
 const SK_SUBCATEGORY = 'iq:subcategory'
@@ -21,6 +16,9 @@ const SK_QUESTION = 'iq:questionId'
 const SK_QUESTION_TEXT = 'iq:questionText'
 
 // ── Main page ─────────────────────────────────────────────────────
+// Full-height app layout: calc(100dvh - var(--bnav-h)) so nothing hides
+// behind the phone bottom bar. Under 1024px it is one pane at a time,
+// switched by small tabs (Topics -> Questions -> Answer).
 export default function InterviewPage() {
     const { data: pairs = [], isLoading: subsLoading, error: subsError } = useInterviewSubcategories()
     // Below 1024px the three-column layout gets too cramped to read answers
@@ -31,7 +29,7 @@ export default function InterviewPage() {
     const [activeSub, setActiveSub] = useState(() => ssGet(SK_SUBCATEGORY) || null)
     const [activeQId, setActiveQId] = useState(() => ssGet(SK_QUESTION) || null)
     const [activeQText, setActiveQText] = useState(() => ssGet(SK_QUESTION_TEXT) || '')
-    const [mobileTab, setMobileTab] = useState('subcategories') // 'subcategories' | 'answer' | 'questions'
+    const [mobileTab, setMobileTab] = useState('subcategories') // 'subcategories' | 'questions' | 'answer'
 
     // Active category tone — resolved from the selected subcategory against the
     // loaded (category, subcategory) pairs. Threaded to all three panels.
@@ -70,9 +68,15 @@ export default function InterviewPage() {
         if (isMobile) setMobileTab('answer')
     }
 
+    const mobileTabs = [
+        { value: 'subcategories', label: 'Topics' },
+        { value: 'questions', label: 'Questions', disabled: !activeSub },
+        { value: 'answer', label: 'Answer', disabled: !activeQId },
+    ]
+
     // ── Panel contents ────────────────────────────────────────────
     const LeftPanel = (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', borderRight: '1px solid var(--subtle)' }}>
+        <div className="iq-pane">
             {!isMobile && (
                 <div className="iq-panel-head">
                     <span className="iq-label">Topics</span>
@@ -89,25 +93,25 @@ export default function InterviewPage() {
     )
 
     const MiddlePanel = (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', borderRight: '1px solid var(--subtle)' }}>
+        <div className="iq-pane">
             {activeQId && !isMobile && (
                 <div className="iq-panel-head">
                     <span className="iq-label">Answer</span>
                 </div>
             )}
-            <div style={{ flex: 1, overflow: 'hidden' }}>
+            <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
                 <AnswerViewer questionId={activeQId} questionText={activeQText} tone={tone} />
             </div>
         </div>
     )
 
     const RightPanel = (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div className="iq-pane">
             <div className="iq-panel-head">
                 <span className="iq-label">Questions</span>
                 {activeSub && <Pill tone={tone} soft title={activeSub}>{activeSub}</Pill>}
             </div>
-            <div style={{ flex: 1, overflow: 'auto' }}>
+            <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 <QuestionList subcategory={activeSub} activeId={activeQId} onSelect={handleQuestionSelect} tone={tone} />
             </div>
         </div>
@@ -116,38 +120,28 @@ export default function InterviewPage() {
     return (
         <>
             <Navbar />
-            <div className="has-tilebar" style={{ height: "100vh", paddingTop: "var(--nav-h)", display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                {/* Header bar */}
-                <div className="iq-bar">
-                    <h1>Interview Q&amp;A</h1>
-                    {!isMobile && <span className="iq-count">{pairs.length} topics</span>}
-
-                    {/* Mobile tab switcher */}
+            <div className="has-tilebar iq-page">
+                <div className="iq-top">
+                    <PageHeader
+                        section="prepare"
+                        back={{ to: '/prepare', label: 'Prepare' }}
+                        title={TERMS.interviewQuestions.one}
+                        subtitle={pairs.length ? `${pairs.length} topics, with answers` : 'Real questions, with answers'}
+                    />
                     {isMobile && (
-                        <Tabs idPrefix="iq" label="Interview panels" value={mobileTab} onChange={setMobileTab} items={MOBILE_TABS} block />
+                        <SmallTabs idPrefix="iq" label="Interview panels" section="prepare" value={mobileTab} onChange={setMobileTab} items={mobileTabs} block />
                     )}
                 </div>
 
-                {/* Desktop: three-column flex layout */}
                 {!isMobile ? (
-                    <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
-                        {/* Left — 20% */}
-                        <div style={{ width: '20%', minWidth: 160, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)' }}>
-                            {LeftPanel}
-                        </div>
-                        {/* Middle — 47% */}
-                        <div style={{ flex: '1 1 0', overflow: 'hidden', background: 'var(--surface-2)' }}>
-                            {MiddlePanel}
-                        </div>
-                        {/* Right — 33% */}
-                        <div style={{ width: '33%', minWidth: 240, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', borderLeft: '1px solid var(--subtle)' }}>
-                            {RightPanel}
-                        </div>
+                    <div className="iq-cols">
+                        <div className="iq-col is-left">{LeftPanel}</div>
+                        <div className="iq-col is-mid">{MiddlePanel}</div>
+                        <div className="iq-col is-right">{RightPanel}</div>
                     </div>
                 ) : (
                     // Mobile: single pane, tab-controlled
-                    <div role="tabpanel" id={`iq-panel-${mobileTab}`} aria-labelledby={`iq-tab-${mobileTab}`}
-                        style={{ flex: 1, overflow: 'hidden', background: 'var(--surface-2)' }}>
+                    <div role="tabpanel" id={`iq-panel-${mobileTab}`} aria-labelledby={`iq-tab-${mobileTab}`} className="iq-mpane">
                         {mobileTab === 'subcategories' && LeftPanel}
                         {mobileTab === 'answer' && MiddlePanel}
                         {mobileTab === 'questions' && RightPanel}

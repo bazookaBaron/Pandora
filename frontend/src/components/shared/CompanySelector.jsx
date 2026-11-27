@@ -25,7 +25,7 @@ export default function CompanySelector({ selected = [], onChange }) {
     const clear = () => { onChange([]); setSearch('') }
 
     return (
-        <div ref={ref} style={{ position: 'relative', minWidth: 180 }}>
+        <div ref={ref} className="co-sel" style={{ position: 'relative', minWidth: 0 }}>
             {/* Trigger box */}
             <div
                 style={{
@@ -37,7 +37,7 @@ export default function CompanySelector({ selected = [], onChange }) {
                     border: `1px solid ${open ? 'var(--pop)' : 'var(--subtle)'}`,
                     borderRadius: 6,
                     cursor: 'text',
-                    minHeight: 36,
+                    minHeight: 44,
                     alignItems: 'center',
                     boxShadow: open ? '0 0 0 2px color-mix(in srgb, var(--pop) 15%, transparent)' : 'none',
                     transition: 'border-color 0.15s, box-shadow 0.15s',
@@ -45,14 +45,14 @@ export default function CompanySelector({ selected = [], onChange }) {
                 onClick={() => { setOpen(true); }}
             >
                 {selected.length === 0 && !open && (
-                    <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Company…</span>
+                    <span style={{ color: 'var(--muted)', fontSize: '0.9375rem' }}>Search company…</span>
                 )}
                 {selected.map(c => (
                     <span key={c} style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         background: 'var(--pop-dim)', color: 'var(--pop)',
                         border: '1px solid color-mix(in srgb, var(--pop) 25%, transparent)', borderRadius: 4,
-                        padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
+                        padding: '1px 6px', fontSize: '0.8125rem', fontWeight: 600,
                     }}>
                         {c}
                         <button type="button" aria-label={`Remove ${c}`}
@@ -69,12 +69,17 @@ export default function CompanySelector({ selected = [], onChange }) {
                         value={search}
                         onChange={e => setSearch(e.target.value)}
                         placeholder={selected.length ? '' : 'Search company…'}
+                        aria-label="Search company"
+                        role="combobox"
+                        aria-expanded={open}
+                        aria-autocomplete="list"
                         style={{
                             background: 'none', border: 'none', outline: 'none', color: 'var(--bright)',
-                            font: 'inherit', fontSize: '0.8rem', minWidth: 80, flex: 1,
+                            font: 'inherit', fontSize: '1rem', minWidth: 80, flex: 1,
                         }}
                         onKeyDown={e => {
                             if (e.key === 'Escape') setOpen(false)
+                            if (e.key === 'Enter' && filtered[0]) { e.preventDefault(); add(filtered[0]) }
                             if (e.key === 'Backspace' && !search && selected.length) {
                                 remove(selected[selected.length - 1])
                             }
@@ -84,7 +89,7 @@ export default function CompanySelector({ selected = [], onChange }) {
                 {selected.length > 0 && (
                     <button type="button" aria-label="Clear all companies" onClick={(e) => { e.preventDefault(); e.stopPropagation(); clear() }}
                         title="Clear all"
-                        style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 14, marginLeft: 'auto', padding: '0 2px' }}>
+                        style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, marginLeft: 'auto', padding: 0, minWidth: 32, minHeight: 32 }}>
                         ×
                     </button>
                 )}
@@ -92,7 +97,7 @@ export default function CompanySelector({ selected = [], onChange }) {
 
             {/* Dropdown */}
             {open && (
-                <div style={{
+                <div role="listbox" aria-label="Companies" style={{
                     position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
                     background: 'var(--panel)', border: '1px solid var(--subtle)', borderRadius: 6,
                     maxHeight: 240, overflowY: 'auto', zIndex: 200,
@@ -108,9 +113,12 @@ export default function CompanySelector({ selected = [], onChange }) {
                     )}
                     {filtered.map(c => (
                         <div key={c}
+                            role="option"
+                            aria-selected="false"
                             onMouseDown={(e) => { e.preventDefault(); add(c) }}
                             style={{
-                                padding: '7px 12px', cursor: 'pointer', fontSize: '0.82rem', color: 'var(--accent)',
+                                display: 'flex', alignItems: 'center', minHeight: 44,
+                                padding: '0 12px', cursor: 'pointer', fontSize: '0.9375rem', color: 'var(--accent)',
                                 borderBottom: '1px solid var(--subtle)',
                                 transition: 'background 0.1s, color 0.1s',
                             }}

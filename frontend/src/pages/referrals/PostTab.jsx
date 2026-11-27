@@ -1,15 +1,20 @@
 import { useRef, useState } from 'react'
-import { FileText, Upload, X } from 'lucide-react'
+import { FileText, Send, Upload, X } from 'lucide-react'
 import { ApiError, isUsageLimit } from '../../lib/apiClient'
 import { LockedPanel } from '../../components/shared/PaywallGate'
 import { ErrorState, LimitReached } from '../../components/shared/states'
 import CompanyAutocomplete from '../../components/shared/CompanyAutocomplete'
 import { Button } from '../../components/ui'
 import { EVENTS, track } from '../../lib/analytics'
+import { track as trackUi, TRACK } from '../../lib/track'
 import { useMyReferrals, usePostReferral } from '../../lib/useReferrals'
-import { QuotaLine } from './Chips'
+import { QuotaPill } from './Chips'
+import { getSection } from '../../lib/sections'
 
-// ── Tab: Post a request ────────────────────────────────────────────
+const TONE = getSection('referrals').tone
+
+// ── Tab: Ask for a referral ───────────────────────────────────────
+// One short form. The Send button sits in a sticky bar above the bottom nav.
 export default function PostTab({ limits, onPosted }) {
     const monthlyLimit = limits?.referral_requests_per_month
     const mine = useMyReferrals()
@@ -28,8 +33,8 @@ export default function PostTab({ limits, onPosted }) {
         return (
             <LockedPanel
                 feature="referral_request"
-                title="Referral requests are a Pro feature"
-                subtitle="Upgrade to ask verified employees at a company to refer you."
+                title="Referral requests need Pro"
+                subtitle="Upgrade to ask employees to refer you."
             />
         )
     }
@@ -41,11 +46,12 @@ export default function PostTab({ limits, onPosted }) {
 
     const submit = async (e) => {
         e.preventDefault()
+        trackUi(TRACK.CTA_CLICK, { id: 'referral_send', section: 'referrals' })
         setFormErr(null)
         setLimitErr(null)
         setOpenExists(false)
 
-        if (!company.trim()) { setFormErr({ message: 'Enter the target company.' }); return }
+        if (!company.trim()) { setFormErr({ message: 'Enter the company.' }); return }
         if (!resumeFile) { setFormErr({ message: 'Attach your resume PDF.' }); return }
 
         const fd = new FormData()
@@ -80,37 +86,45 @@ export default function PostTab({ limits, onPosted }) {
     const usage = mine.data?.usage
 
     return (
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div className="form-group">
-                <label className="field-label" htmlFor="ref-company">Target company</label>
+        <form onSubmit={submit} className="rf-form" noValidate>
+            {usage && (
+                <div className="rf-quota">
+                    <span>This month</span>
+                    <QuotaPill usage={usage} />
+                </div>
+            )}
+
+            <div className="sys-field">
+                <label className="sys-field-label" htmlFor="ref-company">Company</label>
                 <CompanyAutocomplete id="ref-company" value={company} onChange={setCompany} />
-                <p className="field-hint">Pick one or type a new company.</p>
             </div>
 
-            <div className="form-group">
-                <label className="field-label" htmlFor="ref-job-id">Job ID <span className="ref-optional">(optional)</span></label>
-                <input
-                    id="ref-job-id"
-                    className="input-field"
-                    placeholder="e.g. R-123456"
-                    value={jobId}
-                    onChange={(e) => setJobId(e.target.value)}
-                />
-            </div>
-
-            <div className="form-group">
-                <label className="field-label" htmlFor="ref-job-title">Job title <span className="ref-optional">(optional)</span></label>
+            <div className="sys-field">
+                <label className="sys-field-label" htmlFor="ref-job-title">Role <span className="rf-optional">(optional)</span></label>
                 <input
                     id="ref-job-title"
                     className="input-field"
-                    placeholder="e.g. Senior Backend Engineer"
+                    placeholder="e.g. Backend Engineer"
+                    autoComplete="off"
                     value={jobTitle}
                     onChange={(e) => setJobTitle(e.target.value)}
                 />
             </div>
 
-            <div className="form-group">
-                <span className="field-label" id="ref-resume-label">Resume PDF</span>
+            <div className="sys-field">
+                <label className="sys-field-label" htmlFor="ref-job-id">Job ID <span className="rf-optional">(optional)</span></label>
+                <input
+                    id="ref-job-id"
+                    className="input-field"
+                    placeholder="e.g. R-123456"
+                    autoComplete="off"
+                    value={jobId}
+                    onChange={(e) => setJobId(e.target.value)}
+                />
+            </div>
+
+            <div className="sys-field">
+                <span className="sys-field-label" id="ref-resume-label">Resume PDF</span>
                 {resumeFile ? (
                     <div className="ref-file">
                         <FileText size={16} aria-hidden="true" />
@@ -129,17 +143,15 @@ export default function PostTab({ limits, onPosted }) {
                     ref={fileRef}
                     type="file"
                     accept=".pdf"
-                    style={{ display: 'none' }}
+                    hidden
                     onChange={(e) => setResumeFile(e.target.files[0] || null)}
                 />
             </div>
 
-            {usage && <QuotaLine usage={usage} />}
-
             {openExists && (
-                <div className="sys-note is-warn" role="alert">
-                    You already have an open request. Cancel it from “My requests” first.
-                </div>
+                <p className="sys-note is-warn" role="alert">
+                    You already have an open request. Cancel it in Mine first.
+                </p>
             )}
 
             {limitErr && (
@@ -153,10 +165,12 @@ export default function PostTab({ limits, onPosted }) {
 
             {formErr && <ErrorState compact err={formErr} />}
 
-            <button type="submit" className="primary-btn" disabled={post.isPending}>
-                <span>{post.isPending ? 'Posting…' : 'Post referral request'}</span>
-                {post.isPending && <div className="spinner" />}
-            </button>
+            <div className="rf-sendbar" style={{ '--tone': TONE }}>
+                <button type="submit" className="sys-tone-btn is-block" disabled={post.isPending} aria-busy={post.isPending || undefined}>
+                    {post.isPending ? <span className="sys-spin" aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
+                    <span>{post.isPending ? 'Sending…' : 'Send request'}</span>
+                </button>
+            </div>
         </form>
     )
 }

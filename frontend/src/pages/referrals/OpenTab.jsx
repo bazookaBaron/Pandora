@@ -1,19 +1,23 @@
 import { useState } from 'react'
-import { Briefcase, Building2, Clock, Hash } from 'lucide-react'
+import { Building2 } from 'lucide-react'
 import { ApiError } from '../../lib/apiClient'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
-import { Button } from '../../components/ui'
+import { Button, Row, Sheet } from '../../components/ui'
 import { relTime } from '../../lib/format'
 import { fetchResumeUrl, useAcceptReferral, useOpenReferrals } from '../../lib/useReferrals'
-import { Chip } from './Chips'
+import { Fact } from './Chips'
 import VerifyHint from './VerifyHint'
+import { getSection } from '../../lib/sections'
 
-// ── Tab: Open for my company ──────────────────────────────────────
-function OpenCard({ r }) {
+const TONE = getSection('referrals').tone
+
+// ── Tab: Give (open requests for my company) ───────────────────────
+// One row per request; the details and the Accept button live in a sheet.
+
+function OpenSheet({ r, onClose, accepted, onAccepted }) {
     const accept = useAcceptReferral()
     const [viewing, setViewing] = useState(false)
     const [viewErr, setViewErr] = useState('')
-    const [accepted, setAccepted] = useState(false)
     const [gone, setGone] = useState(false)
     const [acceptErr, setAcceptErr] = useState('')
 
@@ -23,7 +27,7 @@ function OpenCard({ r }) {
         try {
             await fetchResumeUrl(r.id)
         } catch (err) {
-            if (err instanceof ApiError && err.status === 403) setViewErr('The resume is available only to the person who accepted this request.')
+            if (err instanceof ApiError && err.status === 403) setViewErr('Only the person who accepted can see the resume.')
             else setViewErr(errorText(err))
         } finally {
             setViewing(false)
@@ -34,69 +38,59 @@ function OpenCard({ r }) {
         setAcceptErr('')
         try {
             await accept.mutateAsync(r.id)
-            setAccepted(true)
+            onAccepted(r.id)
         } catch (err) {
             if (err instanceof ApiError && err.code === 'already_accepted') {
-                setAcceptErr('This request was just accepted by someone else.')
+                setAcceptErr('Someone else just accepted this request.')
                 setGone(true)
             } else if (err instanceof ApiError && err.code === 'accept_limit') {
                 setAcceptErr(err.body?.message || "You've reached today's accept limit. Try again later.")
             } else if (err instanceof ApiError && err.code === 'no_company') {
-                setAcceptErr('Add your current company in your profile before accepting.')
+                setAcceptErr('Add your current company in your profile first.')
             } else {
                 setAcceptErr(errorText(err))
             }
         }
     }
 
-    if (accepted) {
-        return (
-            <div className="ref-card tone-success">
-                <span className="sys-note is-ok" role="status">
-                    Accepted — the candidate has been emailed your contact info.
-                </span>
-                <div>
-                    <Button onClick={viewResume} busy={viewing} busyLabel="Opening…">View resume</Button>
-                </div>
-                {viewErr && <span className="ref-err" role="alert">{viewErr}</span>}
-            </div>
-        )
-    }
-
     const cand = r.poster || {}
-    const title = r.job_title || 'Referral request'
+    const yoe = cand.years_of_experience != null && cand.years_of_experience !== '' ? `${cand.years_of_experience} yrs` : null
+
+    const footer = accepted ? (
+        <Button variant="primary" size="lg" block onClick={viewResume} busy={viewing} busyLabel="Opening…">View resume</Button>
+    ) : gone ? null : (
+        <button type="button" className="sys-tone-btn is-block" style={{ '--tone': TONE }} onClick={doAccept} disabled={accept.isPending} aria-busy={accept.isPending || undefined}>
+            {accept.isPending && <span className="sys-spin" aria-hidden="true" />}
+            <span>{accept.isPending ? 'Accepting…' : 'Accept and refer'}</span>
+        </button>
+    )
 
     return (
-        <div className={`ref-card tone-${gone ? 'history' : 'active'}`}>
-            <div className="ref-head">
-                <span className="ref-title" title={title}>{title}</span>
-                <span className="sys-chips">
-                    <Chip icon={Building2} title="Target company">{r.target_company}</Chip>
-                    {r.job_id && <Chip icon={Hash} title="Job ID">{r.job_id}</Chip>}
-                    {cand.position && <Chip icon={Briefcase} title="Candidate's current role">{cand.position}</Chip>}
-                    {cand.years_of_experience != null && cand.years_of_experience !== '' && (
-                        <Chip icon={Clock} title="Years of experience">{cand.years_of_experience} yrs</Chip>
-                    )}
-                </span>
-                {!gone && (
-                    <span className="ref-head-end">
-                        <Button variant="primary" onClick={doAccept} busy={accept.isPending} busyLabel="Accepting…">
-                            Accept &amp; refer
-                        </Button>
-                    </span>
+        <Sheet open onClose={onClose} title={r.job_title || 'Referral request'} description={r.target_company} footer={footer}>
+            <div className="rf-sheet">
+                {accepted && (
+                    <p className="sys-note is-ok" role="status">Accepted. The candidate got your contact info by email.</p>
                 )}
+                <div className="rf-facts">
+                    <Fact label="Company">{r.target_company}</Fact>
+                    <Fact label="Job ID">{r.job_id}</Fact>
+                    <Fact label="Their role">{cand.position}</Fact>
+                    <Fact label="Experience">{yoe}</Fact>
+                    <Fact label="Posted">{relTime(r.created_at)}</Fact>
+                    <Fact label="Expires">{relTime(r.expires_at)}</Fact>
+                </div>
+                {acceptErr && <p className="ref-err" role="alert">{acceptErr}</p>}
+                {viewErr && <p className="ref-err" role="alert">{viewErr}</p>}
             </div>
-            <span className="ref-time">
-                Posted {relTime(r.created_at)} · expires {relTime(r.expires_at)}
-            </span>
-
-            {acceptErr && <span className="ref-err" role="alert">{acceptErr}</span>}
-        </div>
+        </Sheet>
     )
 }
 
 export default function OpenTab() {
     const { data, isLoading, error, refetch } = useOpenReferrals()
+    const [openId, setOpenId] = useState(null)
+    const [snapshot, setSnapshot] = useState(null) // keeps the sheet open if the list refetches
+    const [acceptedIds, setAcceptedIds] = useState(() => new Set())
 
     if (isLoading) return <LoadingState />
     if (error) return <ErrorState err={error} onRetry={refetch} />
@@ -106,8 +100,7 @@ export default function OpenTab() {
             <EmptyState
                 art="people"
                 tone="active"
-                title="Add your company to see referral requests"
-                message="Set your current company in your profile to see requests targeting it."
+                title="Add your company to see requests"
                 action={<Button to="/profile">Edit profile</Button>}
             />
         )
@@ -115,25 +108,42 @@ export default function OpenTab() {
 
     const requests = data?.requests || []
     const hint = data?.viewerVerified === false ? <VerifyHint company={data?.company} /> : null
-    if (requests.length === 0) {
-        const company = data?.company
-        return (
-            <>
-                {hint}
-                <EmptyState
-                    art="inbox"
-                    title={`No open referral requests${company ? ` for ${company}` : ''} right now`}
-                />
-            </>
-        )
-    }
+    const current = openId ? (requests.find((r) => r.id === openId) || snapshot) : null
+    const markAccepted = (id) => setAcceptedIds((s) => new Set(s).add(id))
 
     return (
         <>
             {hint}
-            <div className="ref-list">
-                {requests.map((r) => <OpenCard key={r.id} r={r} />)}
-            </div>
+            {requests.length === 0 ? (
+                <EmptyState art="inbox" title={`No open requests${data?.company ? ` for ${data.company}` : ''} yet`} />
+            ) : (
+                <ul className="sys-rows" aria-label="Open referral requests">
+                    {requests.map((r) => {
+                        const done = acceptedIds.has(r.id)
+                        return (
+                            <li key={r.id}>
+                                <Row
+                                    leading={<Building2 size={18} aria-hidden="true" />}
+                                    title={r.job_title || 'Referral request'}
+                                    sub={[r.target_company, r.poster?.position].filter(Boolean).join(' · ')}
+                                    meta={done ? 'Accepted' : relTime(r.created_at)}
+                                    metaTone={done ? 'success' : undefined}
+                                    onClick={() => { setOpenId(r.id); setSnapshot(r) }}
+                                />
+                            </li>
+                        )
+                    })}
+                </ul>
+            )}
+            {current && (
+                <OpenSheet
+                    key={current.id}
+                    r={current}
+                    accepted={acceptedIds.has(current.id)}
+                    onAccepted={markAccepted}
+                    onClose={() => { setOpenId(null); setSnapshot(null) }}
+                />
+            )}
         </>
     )
 }

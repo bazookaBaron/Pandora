@@ -4,11 +4,14 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useCompanyOptions } from '../lib/useReferrals'
 import { track, EVENTS } from '../lib/analytics'
+import Navbar from '../components/Navbar'
+import { PageContainer } from '../components/shared/Layout'
+import { PageHeader, SmallTabs, TabPanel } from '../components/ui'
 
 // Free-text company field with a suggestion dropdown. Suggestions need an
 // authenticated session (the catalog endpoint is bearer-gated), so on the
 // public auth screen this degrades gracefully to a plain text input.
-function CompanyAutocomplete({ value, onChange, placeholder = 'Start typing a company…', required = false }) {
+function CompanyAutocomplete({ id, value, onChange, placeholder = 'Start typing a company…', required = false }) {
     const [open, setOpen] = useState(false)
     const [debounced, setDebounced] = useState(value || '')
     const boxRef = useRef(null)
@@ -33,6 +36,7 @@ function CompanyAutocomplete({ value, onChange, placeholder = 'Start typing a co
     return (
         <div ref={boxRef} style={{ position: 'relative' }}>
             <input
+                id={id}
                 type="text"
                 className="input-field"
                 autoComplete="off"
@@ -212,59 +216,58 @@ export default function AuthPage() {
         // On success, Supabase redirects to Google — no need to setLoading(false)
     }
 
+    const isLogin = tab === 'login'
+    const switchTab = (t) => { setTab(t); clearStatus() }
+
     return (
-        <div className="auth-wrap">
-            <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 400, margin: '0 auto' }}>
-                {/* Logo */}
-                <div className="auth-logo">
-                    <img src="/vloombox-logo.svg" alt="" width="56" height="56" className="logo-mark" style={{ width: 56, height: 56, padding: 0, background: 'none' }} />
-                    <div>
-                        <h1 className="auth-brand">Vloombox</h1>
-                        <p className="auth-tagline">AI-Powered ATS Tailoring</p>
-                    </div>
-                </div>
+        <>
+            <Navbar />
+            <PageContainer width="sm" className="auth-page">
+                <PageHeader
+                    section="me"
+                    title={isLogin ? 'Sign in' : 'Create your account'}
+                    subtitle="Jobs, prep and referrals in one place"
+                />
 
-                {/* Card */}
-                <div className="auth-card card">
-                    {/* Tabs */}
-                    <div className="auth-tabs">
-                        <button
-                            className={`auth-tab${tab === 'login' ? ' active' : ''}`}
-                            onClick={() => { setTab('login'); clearStatus() }}
-                        >Sign In</button>
-                        <button
-                            className={`auth-tab${tab === 'signup' ? ' active' : ''}`}
-                            onClick={() => { setTab('signup'); clearStatus() }}
-                        >Create Account</button>
-                    </div>
-
-                    {/* Google OAuth Button */}
-                    <button className="google-btn" onClick={handleGoogleLogin} disabled={loading} type="button">
+                <div className="auth-card">
+                    {/* Primary: Google */}
+                    <button className="google-btn auth-google" onClick={handleGoogleLogin} disabled={loading} type="button">
                         <GoogleIcon />
                         Continue with Google
                     </button>
 
-                    <div className="or-divider">or</div>
+                    <div className="or-divider">or use email</div>
 
-                    {/* Login Form */}
-                    {tab === 'login' && (
+                    <SmallTabs
+                        idPrefix="auth"
+                        label="Sign in or create an account"
+                        section="me"
+                        block
+                        value={tab}
+                        onChange={switchTab}
+                        items={[{ value: 'login', label: 'Sign in' }, { value: 'signup', label: 'Create account' }]}
+                    />
+
+                    <TabPanel idPrefix="auth" value="login" active={isLogin}>
                         <form onSubmit={handleLogin} className="auth-form">
-                            <div className="form-group">
-                                <label className="field-label">Email</label>
+                            <div className="sys-field">
+                                <label className="sys-field-label" htmlFor="auth-login-email">Email</label>
                                 <input
-                                    type="email" className="input-field" placeholder="you@example.com"
+                                    id="auth-login-email" type="email" className="input-field" placeholder="you@example.com"
+                                    autoComplete="email" inputMode="email"
                                     value={loginEmail} onChange={e => setLoginEmail(e.target.value)} required
                                 />
                             </div>
-                            <div className="form-group">
-                                <label className="field-label">Password</label>
+                            <div className="sys-field">
+                                <label className="sys-field-label" htmlFor="auth-login-pw">Password</label>
                                 <div className="pw-row">
                                     <input
-                                        type={showLoginPw ? 'text' : 'password'} className="input-field"
-                                        placeholder="••••••••" value={loginPw}
+                                        id="auth-login-pw" type={showLoginPw ? 'text' : 'password'} className="input-field"
+                                        autoComplete="current-password" value={loginPw}
                                         onChange={e => setLoginPw(e.target.value)} required
                                     />
-                                    <button type="button" className="icon-btn" onClick={() => setShowLoginPw(v => !v)}>
+                                    <button type="button" className="icon-btn" onClick={() => setShowLoginPw(v => !v)}
+                                        aria-label={showLoginPw ? 'Hide password' : 'Show password'} aria-pressed={showLoginPw}>
                                         <EyeIcon open={showLoginPw} />
                                     </button>
                                 </div>
@@ -274,73 +277,75 @@ export default function AuthPage() {
                                     {resetSending ? 'Sending reset link…' : 'Forgot password?'}
                                 </button>
                             </div>
-                            <button type="submit" className="primary-btn auth-submit-btn" disabled={loading}>
-                                <span>{loading ? 'Signing In…' : 'Sign In'}</span>
-                                {loading && <div className="spinner" />}
+                            <button type="submit" className="sys-tone-btn is-block auth-submit" disabled={loading} aria-busy={loading || undefined}>
+                                {loading && <span className="sys-spin" aria-hidden="true" />}
+                                <span>{loading ? 'Signing in…' : 'Sign in'}</span>
                             </button>
                         </form>
-                    )}
+                    </TabPanel>
 
-                    {/* Signup Form */}
-                    {tab === 'signup' && (
+                    <TabPanel idPrefix="auth" value="signup" active={!isLogin}>
                         <form onSubmit={handleSignup} className="auth-form">
-                            <div className="form-group">
-                                <label className="field-label">Full Name</label>
+                            <div className="sys-field">
+                                <label className="sys-field-label" htmlFor="auth-su-name">Full name</label>
                                 <input
-                                    type="text" className="input-field" placeholder="Jane Doe"
+                                    id="auth-su-name" type="text" className="input-field" placeholder="Jane Doe" autoComplete="name"
                                     value={signupName} onChange={e => setSignupName(e.target.value)} required
                                 />
                             </div>
-                            <div className="form-group">
-                                <label className="field-label">Email</label>
+                            <div className="sys-field">
+                                <label className="sys-field-label" htmlFor="auth-su-email">Email</label>
                                 <input
-                                    type="email" className="input-field" placeholder="you@example.com"
+                                    id="auth-su-email" type="email" className="input-field" placeholder="you@example.com"
+                                    autoComplete="email" inputMode="email"
                                     value={signupEmail} onChange={e => setSignupEmail(e.target.value)} required
                                 />
                             </div>
-                            <div className="form-group">
-                                <label className="field-label">Password</label>
+                            <div className="sys-field">
+                                <label className="sys-field-label" htmlFor="auth-su-pw">Password</label>
                                 <div className="pw-row">
                                     <input
-                                        type={showSignupPw ? 'text' : 'password'} className="input-field"
-                                        placeholder="Min. 8 characters" minLength={8}
+                                        id="auth-su-pw" type={showSignupPw ? 'text' : 'password'} className="input-field"
+                                        placeholder="Min. 8 characters" minLength={8} autoComplete="new-password"
                                         value={signupPw} onChange={e => setSignupPw(e.target.value)} required
                                     />
-                                    <button type="button" className="icon-btn" onClick={() => setShowSignupPw(v => !v)}>
+                                    <button type="button" className="icon-btn" onClick={() => setShowSignupPw(v => !v)}
+                                        aria-label={showSignupPw ? 'Hide password' : 'Show password'} aria-pressed={showSignupPw}>
                                         <EyeIcon open={showSignupPw} />
                                     </button>
                                 </div>
                                 <PwStrengthBar password={signupPw} />
                             </div>
-                            <div className="form-group">
-                                <label className="field-label">Current company</label>
-                                <CompanyAutocomplete value={signupCompany} onChange={setSignupCompany} placeholder="e.g. Google" required />
+                            <div className="sys-field">
+                                <label className="sys-field-label" htmlFor="auth-su-company">Current company</label>
+                                <CompanyAutocomplete id="auth-su-company" value={signupCompany} onChange={setSignupCompany} placeholder="e.g. Google" required />
                             </div>
-                            <div className="form-group">
-                                <label className="field-label">Your position / title</label>
+                            <div className="sys-field">
+                                <label className="sys-field-label" htmlFor="auth-su-pos">Your role</label>
                                 <input
-                                    type="text" className="input-field" placeholder="e.g. Senior Software Engineer" required
+                                    id="auth-su-pos" type="text" className="input-field" placeholder="e.g. Software Engineer" required
+                                    autoComplete="organization-title"
                                     value={signupPosition} onChange={e => setSignupPosition(e.target.value)}
                                 />
                             </div>
-                            <div className="form-group">
-                                <label className="field-label">Years of experience</label>
+                            <div className="sys-field">
+                                <label className="sys-field-label" htmlFor="auth-su-yoe">Years of experience</label>
                                 <input
-                                    type="number" min={0} step={0.5} className="input-field" placeholder="e.g. 4" required
+                                    id="auth-su-yoe" type="number" min={0} step={0.5} className="input-field" placeholder="e.g. 4" required
+                                    inputMode="decimal"
                                     value={signupYoe} onChange={e => setSignupYoe(e.target.value)}
                                 />
-                                <p className="field-hint">Used to match you with referral requests. You can edit this later in your profile.</p>
+                                <p className="field-hint">Used to match referral requests.</p>
                             </div>
-                            <button type="submit" className="primary-btn auth-submit-btn" disabled={loading}>
-                                <span>{loading ? 'Creating…' : 'Create Account'}</span>
-                                {loading && <div className="spinner" />}
+                            <button type="submit" className="sys-tone-btn is-block auth-submit" disabled={loading} aria-busy={loading || undefined}>
+                                {loading && <span className="sys-spin" aria-hidden="true" />}
+                                <span>{loading ? 'Creating…' : 'Create account'}</span>
                             </button>
                         </form>
-                    )}
+                    </TabPanel>
 
-                    {/* Status */}
                     {status.msg && (
-                        <div className={`auth-status auth-status--${status.type}`}>
+                        <div className={`auth-status auth-status--${status.type}`} role="status">
                             {status.msg}
                         </div>
                     )}
@@ -349,8 +354,8 @@ export default function AuthPage() {
                 <p className="auth-footer-note">
                     By continuing, you agree to our <Link className="accent-link" to="/terms">Terms</Link> &amp; <Link className="accent-link" to="/privacy">Privacy Policy</Link>.
                 </p>
-            </div>
-        </div>
+            </PageContainer>
+        </>
     )
 }
 

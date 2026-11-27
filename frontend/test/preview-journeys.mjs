@@ -73,7 +73,7 @@ try {
   await cdp('Network.enable'); await cdp('Network.setBlockedURLs',{ urls: ['https://*','http://*.com/*'] });
   const session = { access_token: token,refresh_token: 'fixture',token_type: 'bearer',expires_in: 3600,expires_at: Math.floor(Date.now()/1000)+3600,user };
   await cdp('Page.addScriptToEvaluateOnNewDocument',{ source: `if(location.pathname==='/auth') localStorage.removeItem('sb-127-auth-token'); else localStorage.setItem('sb-127-auth-token',${JSON.stringify(JSON.stringify(session))})` });
-  for (const [route,heading] of [['/','Jobs'],['/interview','Interview Q&A'],['/optimizer','Resume Optimizer'],['/pricing',"Prep like it’s your job."],['/auth','Vloombox']]) {
+  for (const [route,heading] of [['/','Jobs'],['/interview','Interview questions'],['/optimizer','Resume check'],['/pricing',"Prep like it’s your job."],['/auth','Vloombox']]) {
     await cdp('Page.navigate',{ url:origin+route }); let rendered=false;
     for (let n=0;n<60;n++) {
       const result=await cdp('Runtime.evaluate',{ expression: `JSON.stringify({ headings:[...document.querySelectorAll('h1,h2')].map(n=>n.textContent.trim()),root:!!document.querySelector('#root')?.children.length })`,returnByValue:true });

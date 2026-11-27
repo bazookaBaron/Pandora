@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Check, Copy } from 'lucide-react'
 import Navbar from '../../components/Navbar'
-import { PageHeader as SharedPageHeader } from '../../components/shared/Layout'
 import { ErrorState, LoadingState } from '../../components/shared/states'
-import { useAutoApplyMe, useInboxUnread, useNeedsYou } from '../../lib/useAutoApply'
+import { useAutoApplyMe } from '../../lib/useAutoApply'
 import { AUTO_APPLY } from '../../../config/tiers.js'
 import './autoapply.css'
 import { toast } from '../../lib/toast'
@@ -88,7 +87,7 @@ const TASK_STATUS = {
     applied: ['Applied', 't-green'],
     skipped: ['Skipped', 't-muted'],
     failed: ['Failed', 't-red'],
-    needs_you: ['Needs you', 't-warm'],
+    needs_you: ['Answers needed', 't-warm'],
     cancelled: ['Cancelled', 't-muted'],
 }
 
@@ -132,7 +131,7 @@ export function StatTile({ icon: Icon, label, value, hint, tone = 'history', to 
 }
 
 // ── stacked bucket bar: applied / applying / needs you / queued out of the batch total ──
-const BAR_ORDER = [['applied', 'Applied'], ['applying', 'Applying'], ['needs_you', 'Needs you'], ['queued', 'Queued']]
+const BAR_ORDER = [['applied', 'Applied'], ['applying', 'Applying'], ['needs_you', 'Answers needed'], ['queued', 'Queued']]
 export function StackBar({ buckets = {}, total = 0, legend = false }) {
     const sum = BAR_ORDER.reduce((n, [k]) => n + (Number(buckets[k]) || 0), 0)
     const denom = Math.max(Number(total) || 0, sum, 1)
@@ -174,7 +173,7 @@ export const ACTIVE_BATCH = ['paid', 'shortlisting', 'review', 'running', 'pause
 
 // ── profile gate (missing items from /me profile_check, aa_batches.waiting_detail or a 'profile' needs-you item) ──
 // missing key -> SetupPage step that fixes it (fields.* / facts.* / profile items are on the answers step)
-const STEP_FOR = { onboarding: 'consent', resume: 'resume', email: 'email' }
+const STEP_FOR = { onboarding: 'review', consent: 'review', resume: 'resume', email: 'review', prefs: 'role', titles: 'role', locations: 'location' }
 export const setupStepFor = (key) => STEP_FOR[key] || 'answers'
 export function setupLinkFor(missing) {
     const first = Array.isArray(missing) && missing[0]
@@ -280,7 +279,7 @@ export function MustCompaniesInput({ value, onChange, suggestions = [], query, o
                 </datalist>
                 <button type="button" className="aa-btn" onClick={() => add(query)} disabled={disabled || full || !String(query || '').trim()}>Add</button>
             </div>
-            <div className="field-hint">{list.length} / {MUST_MAX} · We apply to matching jobs at these companies first, when they have open roles that fit your preferences.</div>
+            <div className="field-hint">{list.length} / {MUST_MAX} · We apply here first when they have a job that fits.</div>
         </div>
     )
 }
@@ -312,7 +311,7 @@ const REASONS = {
     daily_cap: 'Daily limit reached, will retry',
     company_cap: 'Company limit reached this week',
     site_budget: 'Site busy today, will retry',
-    batch_cancelled: 'Batch cancelled',
+    batch_cancelled: 'Pack stopped',
     removed_by_user: 'You removed it',
 }
 export const reasonText = (code) => (code ? REASONS[code] || code.replace(/_/g, ' ') : '')
@@ -383,38 +382,10 @@ export function InlineConfirm({ message, confirmLabel = 'Confirm', onConfirm, on
     )
 }
 
-// ── sub-navigation ──────────────────────────────────────────────────
-const TABS = [
-    { to: '/autoapply', label: 'Overview', also: ['/autoapply/batches', '/autoapply/buy', '/autoapply/needs-you'] },
-    { to: '/autoapply/inbox', label: 'Inbox', unread: true },
-    { to: '/autoapply/account', label: 'Account' },
-]
-
-function SubNav({ showBadge }) {
-    const { pathname } = useLocation()
-    // the unread badge polls only for an eligible (paid) user
-    const unread = useInboxUnread({ enabled: !!showBadge })
-    const unreadCount = showBadge ? (unread.data?.count || 0) : 0
-    return (
-        <nav className="aa-subnav" aria-label="AutoApply">
-            {TABS.map((t) => {
-                const active = t.to === '/autoapply'
-                    ? pathname === t.to || t.also.some((p) => pathname.startsWith(p))
-                    : pathname.startsWith(t.to)
-                return (
-                    <Link key={t.to} to={t.to} className={`nav-pill${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined}>
-                        {t.label}
-                        {t.unread && unreadCount > 0 && <span className="aa-count" aria-label={`${unreadCount} unread`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}
-                    </Link>
-                )
-            })}
-        </nav>
-    )
-}
-
-// Page shell: Navbar + sub-nav + main. `gate` = require an eligible (Pro/Max)
-// account; free users see the upgrade card instead of `children`.
-export function AALayout({ children, gate = false, showNav = true }) {
+// Page shell: Navbar + main. `gate` = require an eligible (Pro/Max) account; free users see the
+// upgrade card instead of `children`. The bottom tab bar (App.jsx) replaces the old sub-nav; pages
+// link back to /autoapply from their PageHeader.
+export function AALayout({ children, gate = false }) {
     const me = useAutoApplyMe()
     const eligible = !!me.data?.eligible
     let body = children
@@ -427,7 +398,6 @@ export function AALayout({ children, gate = false, showNav = true }) {
         <>
             <Navbar />
             <main className="wrap aa-wrap">
-                {showNav && <SubNav showBadge={eligible} />}
                 {body}
             </main>
         </>
@@ -437,17 +407,45 @@ export function AALayout({ children, gate = false, showNav = true }) {
 export function UpgradeCard({ plan }) {
     return (
         <section className="aa-card is-warm" aria-labelledby="aa-upgrade-h">
-            <h2 id="aa-upgrade-h" style={{ margin: 0, fontSize: '1rem', fontWeight: 900, color: 'var(--bright)' }}>
-                AutoApply needs Pro or Max
+            <h2 id="aa-upgrade-h" style={{ margin: 0, fontSize: 'var(--fs-body)', fontWeight: 600, color: 'var(--bright)' }}>
+                Auto Apply needs Pro or Max
             </h2>
             <p className="aa-muted" style={{ margin: '8px 0 14px' }}>
-                {plan && plan !== 'free' ? `Your plan (${plan}) doesn't include it.` : "You're on the Free plan."}
+                {plan && plan !== 'free' ? `Your plan (${plan}) does not include it.` : 'You are on the Free plan.'}
             </p>
-            <Link to="/pricing" className="aa-btn is-primary">See Pro and Max</Link>
+            <Link to="/pricing" className="sys-tone-btn" style={{ '--tone': 'var(--pop)' }}>See plans</Link>
         </section>
     )
 }
 
-export function PageHeader({ title, lead, actions }) {
-    return <SharedPageHeader title={title} subtitle={lead} actions={actions} />
+// ── mobile-first helpers (plan 4.3) ─────────────────────────────────
+/** "Service pack · 50" */
+export const packTitle = (b) => `${PACK_KINDS[b?.pack_kind]?.short || b?.pack_kind || 'Auto Apply'} pack · ${num(b?.credits_total ?? b?.pack_size ?? 0)}`
+
+/** "₹12" per application from a pack price in paise */
+export const perApplication = (pricePaise, size) => (pricePaise != null && size > 0 ? rupees(pricePaise / size) : null)
+
+/** matching-job count as shown on the sales / buy screens: "50+" once the pack can be filled */
+export function matchShown(count, size = 50) {
+    const n = Number(count) || 0
+    if (n >= size) return `${size}+`
+    if (n >= 50) return '50+'
+    return num(n)
+}
+
+// Setup progress, remembered on this device (step id only, never answers).
+const SETUP_KEY = 'aa_setup_step_v1'
+export const SETUP_ORDER = ['role', 'location', 'resume', 'answers', 'review']
+export const SETUP_LABELS = { role: 'Role & experience', location: 'Location', resume: 'Resume', answers: 'Common questions', review: 'Review' }
+export function readSetupStep() {
+    try {
+        const v = window.localStorage.getItem(SETUP_KEY)
+        return SETUP_ORDER.includes(v) ? v : null
+    } catch { return null }
+}
+export function writeSetupStep(id) {
+    try {
+        if (id) window.localStorage.setItem(SETUP_KEY, id)
+        else window.localStorage.removeItem(SETUP_KEY)
+    } catch { /* private mode */ }
 }
