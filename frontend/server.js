@@ -76,8 +76,10 @@ import {
   createAutoApplyRouter,
   createInboundHandler,
   handleAutoApplyWebhook,
+  handleWalletWebhook,
   runAutoApplyRefunds,
   runNeedsYouJobs,
+  runWalletFundsNotices,
   runExpirePendingOrders,
   runMailCleanup,
   runDailyMailAlerts,
@@ -4430,7 +4432,11 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
       eventClaimed = true;
     }
 
-    // AutoApply packs (order notes.kind === 'autoapply'): payment.captured /
+    // AutoApply wallet top-ups (order.paid, order notes.kind === 'wallet_topup'): credit once. null = not ours.
+    const wt = await handleWalletWebhook({ db: supabaseAdmin, body: req.body });
+    if (wt) return res.status(200).json(wt);
+
+    // AutoApply packs (legacy, retired: order notes.kind === 'autoapply'): payment.captured /
     // order.paid -> idempotent batch 'paid' + ledger 'purchase'. null = not ours.
     const aa = await handleAutoApplyWebhook({ db: supabaseAdmin, body: req.body });
     if (aa) return res.status(200).json(aa);
@@ -5208,6 +5214,7 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
   if (!razorpay.isEnabled()) console.warn("[autoapply] Razorpay keys not set: paid refunds wait, zero-amount batches still processed");
   cron.schedule("*/15 * * * *", () => runAutoApplyRefunds(), { timezone: "Asia/Kolkata" });
   // needs-you: expire items of final batches; at most ONE "a few details needed" push per batch once it is ready
+  cron.schedule("2-59/5 * * * *", () => runWalletFundsNotices().then((r) => { if (r && r.sent) console.log("[autoapply] wallet-empty notices", JSON.stringify(r)); }), { timezone: "Asia/Kolkata" });
   cron.schedule("7,22,37,52 * * * *", () => runNeedsYouJobs().then((r) => { if (r && r.notified && r.notified.sent) console.log("[autoapply] needs-you", JSON.stringify(r)); }), { timezone: "Asia/Kolkata" });
 } else {
   console.warn("[autoapply] refunds cron disabled (no SUPABASE_SERVICE_ROLE_KEY)");

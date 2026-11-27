@@ -33,6 +33,7 @@ export const aaKeys = {
     me: ['aa', 'me'],
     answers: ['aa', 'answers'],
     supply: (kind, windowDays) => ['aa', 'supply', kind, windowDays],
+    wallet: ['aa', 'wallet'],
     batches: ['aa', 'batches'],
     batch: (id) => ['aa', 'batch', id],
     needsYou: ['aa', 'needs-you'],
@@ -394,6 +395,50 @@ export function useSaveAnswers({ meta } = {}) {
     })
 }
 
+/** Wallet balance + reserved amount + rates (GET /wallet). Refreshed often: the worker charges as it applies. */
+export function useWallet() {
+    const uid = useUid()
+    return useQuery({
+        queryKey: [...aaKeys.wallet, uid],
+        queryFn: () => aa('/wallet'),
+        enabled: !!uid,
+        staleTime: 10_000,
+        refetchInterval: 20_000,
+    })
+}
+
+export function useTopupOrder() {
+    return useMutation({ mutationFn: (amount_paise) => aa('/wallet/topup', { json: { amount_paise } }), meta: { inlineError: true } })
+}
+
+export function useVerifyTopup() {
+    const qc = useQueryClient()
+    return useMutation({
+        mutationFn: (body) => aa('/wallet/topup/verify', { json: body, timeout: 60_000 }),
+        meta: { inlineError: true },
+        // a top-up resumes batches that waited for funds: refresh everything that shows money or batch state
+        onSuccess: () => Promise.all([
+            qc.invalidateQueries({ queryKey: aaKeys.wallet }),
+            qc.invalidateQueries({ queryKey: aaKeys.batches }),
+            qc.invalidateQueries({ queryKey: ['aa', 'batch'] }),
+        ]),
+    })
+}
+
+/** POST /batches: start a batch from the wallet. */
+export function useStartBatch() {
+    const qc = useQueryClient()
+    return useMutation({
+        mutationFn: (body) => aa('/batches', { json: body }),
+        meta: { inlineError: true },
+        onSuccess: () => Promise.all([
+            qc.invalidateQueries({ queryKey: aaKeys.wallet }),
+            qc.invalidateQueries({ queryKey: aaKeys.batches }),
+            qc.invalidateQueries({ queryKey: aaKeys.me }),
+        ]),
+    })
+}
+
 export function useCreateOrder() {
     // BuyPage renders order errors inline
     return useMutation({ mutationFn: (body) => aa('/orders', { json: body }), meta: { inlineError: true } })
@@ -452,9 +497,9 @@ export function useSetMustCompanies({ meta: metaOverride } = {}) {
 const OPTIMISTIC_STATUS = { pause: 'paused', cancel: 'cancelled' }
 const ACTION_DONE = {
     approve: 'Approved. We start applying shortly.',
-    pause: 'Pack paused.',
-    resume: 'Pack resumed.',
-    cancel: 'Pack stopped.',
+    pause: 'Batch paused.',
+    resume: 'Batch resumed.',
+    cancel: 'Batch stopped. Unused money stays in your wallet.',
 }
 
 // action: 'approve' | 'pause' | 'resume' | 'cancel'

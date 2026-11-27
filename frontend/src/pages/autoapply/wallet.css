@@ -1,0 +1,27 @@
+/* Auto Apply wallet: card on the home page, compact batch card, "Add money" sheet. Uses existing tokens only. */
+.wl-card { display: grid; gap: 12px; padding: 16px; border-radius: var(--radius-lg); background: var(--panel); border: 1px solid var(--pop); box-shadow: inset 3px 0 0 var(--pop); }
+.wl-card.is-empty { border-color: var(--warm, var(--pop)); box-shadow: inset 3px 0 0 var(--warm, var(--pop)); }
+.wl-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.wl-label { margin: 0; font-size: var(--fs-small); color: var(--muted); }
+.wl-bal { margin: 2px 0 0; font-size: 1.75rem; line-height: 1.1; font-weight: var(--fw-strong); color: var(--bright); font-variant-numeric: tabular-nums; }
+.wl-sub { margin: 2px 0 0; font-size: var(--fs-small); color: var(--muted); }
+.wl-add { white-space: nowrap; }
+.wl-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.wl-preset { min-height: 44px; border-radius: var(--radius-md, 10px); border: 1px solid var(--border); background: var(--panel); color: var(--bright); font: inherit; font-weight: var(--fw-strong); cursor: pointer; }
+.wl-preset.is-on { border-color: var(--pop); box-shadow: inset 0 0 0 1px var(--pop); color: var(--pop); }
+.wl-custom { margin-top: 12px; }
+.wl-pay { width: 100%; justify-content: center; }
+.wl-note { margin: 0; font-size: var(--fs-small); color: var(--muted); }
+
+/* the highlighted "Add money / Start a batch" row at the top of the list */
+.sys-rows .wl-row-hl { border-radius: var(--radius-lg); box-shadow: inset 0 0 0 1px var(--pop); background: color-mix(in srgb, var(--pop) 8%, var(--panel)); }
+
+/* compact running-batch card: "Product · 49/50 ▓▓▓░ View" on one line, thin bar, status chip, credits left */
+.aa-pack.is-compact { padding: 10px 14px; gap: 6px; }
+.aa-compact { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.aa-compact-title { flex: 0 1 auto; min-width: 0; margin: 0; font-size: var(--fs-body); font-weight: var(--fw-strong); color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: none; letter-spacing: 0; }
+.aa-compact-num { flex: none; font-size: var(--fs-small); color: var(--muted); font-variant-numeric: tabular-nums; }
+.aa-compact-bar { flex: 1 1 60px; min-width: 40px; height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.aa-compact-bar > span { display: block; height: 100%; background: var(--tone, var(--pop)); }
+.aa-compact-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-small); color: var(--muted); }
+.aa-pack-msg.is-compact { margin: 0; }

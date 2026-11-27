@@ -62,7 +62,7 @@ export function useAAGuide() {
         const building = batches.find((b) => PRE_REVIEW.includes(b.status))
         const waitingProfile = batches.find((b) => b.status === 'waiting_profile')
         const pastReview = batches.some((b) => PAST_REVIEW.includes(b.status))
-        const needCount = needsQ.data?.items?.length || 0
+        const needCount = (needsQ.data?.unique_count ?? needsQ.data?.items?.length) || 0
         const reviewHours = d.config?.review_hours ?? 6
         const skipReview = d.review_before_apply === false
 

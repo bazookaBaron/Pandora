@@ -78,6 +78,7 @@ before(async () => {
   app.use(
     "/api/autoapply",
     createAutoApplyRouter({
+      legacyPacks: true,
       db,
       mailDb,
       env: { VAPID_PUBLIC_KEY: "BPUBLICKEY", VAPID_PRIVATE_KEY: "x" },

@@ -42,14 +42,16 @@ export const PENDING_HOLD_MS = 30 * 60 * 1000;
 export async function monthPurchased(db, userId, now = new Date(), { includePending = false, excludeBatchId = null } = {}) {
   const { data, error } = await db
     .from("aa_batches")
-    .select("id, credits_total, credits_used, status")
+    .select("id, credits_total, credits_used, status, rate_paise")
     .eq("user_id", userId)
     .gte("purchased_at", istMonthStart(now).toISOString());
   if (error) throw error;
   let sum = 0;
   for (const r of data || []) {
     if (excludeBatchId && r.id === excludeBatchId) continue;
-    sum += REFUND_STATUSES.includes(r.status) ? Math.max(0, Number(r.credits_used) || 0) : Number(r.credits_total) || 0;
+    // a closed wallet batch (finished_partial / stopped) only counts what was really used
+    const usedOnly = REFUND_STATUSES.includes(r.status) || r.status === "finished_partial" || (r.rate_paise != null && r.status === "cancelled");
+    sum += usedOnly ? Math.max(0, Number(r.credits_used) || 0) : Number(r.credits_total) || 0;
   }
   if (includePending) {
     const { data: pend, error: pErr } = await db

@@ -400,6 +400,7 @@ before(async () => {
   app.use(
     "/api/autoapply",
     createAutoApplyRouter({
+      legacyPacks: true,
       db,
       mailDb,
       razorpay,

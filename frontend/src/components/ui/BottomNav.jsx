@@ -11,7 +11,7 @@ import { sectionIcon } from './sectionIcons'
 // TODO(WS-M0): a cheap count endpoint would let the badge show before the first visit.
 function useCachedNeedsCount(uid) {
     const { data } = useQuery({ queryKey: ['aa', 'needs-you', uid], queryFn: skipToken, enabled: false })
-    const n = Array.isArray(data?.items) ? data.items.length : 0
+    const n = data?.unique_count ?? (Array.isArray(data?.items) ? data.items.length : 0)
     return uid ? n : 0
 }
 

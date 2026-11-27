@@ -25,7 +25,7 @@ export default function StatsSection() {
                 <ErrorState err={q.error} onRetry={() => q.refetch()} title="Could not load results" />
             ) : !t || t.applied === 0 ? (
                 <EmptyState icon={<EmptyArt kind="stats" tone="active" />} title="No applications yet" message="Results show after your first applications."
-                    action={<Link to="/autoapply/buy" className="sys-tone-btn aa-tone">See packs</Link>} />
+                    action={<Link to="/autoapply/buy" className="sys-tone-btn aa-tone">Start a batch</Link>} />
             ) : (
                 <div className="aa-stack" style={{ gap: 16 }}>
                     <StatTiles cols={3} style={{ marginBottom: 0 }}>

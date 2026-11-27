@@ -5,7 +5,8 @@ import { safeHref } from './InterviewCard'
 import { EmptyState, ErrorState, LoadingState, errorText } from '../../components/shared/states'
 import { HelpChip, PageHeader, Progress, Row, Sheet, SmallTabs, StatusBanner, TabPanel } from '../../components/ui'
 import { CTA, TERMS } from '../../lib/copy'
-import { fetchTaskProof, useAutoApplyRealtime, useBatch, useBatchAction, useCompanySuggest, useSetMustCompanies } from '../../lib/useAutoApply'
+import { fetchTaskProof, useAutoApplyRealtime, useBatch, useBatchAction, useCompanySuggest, useSetMustCompanies, useWallet } from '../../lib/useAutoApply'
+import WalletTopUp from './WalletTopUp'
 import {
     AALayout, BatchStatusPill, EmptyArt, InlineConfirm, MustCompaniesInput, fmtDate, num, packTitle, reasonText, rupees, setupLinkFor,
 } from './ui'
@@ -51,9 +52,10 @@ function useCountdown(iso) {
 }
 
 const CONFIRM_COPY = {
-    pause: ['Pause this pack? Nothing new is sent until you resume. Unused applications stay saved.', 'Pause', 'neutral'],
-    resume: ['Resume applying for this pack?', 'Resume', 'neutral'],
+    pause: ['Pause this batch? Nothing new is sent until you resume. Unused applications stay saved.', 'Pause', 'neutral'],
+    resume: ['Resume applying for this batch?', 'Resume', 'neutral'],
     approve: ['Start applying now instead of waiting for the review window to end?', 'Approve now', 'neutral'],
+    cancel: ['Stop this batch for good? Applications already sent stay charged; nothing else is.', 'Stop batch', 'danger'],
 }
 
 function Controls({ batch }) {
@@ -64,9 +66,10 @@ function Controls({ batch }) {
     const s = batch.status
     const can = {
         approve: s === 'review',
-        pause: ['shortlisting', 'review', 'running', 'waiting_supply', 'waiting_profile', 'paid'].includes(s),
+        pause: ['shortlisting', 'review', 'running', 'waiting_supply', 'waiting_profile', 'waiting_funds', 'paid'].includes(s),
         resume: s === 'paused',
-        cancel: false, // no-refund policy: a paid pack is paused, never cancelled (admin-only refunds)
+        // wallet batches can be stopped for good: only submitted applications were ever charged
+        cancel: batch.rate_paise != null && ['shortlisting', 'review', 'running', 'waiting_supply', 'waiting_profile', 'waiting_funds', 'paused', 'paid'].includes(s),
     }
     if (!Object.values(can).some(Boolean)) return null
 
@@ -94,6 +97,7 @@ function Controls({ batch }) {
                     {can.approve && <button type="button" className="aa-btn is-primary" disabled={action.isPending} onClick={() => setPending('approve')}>Approve now</button>}
                     {can.pause && <button type="button" className="aa-btn" disabled={action.isPending} onClick={() => setPending('pause')}>Pause</button>}
                     {can.resume && <button type="button" className="aa-btn is-primary" disabled={action.isPending} onClick={() => setPending('resume')}>Resume</button>}
+                    {can.cancel && <button type="button" className="aa-btn" disabled={action.isPending} onClick={() => setPending('cancel')}>Stop batch</button>}
                 </div>
             )}
             {err && <ErrorState compact message={errorText(err)} />}
@@ -136,7 +140,7 @@ function MustCompaniesEditor({ batch }) {
     const [draft, setDraft] = useState(current)
     const [query, setQuery] = useState('')
     const suggest = useCompanySuggest(useDebounced(query, 250), batch.pack_kind)
-    const editable = ['paid', 'shortlisting', 'review', 'running', 'paused', 'waiting_supply', 'waiting_profile'].includes(batch.status)
+    const editable = ['paid', 'shortlisting', 'review', 'running', 'paused', 'waiting_supply', 'waiting_profile', 'waiting_funds'].includes(batch.status)
     if (!current.length && !editable) return null
     return (
         <section className="aa-stack" aria-labelledby="must-h" style={{ gap: 8 }}>
@@ -219,15 +223,15 @@ function TaskSheet({ task, batchId, onClose }) {
 
 function ManageSheet({ open, onClose, batch, live }) {
     return (
-        <Sheet open={open} onClose={onClose} title="Manage pack">
+        <Sheet open={open} onClose={onClose} title="Manage batch">
             <div className="aa-stack" style={{ gap: 18 }}>
                 <dl className="aa-dl">
-                    {batch.purchased_at && <div><dt>Bought</dt><dd>{shortDate(batch.purchased_at)}</dd></div>}
-                    {batch.price_paise != null && <div><dt>Paid</dt><dd>{rupees(batch.price_paise)}</dd></div>}
+                    {batch.purchased_at && <div><dt>{batch.rate_paise != null ? 'Started' : 'Bought'}</dt><dd>{shortDate(batch.purchased_at)}</dd></div>}
+                    {batch.rate_paise == null && batch.price_paise != null && <div><dt>Paid</dt><dd>{rupees(batch.price_paise)}</dd></div>}
                     {batch.expires_at && <div><dt>Ends</dt><dd>{shortDate(batch.expires_at)}</dd></div>}
                     <div><dt>Updates</dt><dd>{live ? 'Live' : 'Every 15 s'}</dd></div>
                 </dl>
-                <p className="aa-muted" style={{ margin: 0 }}>Credits are only used for submitted applications.</p>
+                <p className="aa-muted" style={{ margin: 0 }}>{batch.rate_paise != null ? 'You are only charged for applications we submit.' : 'Credits are only used for submitted applications.'}</p>
                 <Controls batch={batch} />
                 <MustCompaniesEditor key={(batch.must_companies || []).join('|')} batch={batch} />
             </div>
@@ -250,14 +254,24 @@ export default function BatchDetailPage() {
     const [tab, setTab] = useState(null)
     const [openTask, setOpenTask] = useState(null)
     const [manage, setManage] = useState(false)
+    const [topup, setTopup] = useState(false)
+    const wallet = useWallet()
     const curTab = tab || (needTasks.length ? 'answers' : 'applied')
 
     let banner = null
     if (batch) {
         if (params.get('new')) {
-            banner = <StatusBanner tone="ok" text={batch.status === 'waiting_profile' ? 'Payment confirmed. Finish your profile to start.' : 'Payment confirmed. We are finding jobs now.'} />
+            banner = <StatusBanner tone="ok" text={batch.status === 'waiting_profile' ? 'Batch started. Finish your profile to begin.' : 'Batch started. We are finding jobs now.'} />
         } else if (needTasks.length) {
             banner = <StatusBanner tone="action" text={`${num(needTasks.length)} job${needTasks.length === 1 ? ' needs' : 's need'} your answer`} action={{ label: CTA.answerNow, to: '/autoapply/needs-you' }} />
+        } else if (batch.status === 'waiting_funds') {
+            const left = Math.max(0, (batch.credits_total ?? 0) - (batch.credits_used ?? 0))
+            banner = <StatusBanner tone="action" text={`Wallet empty. Add money to continue (${num(left)} application${left === 1 ? '' : 's'} left in this batch).`} action={{ label: 'Add money', onClick: () => setTopup(true) }} />
+        } else if (batch.status === 'finished_partial' && q.data?.retrigger) {
+            const r = q.data.retrigger
+            const qs = new URLSearchParams({ size: String(r.size), days: String(r.window_days), from: batch.id })
+            if (r.must_companies?.length) qs.set('must', r.must_companies.join('|'))
+            banner = <StatusBanner tone="info" text={`${num(r.remaining)} application${r.remaining === 1 ? '' : 's'} left unused. Nothing was charged for them.`} action={{ label: 'Start again with remaining', to: `/autoapply/buy?${qs.toString()}` }} />
         } else if (batch.status === 'waiting_profile') {
             banner = <StatusBanner tone="warn" text="Waiting for your profile" action={{ label: 'Finish', to: setupLinkFor(batch.waiting_detail?.missing) }} />
         } else if (batch.status === 'review') {
@@ -305,14 +319,14 @@ export default function BatchDetailPage() {
                     </section>
 
                     <div className="aa-tabsbar">
-                        <SmallTabs idPrefix="pack" label="Pack jobs" section="autoapply" value={curTab} onChange={setTab}
+                        <SmallTabs idPrefix="pack" label="Batch jobs" section="autoapply" value={curTab} onChange={setTab}
                             items={[
                                 { value: 'applied', label: TERMS.applied.one, count: appliedTasks.length },
                                 { value: 'answers', label: TERMS.answersNeeded.one, count: needTasks.length },
                                 { value: 'skipped', label: TERMS.skipped.one, count: skippedCount },
                             ]} />
                         <HelpChip term="skipped" />
-                        <button type="button" className="aa-icon-only" onClick={() => setManage(true)} aria-label="Manage pack">
+                        <button type="button" className="aa-icon-only" onClick={() => setManage(true)} aria-label="Manage batch">
                             <Settings2 size={20} aria-hidden="true" />
                         </button>
                     </div>
@@ -337,6 +351,7 @@ export default function BatchDetailPage() {
 
                     <TaskSheet task={openTask} batchId={batch.id} onClose={() => setOpenTask(null)} />
                     <ManageSheet open={manage} onClose={() => setManage(false)} batch={batch} live={live} />
+                    <WalletTopUp open={topup} onClose={() => setTopup(false)} wallet={wallet.data} />
                 </>
             )}
         </AALayout>

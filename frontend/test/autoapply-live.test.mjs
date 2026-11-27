@@ -41,7 +41,7 @@ test("other batch states", () => {
 
 test("engineState never throws", async () => {
   const bad = { from: () => { throw new Error("x"); } };
-  assert.equal(await engineState(bad), "off");
+  assert.equal((await engineState(bad)).state, "off");
   const ok = { from: () => ({ select: () => ({ in: () => ({ order: () => ({ limit: async () => ({ data: [{ status: "running" }], error: null }) }) }) }) }) };
-  assert.equal(await engineState(ok), "running");
+  assert.equal((await engineState(ok)).state, "running");
 });

@@ -17,6 +17,7 @@ const UNIQUE = {
   aa_needs_you: [["id"]],
   aa_portal_accounts: [["user_id", "tenant_host"]],
   aa_worker_launches: [["id"], ["worker_id"]],
+  processed_payments: [["payment_id"], ["order_id"]],
 };
 
 const DEFAULTS = {

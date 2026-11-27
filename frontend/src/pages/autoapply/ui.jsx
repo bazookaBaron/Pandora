@@ -68,7 +68,9 @@ const BATCH_STATUS = {
     paused: ['Paused', 't-amber'],
     waiting_supply: ['Waiting for jobs', 't-amber'],
     waiting_profile: ['Waiting for your profile', 't-warm'],
+    waiting_funds: ['Wallet empty', 't-warm'],
     completed: ['Completed', 't-green'],
+    finished_partial: ['Finished', 't-green'],
     expired: ['Expired', 't-muted'],
     refund_due: ['Refund pending', 't-warm'],
     refunding: ['Refund in progress', 't-warm'],
@@ -96,7 +98,7 @@ export const TASK_STATUS_ORDER = Object.keys(TASK_STATUS)
 /** batch status -> segment tone (tone-* class in autoapply.css) */
 const BATCH_TONE = {
     paid: 'active', shortlisting: 'active', running: 'active', review: 'waiting', paused: 'waiting', waiting_supply: 'waiting',
-    waiting_profile: 'attention', refund_due: 'attention', refunding: 'attention', completed: 'success',
+    waiting_profile: 'attention', waiting_funds: 'attention', refund_due: 'attention', refunding: 'attention', completed: 'success', finished_partial: 'success',
 }
 export const batchTone = (status) => BATCH_TONE[status] || 'history'
 
@@ -169,7 +171,7 @@ export function EmptyArt({ kind = 'batches', tone = 'history', size = 56 }) {
     )
 }
 export const taskStatusLabel = (s) => (TASK_STATUS[s] || [s])[0]
-export const ACTIVE_BATCH = ['paid', 'shortlisting', 'review', 'running', 'paused', 'waiting_supply', 'waiting_profile']
+export const ACTIVE_BATCH = ['paid', 'shortlisting', 'review', 'running', 'paused', 'waiting_supply', 'waiting_profile', 'waiting_funds']
 
 // ── profile gate (missing items from /me profile_check, aa_batches.waiting_detail or a 'profile' needs-you item) ──
 // missing key -> SetupPage step that fixes it (fields.* / facts.* / profile items are on the answers step)
@@ -419,10 +421,12 @@ export function UpgradeCard({ plan }) {
 }
 
 // ── mobile-first helpers (plan 4.3) ─────────────────────────────────
-/** "Service pack · 50" */
-export const packTitle = (b) => `${PACK_KINDS[b?.pack_kind]?.short || b?.pack_kind || 'Auto Apply'} pack · ${num(b?.credits_total ?? b?.pack_size ?? 0)}`
+/** "Batch · 50" (wallet batches span both company kinds); legacy packs keep "Service pack · 50" */
+export const packTitle = (b) => (b?.rate_paise != null || !b?.pack_kind
+    ? `Batch · ${num(b?.credits_total ?? b?.pack_size ?? 0)}`
+    : `${PACK_KINDS[b?.pack_kind]?.short || b?.pack_kind || 'Auto Apply'} pack · ${num(b?.credits_total ?? b?.pack_size ?? 0)}`)
 
-/** "₹12" per application from a pack price in paise */
+/** "₹12" per application from a pack price in paise (legacy packs) */
 export const perApplication = (pricePaise, size) => (pricePaise != null && size > 0 ? rupees(pricePaise / size) : null)
 
 /** matching-job count as shown on the sales / buy screens: "50+" once the pack can be filled */
@@ -449,3 +453,15 @@ export function writeSetupStep(id) {
         else window.localStorage.removeItem(SETUP_KEY)
     } catch { /* private mode */ }
 }
+
+// ── wallet (sql/50): one price line for everyone, no company-kind split on the start screens ────
+export const BATCH_SIZES = [25, 50, 100]
+/** "₹12–₹18" from config.wallet.rate_paise */
+export function rateRange(config) {
+    const r = config?.wallet?.rate_paise
+    if (!r) return null
+    const lo = Math.min(r.product, r.service)
+    const hi = Math.max(r.product, r.service)
+    return lo === hi ? rupees(lo) : `${rupees(lo)}–${rupees(hi)}`
+}
+export const PRICE_LINE = (config) => (rateRange(config) ? `${rateRange(config)} per application · charged only after we apply` : 'Charged per application, only after we apply')
