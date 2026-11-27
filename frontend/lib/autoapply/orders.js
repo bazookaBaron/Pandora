@@ -315,7 +315,9 @@ export async function verifyAutoApplyPayment({ db, razorpay, userId, body, now =
   {
     const n = order.notes || {};
     if (
+      String(order.status || "") !== "paid" ||
       Number(order.amount) !== Number(batch.price_paise) ||
+      Number(order.amount_paid ?? order.amount) !== Number(batch.price_paise) ||
       String(n.kind || "") !== "autoapply" ||
       String(n.batch_id || "") !== String(batch.id) ||
       String(n.user_id || "") !== String(userId)

@@ -4002,6 +4002,15 @@ const PAID_PLANS = ["pro", "max"];
 const PERIODS = ["monthly", "yearly"];
 const TERM_DAYS = { monthly: 30, yearly: 365 };
 
+// Amount to compare a paid order against: the amount recorded at ORDER time (notes.amount_paise),
+// so a price/currency-table change between order and verify neither rejects a legit payment nor
+// accepts a stale one. Orders created before the note existed fall back to the current price.
+function recordedAmountFor(order, plan, billingPeriod) {
+  const rec = Number(order && order.notes && order.notes.amount_paise);
+  if (Number.isInteger(rec) && rec >= 100) return rec;
+  return expectedAmountFor(order && order.currency, plan, billingPeriod);
+}
+
 // India (and unknown) bills in INR paise; everyone else in USD cents — see
 // lib/geo.js's currencyForCountry for why unknown must stay on the INR side.
 // Shared by order creation and verification so both always agree on which
@@ -4043,7 +4052,7 @@ app.post(
         amountPaise,
         currency,
         receipt: `u${String(req.user.id).slice(0, 8)}_${Date.now().toString(36)}`,
-        notes: { user_id: req.user.id, plan, billingPeriod, currency },
+        notes: { user_id: req.user.id, plan, billingPeriod, currency, amount_paise: String(amountPaise) },
       });
 
       res.json({
@@ -4181,7 +4190,7 @@ app.post(
       const n = order.notes || {};
       // Trust the order's OWN currency (Razorpay's authoritative record of
       // what was actually charged), not a freshly-recomputed one.
-      const expected = expectedAmountFor(order.currency, plan, billingPeriod);
+      const expected = recordedAmountFor(order, plan, billingPeriod);
       if (
         String(order.status || "") !== "paid" ||
         String(n.user_id || "") !== String(req.user.id) ||
@@ -4471,7 +4480,7 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
         return res.status(202).json({ ok: true, note: "order.paid: not a plan order" });
       }
       const paid = Number(order.amount_paid ?? order.amount);
-      if (paid !== expectedAmountFor(order.currency, n.plan, n.billingPeriod)) {
+      if (paid !== recordedAmountFor(order, n.plan, n.billingPeriod) || Number(order.amount) !== paid) {
         console.warn("[rzp-webhook] order.paid amount mismatch", redact(JSON.stringify({ id: order.id, paid })));
         return res.status(202).json({ ok: true, note: "amount mismatch" });
       }
