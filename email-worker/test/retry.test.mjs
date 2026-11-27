@@ -166,3 +166,13 @@ test('has_attachments: set for real attachments, not for inline logos', async (t
   assert.equal(bodies[0].has_attachments, true);
   assert.equal(bodies[1].has_attachments, false);
 });
+
+test('redactAddr hides the local part; scrubParked issues the 15-minute json_set UPDATE', async () => {
+  const { redactAddr, scrubParked, SCRUB_AFTER_MS } = await import('../src/index.js');
+  assert.equal(redactAddr('amar.p3x9.globex@apply.vloombox.in'), 'a***@apply.vloombox.in');
+  const calls = [];
+  const env = { AA_PENDING: { prepare(sql) { return { bind(...a) { return { async run() { calls.push({ sql, a }); } }; } }; } } };
+  await scrubParked(env, () => 10_000_000);
+  assert.match(calls[0].sql, /json_set\(payload, '\$\.codes', json\('\[\]'\), '\$\.links', json\('\[\]'\)\)/);
+  assert.equal(calls[0].a[0], 10_000_000 - SCRUB_AFTER_MS);
+});

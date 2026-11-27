@@ -58,8 +58,33 @@ export async function deliver(env, payload, { fetchImpl = fetch, sleep = (ms) =>
     }
     if (attempt < tries) await sleep(RETRY.baseMs * (3 ** (attempt - 1)));
   }
-  console.error(JSON.stringify({ msg: 'inbound delivery failed', error: last, raw_key: payload.raw_key, to: payload.to }));
+  console.error(JSON.stringify({ msg: 'inbound delivery failed', error: last, raw_key: payload.raw_key, to: redactAddr(payload.to) }));
   return { ok: false, error: last, status: lastStatus };
+}
+
+/** Log-safe address: keeps the domain, hides the local part (it contains the user's name / alias). */
+export function redactAddr(addr) {
+  const a = String(addr || '');
+  const at = a.lastIndexOf('@');
+  if (at < 0) return a ? '***' : '';
+  return `${a.slice(0, 1)}***${a.slice(at)}`;
+}
+const fromDomain = (addr) => { const a = String(addr || ''); const at = a.lastIndexOf('@'); return at < 0 ? '' : a.slice(at + 1).toLowerCase(); };
+
+/** Parked payloads keep verification codes / links only this long: they are useless (expired) after, and sensitive. */
+export const SCRUB_AFTER_MS = 15 * 60 * 1000;
+
+/** Cron: blank `codes` and `links` of parked rows older than 15 minutes (the rest of the payload still re-delivers). */
+export async function scrubParked(env, now = Date.now) {
+  if (!env.AA_PENDING) return;
+  try {
+    await env.AA_PENDING.prepare(
+      "UPDATE pending_mail SET payload = json_set(payload, '$.codes', json('[]'), '$.links', json('[]')) " +
+      "WHERE created_at < ?1 AND (json_array_length(payload, '$.codes') > 0 OR json_array_length(payload, '$.links') > 0)",
+    ).bind(now() - SCRUB_AFTER_MS).run();
+  } catch (e) {
+    console.error(JSON.stringify({ msg: 'scrub failed', error: String(e) }));
+  }
 }
 
 /** Quick tries first; on final failure park the payload in D1 (when bound) for the cron to retry. */
@@ -67,11 +92,11 @@ export async function deliverOrPark(env, payload, opts = {}) {
   const r = await deliver(env, payload, opts);
   if (r.ok) return r;
   if (isPoison(r.status)) {
-    console.error(JSON.stringify({ msg: 'dropping unacceptable payload', status: r.status, to: payload.to, raw_key: payload.raw_key }));
+    console.error(JSON.stringify({ msg: 'dropping unacceptable payload', status: r.status, to: redactAddr(payload.to), raw_key: payload.raw_key }));
     return { ...r, parked: false, dropped: true };
   }
   if (!env.AA_PENDING) {
-    console.error(JSON.stringify({ msg: 'no AA_PENDING binding; mail not parked', raw_key: payload.raw_key, to: payload.to }));
+    console.error(JSON.stringify({ msg: 'no AA_PENDING binding; mail not parked', raw_key: payload.raw_key, to: redactAddr(payload.to) }));
     return { ...r, parked: false };
   }
   try {
@@ -81,7 +106,7 @@ export async function deliverOrPark(env, payload, opts = {}) {
     ).bind(crypto.randomUUID(), JSON.stringify(payload), now, now + DURABLE.backoffBaseMs, String(r.error || '').slice(0, 200)).run();
     return { ...r, parked: true };
   } catch (e) {
-    console.error(JSON.stringify({ msg: 'parking failed', error: String(e), raw_key: payload.raw_key, to: payload.to }));
+    console.error(JSON.stringify({ msg: 'parking failed', error: String(e), raw_key: payload.raw_key, to: redactAddr(payload.to) }));
     return { ...r, parked: false };
   }
 }
@@ -90,6 +115,7 @@ export async function deliverOrPark(env, payload, opts = {}) {
 export async function retryPending(env, { fetchImpl = fetch, now = Date.now } = {}) {
   const out = { delivered: 0, failed: 0, gave_up: 0, dropped: 0 };
   if (!env.AA_PENDING) return out;
+  await scrubParked(env, now);
   const t = now();
   const { results } = await env.AA_PENDING.prepare(
     'SELECT id, payload, created_at, attempts FROM pending_mail WHERE next_attempt_at <= ?1 ORDER BY created_at LIMIT ?2',
@@ -144,7 +170,7 @@ export default {
         customMetadata: { to, envelope_from: String(message.from || '').slice(0, 256) },
       });
     } catch (e) {
-      console.error(JSON.stringify({ msg: 'r2 put failed', error: String(e), to }));
+      console.error(JSON.stringify({ msg: 'r2 put failed', error: String(e), to: redactAddr(to) }));
       rawKey = null;
     }
 
@@ -159,7 +185,7 @@ export default {
     // AA_AUTHSERV_IDS (comma list) overrides the trusted authserv-id (default mx.cloudflare.net)
     const trustedAuthserv = env.AA_AUTHSERV_IDS ? String(env.AA_AUTHSERV_IDS).split(',') : undefined;
     const payload = buildPayload(parsed, { envelopeTo: to, envelopeFrom: message.from, receivedAt: now, rawKey, trustedAuthserv });
-    console.log(JSON.stringify({ msg: 'mail', to, from: payload.from, codes: payload.codes.length, links: payload.links.length, is_human: payload.is_human, auth: payload.auth && payload.auth.dmarc, raw_key: rawKey }));
+    console.log(JSON.stringify({ msg: 'mail', to: redactAddr(to), from_domain: fromDomain(payload.from), codes: payload.codes.length, links: payload.links.length, is_human: payload.is_human, auth: payload.auth && payload.auth.dmarc, raw_key: rawKey }));
     ctx.waitUntil(deliverOrPark(env, payload));
   },
 
