@@ -18,7 +18,8 @@ export function useGeoCurrency() {
     const needGeo = !user || (!ent.isLoading && !ent.currencyKnown)
     const geo = useQuery({
         queryKey: ['geo'],
-        queryFn: () => apiFetch('/api/geo'),
+        // Short timeout: if the lookup hangs, fall back to INR fast instead of a long skeleton.
+        queryFn: () => apiFetch('/api/geo', { timeout: 4000 }),
         enabled: needGeo,
         staleTime: 10 * 60_000,
         retry: 1,
