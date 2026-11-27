@@ -91,11 +91,29 @@ export function useBatches({ live = false } = {}) {
     })
 }
 
+// A background poll asks for ?summary=1 (counts + live line, no task rows). The cached task list is reused while the
+// counts are unchanged; any change in the counts (a task moved) triggers one full fetch. Full fetch when nothing is cached.
+const sameCounts = (a, b) => {
+    const ka = Object.keys(a || {}), kb = Object.keys(b || {})
+    return ka.length === kb.length && ka.every((k) => (a || {})[k] === (b || {})[k])
+}
+
 export function useBatch(id, { live = false } = {}) {
     const uid = useUid()
+    const qc = useQueryClient()
     return useQuery({
         queryKey: [...aaKeys.batch(id), uid],
-        queryFn: () => aa(`/batches/${encodeURIComponent(id)}`),
+        queryFn: async () => {
+            const url = `/batches/${encodeURIComponent(id)}`
+            const prev = qc.getQueryData([...aaKeys.batch(id), uid])
+            if (prev && Array.isArray(prev.tasks)) {
+                const sum = await aa(`${url}?summary=1`)
+                if (sum && sameCounts(sum.counts, prev.counts) && sum.batch && sum.batch.status === prev.batch?.status) {
+                    return { ...prev, ...sum, tasks: prev.tasks, task_total: prev.task_total, has_more: prev.has_more, offset: prev.offset }
+                }
+            }
+            return aa(url)
+        },
         enabled: !!uid && !!id,
         staleTime: 5_000,
         refetchInterval: live ? false : 15_000,
