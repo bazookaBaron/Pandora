@@ -133,7 +133,7 @@ test("bearer auth: missing / wrong token / stopped / expired launch -> 401", asy
 
 test("task-assets: only for this worker's in-flight task; signed resume + proof upload", async () => {
   const { row, auth } = await bootstrapped();
-  const t = { id: crypto.randomUUID(), user_id: U1, tenant_host: "acme.myworkdayjobs.com", status: "running", claimed_by: `${row.worker_id}-2` };
+  const t = { id: crypto.randomUUID(), user_id: U1, tenant_host: "acme.myworkdayjobs.com", status: "running", claimed_by: `${row.worker_id}-2`, lease_until: new Date(Date.now() + 600000).toISOString() };
   const other = { id: crypto.randomUUID(), user_id: U1, tenant_host: "acme.myworkdayjobs.com", status: "running", claimed_by: "vast-ffffffff-1" };
   const done = { ...t, id: crypto.randomUUID(), status: "applied" };
   db.rows("aa_tasks").push(t, other, done);
@@ -154,7 +154,7 @@ test("task-assets: only for this worker's in-flight task; signed resume + proof 
 test("portal-secret / portal-account: vault round trip scoped to task user + tenant", async () => {
   const { row, auth } = await bootstrapped();
   const host = "beta.greenhouse.io";
-  const t = { id: crypto.randomUUID(), user_id: U1, tenant_host: host, status: "submitting", claimed_by: `${row.worker_id}-1` };
+  const t = { id: crypto.randomUUID(), user_id: U1, tenant_host: host, status: "submitting", claimed_by: `${row.worker_id}-1`, lease_until: new Date(Date.now() + 600000).toISOString() };
   db.rows("aa_tasks").push(t);
   assert.deepEqual((await post("/portal-secret", { task_id: t.id }, auth)).body, { none: true });
   assert.equal((await post("/portal-account", { task_id: t.id, login_email: "bad", password: "x" }, auth)).status, 400);
