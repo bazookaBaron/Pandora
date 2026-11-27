@@ -101,14 +101,19 @@ export function useBatch(id, { live = false } = {}) {
     })
 }
 
+// One options object for every observer of ['aa','needs-you',uid]: two hooks used to register the same
+// key with different refetchIntervals (30 s vs 60 s), so the shortest won and the options fought.
+const needsYouQuery = (uid, enabled) => ({
+    queryKey: [...aaKeys.needsYou, uid],
+    queryFn: () => aa('/needs-you'),
+    enabled: !!uid && enabled,
+    refetchInterval: 30_000,
+    staleTime: 20_000,
+})
+
 export function useNeedsYou({ enabled = true } = {}) {
     const uid = useUid()
-    return useQuery({
-        queryKey: [...aaKeys.needsYou, uid],
-        queryFn: () => aa('/needs-you'),
-        enabled: !!uid && enabled,
-        refetchInterval: 30_000,
-    })
+    return useQuery(needsYouQuery(uid, enabled))
 }
 
 /**
@@ -126,13 +131,7 @@ export function useAnswersNeededCount({ enabled = true } = {}) {
         staleTime: 5 * 60_000,
     })
     const onboarded = !!me.data?.onboarding_done
-    const q = useQuery({
-        queryKey: [...aaKeys.needsYou, uid],
-        queryFn: () => aa('/needs-you'),
-        enabled: !!uid && enabled && onboarded,
-        refetchInterval: 60_000,
-        staleTime: 20_000,
-    })
+    const q = useQuery(needsYouQuery(uid, enabled && onboarded))
     return uid && Array.isArray(q.data?.items) ? q.data.items.length : 0
 }
 

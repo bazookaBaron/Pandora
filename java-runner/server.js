@@ -16,7 +16,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import {
-    LIMITS, Semaphore, childEnv, detectMainClass, runProcess, safeJoin, secretsMatch, validateRequest,
+    LIMITS, Semaphore, childEnv, detectMainClass, killUid, runProcess, safeJoin, secretsMatch, validateRequest,
 } from './lib.js';
 
 const intEnv = (name, dflt) => {
@@ -47,6 +47,13 @@ export function createApp(opts = {}) {
     const runTimeout = opts.runTimeoutMs ?? LIMITS.RUN_TIMEOUT_MS;
     const maxOutput = opts.maxOutputBytes ?? LIMITS.MAX_OUTPUT_BYTES;
 
+    // Sandbox uids: when RUNNER_SANDBOX_UID_BASE is set (Docker; server runs as root
+    // only to drop privileges for children) every concurrent run gets its own uid
+    // BASE+slot, no write access to /app, no access to other runs' work dirs.
+    const uidBase = opts.sandboxUidBase ?? intEnv('RUNNER_SANDBOX_UID_BASE', 0);
+    const freeSlots = [];
+    for (let i = 0; i < (opts.maxConcurrent ?? intEnv('MAX_CONCURRENT_RUNS', 2)); i++) freeSlots.push(i);
+
     const app = express();
     app.disable('x-powered-by');
 
@@ -72,9 +79,12 @@ export function createApp(opts = {}) {
         }
 
         let workDir;
+        const slot = uidBase ? freeSlots.pop() : undefined;
+        const sandbox = slot !== undefined ? { uid: uidBase + slot, gid: uidBase + slot } : undefined;
         try {
             workDir = await fs.mkdtemp(path.join(tmpdir(), 'java-run-'));
             await fs.chmod(workDir, 0o700).catch(() => { });
+            if (sandbox) await fs.chown(workDir, sandbox.uid, sandbox.gid);
             const env = childEnv(workDir);
 
             for (const f of v.files) {
@@ -85,7 +95,7 @@ export function createApp(opts = {}) {
             const compile = await runProcess(
                 'javac',
                 ['-J-Xmx256m', '-encoding', 'UTF-8', '-proc:none', '-d', '.', ...v.files.map((f) => f.name)],
-                { cwd: workDir, env, timeoutMs: compileTimeout, maxBytes: maxOutput, ulimit: ulimitFor(30) },
+                { cwd: workDir, env, timeoutMs: compileTimeout, maxBytes: maxOutput, ulimit: ulimitFor(30), sandbox },
             );
             const compileOut = { stdout: compile.stdout, stderr: compile.stderr, code: compile.code };
 
@@ -100,13 +110,17 @@ export function createApp(opts = {}) {
                 'java',
                 ['-Xmx256m', '-Xss8m', '-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1', '-XX:ActiveProcessorCount=1',
                     '-Djava.io.tmpdir=' + workDir, '-cp', '.', detectMainClass(v.files)],
-                { cwd: workDir, env, timeoutMs: runTimeout, maxBytes: maxOutput, stdin: v.stdin, ulimit: ulimitFor(12) },
+                { cwd: workDir, env, timeoutMs: runTimeout, maxBytes: maxOutput, stdin: v.stdin, ulimit: ulimitFor(12), sandbox },
             );
             res.json({ compile: compileOut, run: { stdout: run.stdout, stderr: run.stderr, code: run.code } });
         } catch (err) {
             console.error('[java-runner] run failed:', err);
             res.status(500).json({ error: 'internal error' });
         } finally {
+            if (sandbox) {
+                killUid(sandbox.uid, sandbox.gid);
+                freeSlots.push(slot);
+            }
             release();
             if (workDir) fs.rm(workDir, { recursive: true, force: true }).catch(() => { });
         }

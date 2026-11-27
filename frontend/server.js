@@ -3558,22 +3558,31 @@ app.post(
         });
       }
 
-      // Single conditional UPDATE: id + status='open' + company match
-      // (case-insensitive) + not self. maybeSingle() → null when nothing matched.
-      const { data, error } = await supabaseAdmin
-        .from("referral_requests")
-        .update({
-          status: "accepted",
-          accepted_by_user_id: req.user.id,
-          accepted_at: new Date().toISOString(),
-        })
-        .eq("id", req.params.id)
-        .eq("status", "open")
-        .eq("target_company_norm", myCompany.toLowerCase())
-        .neq("poster_user_id", req.user.id)
-        .select()
-        .maybeSingle();
-      if (error) throw error;
+      // Atomic claim (sql/50): per-user advisory lock + 24h count + conditional UPDATE in ONE
+      // transaction, so parallel accepts cannot overshoot the cap. The pre-check above only
+      // supplies the friendly message / retryAt; this RPC is the enforcement.
+      // Note: work-email verification is deliberately optional in this feature (it only raises
+      // the cap, see lib/referralAccess.js), so no verified-only gate is added here.
+      const { data: claimed, error } = await supabaseAdmin.rpc("accept_referral_request", {
+        p_id: req.params.id,
+        p_user: req.user.id,
+        p_company_norm: myCompany.toLowerCase(),
+        p_limit: lim.limit,
+      });
+      if (error) {
+        if (String(error.message || "").includes("accept_limit")) {
+          return res.status(429).json({
+            error: "accept_limit",
+            message: acceptLimitMessage({ limit: lim.limit, verified: mine.verified }),
+            limit: lim.limit,
+            used: lim.limit,
+            retryAt: null,
+            verified: mine.verified,
+          });
+        }
+        throw error;
+      }
+      const data = Array.isArray(claimed) ? claimed[0] : claimed;
       if (!data) return res.status(409).json({ error: "already_accepted" });
 
       res.json({ id: data.id, status: "accepted", referrerVerified: mine.verified });
@@ -3875,7 +3884,10 @@ app.post("/api/run", requireAuth, runLimiter, async (req, res) => {
       try {
         const runnerRes = await fetch(`${process.env.JAVA_RUNNER_URL}/run`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Runner-Secret": process.env.RUNNER_SHARED_SECRET || "",
+          },
           body: JSON.stringify({ files }),
           signal: AbortSignal.timeout(RUN_TIMEOUT_MS),
         });
@@ -3890,7 +3902,15 @@ app.post("/api/run", requireAuth, runLimiter, async (req, res) => {
           console.error("[java-runner proxy] non-JSON", runnerRes.status, redact(rawText.slice(0, 200)));
           return res.status(502).json({ message: "Code runner is unavailable. Try again shortly." });
         }
-        if (!runnerRes.ok) return res.status(runnerRes.status).json(data);
+        if (!runnerRes.ok) {
+          // Runner-side 401/403 (secret mismatch) or 5xx must NOT surface as 401 to the
+          // browser: apiClient treats 401 as session expiry and logs the user out.
+          if (runnerRes.status === 401 || runnerRes.status === 403 || runnerRes.status >= 500) {
+            console.error("[java-runner proxy] upstream status", runnerRes.status);
+            return res.status(502).json({ message: "Code runner is unavailable. Try again shortly." });
+          }
+          return res.status(runnerRes.status).json(data);
+        }
         return res.json(data);
       } catch (err) {
         console.error("[java-runner proxy]", redact(err.message));
@@ -3982,6 +4002,15 @@ const PAID_PLANS = ["pro", "max"];
 const PERIODS = ["monthly", "yearly"];
 const TERM_DAYS = { monthly: 30, yearly: 365 };
 
+// Amount to compare a paid order against: the amount recorded at ORDER time (notes.amount_paise),
+// so a price/currency-table change between order and verify neither rejects a legit payment nor
+// accepts a stale one. Orders created before the note existed fall back to the current price.
+function recordedAmountFor(order, plan, billingPeriod) {
+  const rec = Number(order && order.notes && order.notes.amount_paise);
+  if (Number.isInteger(rec) && rec >= 100) return rec;
+  return expectedAmountFor(order && order.currency, plan, billingPeriod);
+}
+
 // India (and unknown) bills in INR paise; everyone else in USD cents — see
 // lib/geo.js's currencyForCountry for why unknown must stay on the INR side.
 // Shared by order creation and verification so both always agree on which
@@ -4023,7 +4052,7 @@ app.post(
         amountPaise,
         currency,
         receipt: `u${String(req.user.id).slice(0, 8)}_${Date.now().toString(36)}`,
-        notes: { user_id: req.user.id, plan, billingPeriod, currency },
+        notes: { user_id: req.user.id, plan, billingPeriod, currency, amount_paise: String(amountPaise) },
       });
 
       res.json({
@@ -4059,7 +4088,7 @@ app.post(
     try {
       const code = normCouponCode(req.body && req.body.code);
       if (!code) return res.status(400).json({ error: "coupon_invalid", message: COUPON_MESSAGES.coupon_invalid });
-      const billingPeriod = PERIODS.includes(req.body && req.body.billingPeriod) ? req.body.billingPeriod : "monthly";
+      let billingPeriod = PERIODS.includes(req.body && req.body.billingPeriod) ? req.body.billingPeriod : "monthly";
       const peek = await redeemCoupon(supabaseAdmin, { code, userId: req.user.id, target: "plan", dry: true });
       if (peek.kind !== "free_all") {
         return res.status(400).json({ error: "coupon_not_applicable", message: "This coupon works on AutoApply packs, not plans." });
@@ -4071,6 +4100,12 @@ app.post(
         .maybeSingle();
       if (existing && effectivePlanFromRow(existing) !== "free") {
         return res.status(409).json({ error: "already_subscribed", message: "You already have an active plan." });
+      }
+      // Coupons grant a monthly term unless the coupon row explicitly allows yearly (sql/49).
+      // Fail closed: a missing column / read error means monthly.
+      if (billingPeriod === "yearly") {
+        const { data: cRow, error: cErr } = await supabaseAdmin.from("coupons").select("allow_yearly").eq("code", code).maybeSingle();
+        if (cErr || !cRow || cRow.allow_yearly !== true) billingPeriod = "monthly";
       }
       if (req.body && req.body.dry) return res.json({ ok: true, dry: true, kind: peek.kind, plan: peek.plan });
 
@@ -4155,7 +4190,7 @@ app.post(
       const n = order.notes || {};
       // Trust the order's OWN currency (Razorpay's authoritative record of
       // what was actually charged), not a freshly-recomputed one.
-      const expected = expectedAmountFor(order.currency, plan, billingPeriod);
+      const expected = recordedAmountFor(order, plan, billingPeriod);
       if (
         String(order.status || "") !== "paid" ||
         String(n.user_id || "") !== String(req.user.id) ||
@@ -4445,7 +4480,7 @@ app.post("/api/webhooks/razorpay", async (req, res) => {
         return res.status(202).json({ ok: true, note: "order.paid: not a plan order" });
       }
       const paid = Number(order.amount_paid ?? order.amount);
-      if (paid !== expectedAmountFor(order.currency, n.plan, n.billingPeriod)) {
+      if (paid !== recordedAmountFor(order, n.plan, n.billingPeriod) || Number(order.amount) !== paid) {
         console.warn("[rzp-webhook] order.paid amount mismatch", redact(JSON.stringify({ id: order.id, paid })));
         return res.status(202).json({ ok: true, note: "amount mismatch" });
       }

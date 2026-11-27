@@ -233,18 +233,32 @@ export function createWorkerBroker(deps = {}) {
     (req, res, next) => launchLimiter(req, res, next),
   ];
 
-  /** The task, only if this worker has claimed it and it is in flight. */
-  async function claimedTask(req) {
+  /**
+   * The task, only if this worker has claimed it and it is in flight.
+   * claimed_by is "<worker_id>-<slot>"; we match that segment EXACTLY (a plain
+   * startsWith let worker "vast-ab" read tasks claimed by "vast-abc-1").
+   * opts.requireLease additionally demands a live lease (lease_until > now()):
+   * used for the endpoints that release secrets/upload URLs.
+   *
+   * Remaining risk: the worker holds a DSN that can UPDATE aa_tasks.claimed_by /
+   * lease_until, so a compromised worker could re-claim another user's task row
+   * and then ask the broker for its portal secret. Mitigation would be to move
+   * claim/lease writes behind a SECURITY DEFINER RPC and revoke column UPDATE.
+   */
+  async function claimedTask(req, opts = {}) {
     const taskId = req.body.task_id;
     if (typeof taskId !== "string" || !UUID_RE.test(taskId)) throw bad("task_id must be a uuid.");
     const { data: task, error } = await db
       .from("aa_tasks")
-      .select("id, user_id, tenant_host, status, claimed_by")
+      .select("id, user_id, tenant_host, status, claimed_by, lease_until")
       .eq("id", taskId)
       .maybeSingle();
     if (error) throw error;
     const workerId = String(req.launch.worker_id || "");
-    if (!task || !workerId || !String(task.claimed_by || "").startsWith(workerId) || !IN_FLIGHT.includes(task.status)) {
+    const claimedBy = String((task && task.claimed_by) || "");
+    const exact = !!workerId && (claimedBy === workerId || (claimedBy.startsWith(`${workerId}-`) && /^\d+$/.test(claimedBy.slice(workerId.length + 1))));
+    const leaseLive = !opts.requireLease || (task && task.lease_until && Date.parse(task.lease_until) > now().getTime());
+    if (!task || !exact || !leaseLive || !IN_FLIGHT.includes(task.status)) {
       req._note = "not_claimed";
       throw forbidden();
     }
@@ -261,7 +275,7 @@ export function createWorkerBroker(deps = {}) {
     "/task-assets",
     ...authed,
     wrap(async (req, res) => {
-      const task = await claimedTask(req);
+      const task = await claimedTask(req, { requireLease: true });
       const { data: prof, error } = await db.from("aa_profiles").select("resume_path").eq("user_id", task.user_id).maybeSingle();
       if (error) throw error;
       let resume = null;
@@ -283,7 +297,7 @@ export function createWorkerBroker(deps = {}) {
     "/portal-secret",
     ...authed,
     wrap(async (req, res) => {
-      const task = await claimedTask(req);
+      const task = await claimedTask(req, { requireLease: true });
       const host = tenantOf(task);
       const { data: acct, error } = await db
         .from("aa_portal_accounts")

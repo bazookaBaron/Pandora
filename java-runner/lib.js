@@ -111,7 +111,22 @@ export function wrapWithUlimit(cmd, args, ul) {
     return { cmd: 'sh', args: ['-c', script, 'sh', cmd, ...args] };
 }
 
-function killTree(proc) {
+/**
+ * Kill EVERY process owned by `uid` (catches setsid()/double-forked children that
+ * escaped the process group). Works because each concurrent run gets its own
+ * sandbox uid: a short-lived `kill -9 -1` is spawned AS that uid (we are root,
+ * so spawn({uid}) is allowed), and kill(-1) signals all processes that uid may
+ * signal, i.e. only its own. No-op when no sandbox uid is configured.
+ */
+export function killUid(uid, gid = uid) {
+    if (IS_WINDOWS || !Number.isInteger(uid)) return;
+    try {
+        const k = spawn('kill', ['-9', '-1'], { uid, gid, stdio: 'ignore', shell: false });
+        k.on('error', () => { });
+    } catch { /* best effort */ }
+}
+
+function killTree(proc, sandbox) {
     if (!proc.pid) return;
     try {
         if (IS_WINDOWS) proc.kill('SIGKILL');
@@ -119,6 +134,7 @@ function killTree(proc) {
     } catch {
         try { proc.kill('SIGKILL'); } catch { /* already gone */ }
     }
+    if (sandbox) killUid(sandbox.uid, sandbox.gid);
 }
 
 /**
@@ -128,7 +144,7 @@ function killTree(proc) {
 export function runProcess(cmd, args, opts = {}) {
     const {
         cwd, timeoutMs = LIMITS.RUN_TIMEOUT_MS, maxBytes = LIMITS.MAX_OUTPUT_BYTES,
-        stdin = '', env, ulimit,
+        stdin = '', env, ulimit, sandbox, // sandbox: { uid, gid } to drop to (needs root)
     } = opts;
     const wrapped = wrapWithUlimit(cmd, args, ulimit);
 
@@ -137,6 +153,7 @@ export function runProcess(cmd, args, opts = {}) {
         try {
             proc = spawn(wrapped.cmd, wrapped.args, {
                 cwd, env, shell: false, detached: !IS_WINDOWS,
+                ...(sandbox && !IS_WINDOWS ? { uid: sandbox.uid, gid: sandbox.gid } : {}),
                 stdio: ['pipe', 'pipe', 'pipe'],
             });
         } catch (err) {
@@ -164,7 +181,7 @@ export function runProcess(cmd, args, opts = {}) {
 
         timer = setTimeout(() => {
             timedOut = true;
-            killTree(proc);
+            killTree(proc, sandbox);
             finish(124);
         }, timeoutMs);
 
@@ -175,7 +192,7 @@ export function runProcess(cmd, args, opts = {}) {
                 if (room > 0) out[key].push(chunk.subarray(0, room));
                 size[key] = maxBytes;
                 truncated = true;
-                killTree(proc);
+                killTree(proc, sandbox);
                 finish(137);
                 return;
             }
@@ -184,7 +201,11 @@ export function runProcess(cmd, args, opts = {}) {
         };
         proc.stdout.on('data', collect('stdout'));
         proc.stderr.on('data', collect('stderr'));
-        proc.on('close', (code) => finish(code));
+        proc.on('close', (code) => {
+            // main process exited: reap anything it left behind (setsid'd children)
+            if (sandbox) killUid(sandbox.uid, sandbox.gid);
+            finish(code);
+        });
         proc.on('error', (err) => {
             console.error('[java-runner] process error:', err);
             out.stderr.push(Buffer.from('\n[Process error]'));

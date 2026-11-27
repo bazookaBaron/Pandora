@@ -53,7 +53,8 @@ const razorpay = {
     return o;
   },
   async fetchOrder(id) {
-    return orders.get(id) || null;
+    const o = orders.get(id);
+    return o ? { ...o, status: "paid", amount_paid: o.amount } : null; // as Razorpay reports a paid order
   },
   verifyPaymentSignature: ({ orderId, paymentId, signature }) => signature === `sig:${orderId}|${paymentId}`,
   async listRefunds(paymentId) {
