@@ -8,43 +8,49 @@
 }
 
 /* ── Design Tokens ──────────────────────────────────────────────────── */
-/* :root is the dark palette; light is the default (set via data-theme on <html>) and flips the grayscale
+/* :root is the dark palette; dark is the default (light via data-theme on <html>) and flips the grayscale
    ramp; accent hues (pop/warm/green/red) are shared. Components reference
    these tokens (directly or via the hex→token map applied across the app),
    so a palette swap here re-themes everything. */
 :root {
-    --surface: #09090b;
+    --surface: #070b0f;
     /* page background */
-    --surface-2: #0f0f11;
-    /* raised wells: editors, code blocks, inset panels */
-    --panel: #18181b;
+    --surface-2: #0b1117;
+    /* wells: editors, code blocks, inset panels */
+    --panel: #0f171f;
     /* cards */
-    --subtle: #27272a;
+    --panel-hi: #14202a;
+    /* elevated: hovered / raised cards, menus */
+    --subtle: #1c2a35;
     /* borders, hairlines, track fills */
-    --subtle-strong: #3f3f46;
+    --subtle-strong: #2c4252;
     /* hover borders */
-    --border: #27272a;
+    --border: #1c2a35;
     /* alias of --subtle for older call sites */
-    --faint: #52525b;
-    /* dimmest text, placeholders, axis labels */
-    --muted: #71717a;
+    --faint: #70899b;
+    /* dimmest text, placeholders, axis labels (AA on panel) */
+    --muted: #8fa4b4;
     /* muted body text */
-    --accent: #a1a1aa;
+    --accent: #b6c6d2;
     /* secondary text */
-    --bright: #fafafa;
+    --bright: #f1f7fa;
     /* primary text */
     --pop: #22d3ee;
-    /* cyan — primary accent */
+    /* cyan: primary accent / brand */
+    --pop-line: rgba(34, 211, 238, 0.38);
+    /* cyan hairline for highlighted tiles */
+    --pop-tint: rgba(34, 211, 238, 0.06);
+    /* faint cyan wash for highlighted surfaces */
     --warm: #f472b6;
     /* pink — secondary accent */
-    --pop-dim: rgba(34, 211, 238, 0.12);
+    --pop-dim: rgba(34, 211, 238, 0.14);
     --warm-dim: rgba(244, 114, 182, 0.12);
     --green: #4ade80;
     --green-bg: rgba(74, 222, 128, 0.1);
     --red: #f87171;
     --red-bg: rgba(248, 113, 113, 0.1);
     --scanline: rgba(255, 255, 255, 0.013);
-    --nav-bg: rgba(9, 9, 11, 0.92);
+    --nav-bg: rgba(7, 11, 15, 0.92);
     --overlay: rgba(0, 0, 0, 0.7);
     --radius: 6px;
     --radius-lg: 10px;
@@ -65,26 +71,29 @@
 }
 
 :root[data-theme="light"] {
-    --surface: #fbfbfc;
-    --surface-2: #f1f1f3;
+    --surface: #f3f8fa;
+    --surface-2: #e9f1f5;
     --panel: #ffffff;
-    --subtle: #e4e4e7;
-    --subtle-strong: #d4d4d8;
-    --border: #e4e4e7;
-    --faint: #a1a1aa;
-    --muted: #6b6b73;
-    --accent: #52525b;
-    --bright: #18181b;
+    --panel-hi: #f8fcfd;
+    --subtle: #dbe6ec;
+    --subtle-strong: #bccdd8;
+    --border: #dbe6ec;
+    --faint: #64747f;
+    --muted: #51606b;
+    --accent: #334450;
+    --bright: #0c1a23;
     --pop: #0891b2;
+    --pop-line: rgba(8, 145, 178, 0.40);
+    --pop-tint: rgba(8, 145, 178, 0.06);
     --warm: #db2777;
-    --pop-dim: rgba(8, 145, 178, 0.10);
+    --pop-dim: rgba(8, 145, 178, 0.11);
     --warm-dim: rgba(219, 39, 119, 0.10);
     --green: #16a34a;
     --green-bg: rgba(22, 163, 74, 0.10);
     --red: #dc2626;
     --red-bg: rgba(220, 38, 38, 0.09);
     --scanline: rgba(0, 0, 0, 0.02);
-    --nav-bg: rgba(255, 255, 255, 0.88);
+    --nav-bg: rgba(255, 255, 255, 0.9);
     --overlay: rgba(24, 24, 27, 0.45);
     color-scheme: light;
 }

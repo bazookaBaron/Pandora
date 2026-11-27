@@ -7,7 +7,7 @@
 //   sectionFor('/dsa/company/google')  -> SECTIONS.prepare
 //   getSection('autoapply').tone        -> 'var(--pop)'
 //
-// tone      -> a CSS colour (existing brand token) for strips, active tabs, primary buttons
+// tone      -> Vloombox cyan (--pop) for every section (status colours stay semantic); used for strips, active tabs, primary buttons
 // toneDim   -> the matching soft background (color-mix of the tone, no new colours)
 // icon      -> lucide-react export name (components import the icon by this name)
 // prefixes  -> route prefixes owned by the section ('/' matches only '/')
@@ -25,8 +25,8 @@ export const SECTIONS = {
         title: 'Find jobs',
         subtitle: 'Fresh tech jobs, updated every day',
         icon: 'Briefcase',
-        tone: 'var(--accent)',
-        toneDim: dim('var(--accent)'),
+        tone: 'var(--pop)',
+        toneDim: dim('var(--pop)'),
         to: '/',
         prefixes: ['/', '/jobs'],
     },
@@ -37,8 +37,8 @@ export const SECTIONS = {
         title: 'Prepare for interviews',
         subtitle: 'DSA, design and interview questions',
         icon: 'BookOpen',
-        tone: 'var(--green)',
-        toneDim: dim('var(--green)'),
+        tone: 'var(--pop)',
+        toneDim: dim('var(--pop)'),
         to: '/prepare',
         prefixes: ['/prepare', '/dsa', '/lld', '/hld', '/interview', '/questions', '/optimizer'],
     },
@@ -61,8 +61,8 @@ export const SECTIONS = {
         title: 'Get referred',
         subtitle: 'Ask employees at your target company',
         icon: 'Users',
-        tone: 'var(--warm)',
-        toneDim: dim('var(--warm)'),
+        tone: 'var(--pop)',
+        toneDim: dim('var(--pop)'),
         to: '/referrals',
         prefixes: ['/referrals'],
     },
@@ -73,8 +73,8 @@ export const SECTIONS = {
         title: 'Account',
         subtitle: 'Your profile, plan and settings',
         icon: 'User',
-        tone: 'var(--muted)',
-        toneDim: dim('var(--muted)'),
+        tone: 'var(--pop)',
+        toneDim: dim('var(--pop)'),
         to: '/profile',
         prefixes: [
             '/profile', '/pricing', '/auth', '/about', '/faq', '/legal', '/terms', '/privacy',

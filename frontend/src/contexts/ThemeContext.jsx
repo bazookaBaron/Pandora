@@ -5,14 +5,14 @@ import { createContext, useContext, useEffect, useState } from 'react'
 // attribute on <html> and persists the choice. A tiny inline script in
 // index.html applies the saved value before React mounts (no flash).
 
-const ThemeContext = createContext({ theme: 'light', toggleTheme: () => {} })
+const ThemeContext = createContext({ theme: 'dark', toggleTheme: () => {} })
 
 function readInitial() {
     try {
         const saved = localStorage.getItem('theme')
         if (saved === 'light' || saved === 'dark') return saved
     } catch { /* private mode / disabled storage */ }
-    return 'light' // new visitors start in light
+    return 'dark' // new visitors start in dark
 }
 
 export function ThemeProvider({ children }) {

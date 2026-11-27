@@ -22,7 +22,7 @@
     --sys-success: var(--green);     --sys-success-dim: var(--green-bg);
     --sys-attention: var(--warm);    --sys-attention-dim: var(--warm-dim);
     --sys-waiting: #facc15;          --sys-waiting-dim: rgba(250, 204, 21, 0.1);
-    --sys-history: var(--muted);     --sys-history-dim: rgba(113, 113, 122, 0.12);
+    --sys-history: var(--muted);     --sys-history-dim: rgba(143, 164, 180, 0.12);
     --sys-danger: var(--red);        --sys-danger-dim: var(--red-bg);
     --sys-plan: #a78bfa;             --sys-plan-dim: rgba(167, 139, 250, 0.12);
     /* the one brand gradient (upgrade CTAs, lock badges) */
@@ -75,6 +75,11 @@
 .sys-seg { border-left: 3px solid var(--tone, var(--subtle)); }
 .sys-seg.is-tinted { background: linear-gradient(90deg, var(--tone-dim, transparent), transparent 55%), var(--panel); }
 
+/* Prepare hub: data-provenance info box (cyan-tinted, 3px cyan left border) */
+.sys-infobox { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 14px; padding: 10px 12px; border-radius: var(--radius-lg); border: 1px solid var(--pop-line); border-left: 3px solid var(--pop); background: var(--pop-dim); color: var(--bright); font-size: 13px; line-height: 1.5; }
+.sys-infobox svg { flex: none; margin-top: 2px; color: var(--pop); }
+.sys-infobox p { margin: 0; }
+
 /* ── Card (same look as .pg-card / .aa-card) ── */
 .sys-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--sp-5); min-width: 0; }
 @media (max-width: 640px) { .sys-card { padding: var(--sp-4); } }
@@ -84,7 +89,7 @@
 .sys-tile {
     position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 96px;
     padding: 14px; border-radius: var(--radius-lg); border: 1px solid var(--border); border-top: 3px solid var(--tone, var(--subtle));
-    background: var(--panel); color: inherit; text-decoration: none;
+    background: linear-gradient(180deg, var(--pop-tint), transparent 70%), var(--panel); color: inherit; text-decoration: none;
     transition: border-color var(--transition), background var(--transition);
 }
 a.sys-tile:hover, button.sys-tile:hover { background: var(--tone-dim, var(--panel)); border-color: var(--tone, var(--subtle)); }
@@ -691,7 +696,7 @@ html[data-nav-compact] .sys-stepper-foot { padding-bottom: calc(12px + var(--saf
 @media (min-width: 768px) { .sys-tiles-sec { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } }
 .sys-sectile {
     display: flex; align-items: center; gap: 14px; width: 100%; min-height: 72px; min-width: 0; padding: 12px 12px 12px 14px;
-    border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: var(--bright);
+    border-radius: 12px; border: 1px solid var(--border); background: linear-gradient(90deg, var(--pop-tint), transparent 60%), var(--panel); color: var(--bright);
     font: inherit; text-align: left; text-decoration: none; cursor: pointer;
     box-shadow: inset 4px 0 0 var(--tone, var(--pop));
     transition: border-color var(--transition), background var(--transition);
