@@ -69,6 +69,8 @@ export function createFakeDb(seed = {}) {
     let head = false;
     let orderBy = null;
     let lim = null;
+    let off = 0;
+    const orders = [];
     let single = null;
     let cols = null;
 
@@ -119,8 +121,9 @@ export function createFakeDb(seed = {}) {
       gt(c, v) { filters.push((r) => r[c] != null && r[c] > v); return b; },
       lte(c, v) { filters.push((r) => r[c] != null && r[c] <= v); return b; },
       lt(c, v) { filters.push((r) => r[c] != null && r[c] < v); return b; },
-      order(c, o = {}) { orderBy = { c, asc: o.ascending !== false }; return b; },
+      order(c, o = {}) { orderBy = { c, asc: o.ascending !== false }; orders.push(orderBy); return b; },
       limit(n) { lim = n; return b; },
+      range(from, to) { off = from; lim = to - from + 1; return b; },
       maybeSingle() { single = "maybe"; return b; },
       single() { single = "one"; return b; },
       then(res, rej) { return Promise.resolve().then(run).then(res, rej); },
@@ -140,8 +143,8 @@ export function createFakeDb(seed = {}) {
       const rows = t(table);
       if (op === "select") {
         let out = rows.filter(match);
-        if (orderBy) out = [...out].sort((a, z) => (a[orderBy.c] > z[orderBy.c] ? 1 : a[orderBy.c] < z[orderBy.c] ? -1 : 0) * (orderBy.asc ? 1 : -1));
-        if (lim != null) out = out.slice(0, lim);
+        if (orders.length) out = [...out].sort((a, z) => { for (const o of orders) { const d = (a[o.c] > z[o.c] ? 1 : a[o.c] < z[o.c] ? -1 : 0) * (o.asc ? 1 : -1); if (d) return d; } return 0; });
+        if (lim != null) out = out.slice(off, off + lim);
         if (countMode) return { data: head ? null : finish(out).data, count: out.length, error: null };
         return finish(out);
       }

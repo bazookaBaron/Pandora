@@ -48,6 +48,31 @@ export { AAError, handleAutoApplyWebhook };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
+/**
+ * Per-batch status histogram {batchId: {status: n}} via one GROUP BY (sql/52 aa_task_status_counts).
+ * Falls back to counting a capped row scan when the RPC is not deployed yet.
+ */
+async function statusCountsFor(db, userId, batchIds) {
+  const out = new Map(batchIds.map((id) => [id, {}]));
+  if (!batchIds.length) return out;
+  const { data, error } = await db.rpc("aa_task_status_counts", { p_user: userId, p_batch_ids: batchIds });
+  if (!error && Array.isArray(data)) {
+    for (const r of data) {
+      const c = out.get(r.batch_id);
+      if (c) c[r.status] = Number(r.n) || 0;
+    }
+    return out;
+  }
+  console.warn("[autoapply] status-count rpc unavailable, falling back to row scan:", (error && error.message) || error);
+  const { data: rows, error: tErr } = await db.from("aa_tasks").select("batch_id, status").eq("user_id", userId).in("batch_id", batchIds).limit(10000);
+  if (tErr) throw tErr;
+  for (const t of rows || []) {
+    const c = out.get(t.batch_id);
+    if (c) c[t.status] = (c[t.status] || 0) + 1;
+  }
+  return out;
+}
+
 const TASK_FIELDS = "id, company, title, ats, status, reason_code, score, submitted_at, updated_at, apply_url, confirmation_text, proof_path, not_charged";
 const PROOF_BUCKET = "aa-proof";
 const PROOF_URL_TTL_S = 300; // signed proof URLs live 5 minutes
@@ -700,21 +725,12 @@ export function createAutoApplyRouter(deps = {}) {
       const LIVE = ["paid", "shortlisting", "review", "running", "paused", "waiting_supply", "waiting_profile"];
       const ongoing = batches.filter((b) => LIVE.includes(b.status)).map((b) => b.id);
       if (ongoing.length) {
-        const { data: rows, error: tErr } = await db
-          .from("aa_tasks")
-          .select("batch_id, status")
-          .eq("user_id", req.user.id)
-          .in("batch_id", ongoing)
-          .limit(10000);
-        if (tErr) console.warn("[autoapply/batches] live counts failed:", tErr.message || tErr);
-        else {
-          const counts = new Map(ongoing.map((id) => [id, {}]));
-          for (const t of rows || []) {
-            const c = counts.get(t.batch_id);
-            if (c) c[t.status] = (c[t.status] || 0) + 1;
-          }
+        try {
+          const counts = await statusCountsFor(db, req.user.id, ongoing);
           const engine = await engineState(db).catch(() => "off");
           for (const b of batches) if (counts.has(b.id)) b.live = liveStatus({ batch: b, counts: counts.get(b.id), engine, now: now() });
+        } catch (tErr) {
+          console.warn("[autoapply/batches] live counts failed:", (tErr && tErr.message) || tErr);
         }
       }
       res.json({ batches });
@@ -725,17 +741,29 @@ export function createAutoApplyRouter(deps = {}) {
     "/batches/:id",
     wrap("batch", async (req, res) => {
       const batch = await ownBatch(req.user.id, req.params.id);
-      const { data, error } = await db
-        .from("aa_tasks")
-        .select(TASK_FIELDS)
-        .eq("batch_id", batch.id)
-        .eq("user_id", req.user.id)
-        .order("score", { ascending: false })
-        .limit(2000);
-      if (error) throw error;
-      const rows = data || [];
-      // not-applied rows of a finished batch are deleted after 30 days (sql/47); final_counts keeps their numbers
-      const counts = batchCounts(rows, batch.final_counts);
+      // ?summary=1 -> counts + live line only (cheap poll); else tasks are paginated (?limit<=1000, default 500, ?offset)
+      const summaryOnly = req.query.summary === "1" || req.query.summary === "true";
+      const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit, 10) || 500));
+      const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+      let rows = [];
+      if (!summaryOnly) {
+        const { data, error } = await db
+          .from("aa_tasks")
+          .select(TASK_FIELDS)
+          .eq("batch_id", batch.id)
+          .eq("user_id", req.user.id)
+          .order("score", { ascending: false })
+          .order("id", { ascending: true })
+          .range(offset, offset + limit - 1);
+        if (error) throw error;
+        rows = data || [];
+      }
+      // not-applied rows of a finished batch are deleted after 30 days (sql/47); final_counts keeps their numbers.
+      // Counts come from a GROUP BY over ALL tasks, not from the (paginated) rows above.
+      const histogram = (await statusCountsFor(db, req.user.id, [batch.id])).get(batch.id) || {};
+      const counts = batchCounts([], batch.final_counts);
+      for (const [st, n] of Object.entries(histogram)) counts[st] = Math.max(Number(n) || 0, counts[st] || 0);
+      const taskTotal = Object.values(histogram).reduce((a, n) => a + (Number(n) || 0), 0);
       // the 'received' mail that confirms each applied task, if one arrived (mail db; never fails the page)
       let confirm = new Map();
       const submits = rows.filter((t) => t.status === "applied" && t.submitted_at).map((t) => Date.parse(t.submitted_at)).filter((n) => !Number.isNaN(n));
@@ -766,7 +794,7 @@ export function createAutoApplyRouter(deps = {}) {
         .limit(1);
       const live = liveStatus({ batch, counts, nextAt: (nx && nx[0] && nx[0].not_before) || null, engine: await engineState(db), now: now() });
       const { final_counts: _finalCounts, ...batchOut } = batch; // internal retention snapshot, already merged into counts
-      res.json({ batch: batchOut, counts, live, tasks });
+      res.json({ batch: batchOut, counts, live, tasks, task_total: taskTotal, offset, has_more: !summaryOnly && offset + rows.length < taskTotal });
     }),
   );
 
