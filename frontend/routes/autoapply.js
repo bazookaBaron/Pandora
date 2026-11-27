@@ -18,7 +18,7 @@ import { rateLimit } from "express-rate-limit";
 import { AUTO_APPLY } from "../config/tiers.js";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { resolveUser } from "../lib/requireAuth.js";
-import { getUserPlan as realGetUserPlan } from "../lib/entitlements.js";
+import { getUserPlan as realGetUserPlan, requiresActivePlan as realRequiresActivePlan } from "../lib/entitlements.js";
 import * as realRazorpay from "../services/razorpay.js";
 import * as realResend from "../services/resend.js";
 
@@ -28,7 +28,7 @@ import { decryptSecret } from "../lib/autoapply/vault.js";
 import { engineState, liveCounts, liveStatus } from "../lib/autoapply/liveStatus.js";
 import { isEligiblePlan, usageFor } from "../lib/autoapply/limits.js";
 import { AAError, createAutoApplyOrder, quoteAutoApplyCoupon, verifyAutoApplyPayment, handleAutoApplyWebhook, expirePendingOrders } from "../lib/autoapply/orders.js";
-import { createTopupOrder, handleWalletWebhook, notifyWaitingFunds, retriggerFor, startBatch, verifyTopup, walletSummary } from "../lib/autoapply/wallet.js";
+import { assertActivePlan, createTopupOrder, handleWalletWebhook, notifyWaitingFunds, retriggerFor, startBatch, verifyTopup, walletSummary } from "../lib/autoapply/wallet.js";
 import { verifyInbound, storeInbound } from "../lib/autoapply/inbound.js";
 import { mailDb as realMailDb } from "../lib/autoapply/mailDb.js";
 import { sendPushForMail, sendPushToUser, vapidConfig, isAllowedPushEndpoint } from "../lib/autoapply/push.js";
@@ -326,6 +326,9 @@ export function createAutoApplyRouter(deps = {}) {
   const getEnv = deps.env || process.env;
   const razorpay = deps.razorpay || realRazorpay;
   const getUserPlan = deps.getUserPlan || realGetUserPlan;
+  // plan gate for wallet batches: entitlements.requiresActivePlan (effective plan). A test that injects only
+  // getUserPlan gets the same decision derived from it.
+  const requiresActivePlan = deps.requiresActivePlan || (deps.getUserPlan ? null : realRequiresActivePlan);
   const authenticate = deps.authenticate || defaultAuthenticate;
   const limiters = deps.limiters || {};
   const writeLimiter = limiters.write || passThrough;
@@ -771,7 +774,7 @@ export function createAutoApplyRouter(deps = {}) {
     wrap("batches/start", async (req, res) => {
       const must = normMustCompanies(req.body && req.body.must_companies);
       if (!must.ok) throw bad(must.message);
-      const out = await startBatch({ db, getUserPlan, userId: req.user.id, body: req.body, must: must.value, now: now() });
+      const out = await startBatch({ db, requiresActivePlan, getUserPlan, userId: req.user.id, body: req.body, must: must.value, now: now() });
       res.status(201).json(out);
     }),
   );
@@ -881,6 +884,7 @@ export function createAutoApplyRouter(deps = {}) {
     writeLimiter,
     wrap("batch/approve", async (req, res) => {
       const batch = await ownBatch(req.user.id, req.params.id);
+      if (batch.rate_paise) await assertActivePlan({ requiresActivePlan, getUserPlan }, req.user.id); // wallet batch: lapsed plan can't continue
       // Batch first, then its tasks. If queueing fails after the flip, a retry finds the batch already approved
       // ('running' with review_until set) and only re-runs the idempotent queueing step (200, not 409).
       const retry = batch.status === "running" && !!batch.review_until;
@@ -911,6 +915,7 @@ export function createAutoApplyRouter(deps = {}) {
     writeLimiter,
     wrap("batch/resume", async (req, res) => {
       const batch = await ownBatch(req.user.id, req.params.id);
+      if (batch.rate_paise) await assertActivePlan({ requiresActivePlan, getUserPlan }, req.user.id); // wallet batch: lapsed plan can't continue
       const inReview = batch.review_until && new Date(batch.review_until).getTime() > now().getTime();
       // a legacy parked cancel (before Cancel became Pause) is simply dropped: resume any time
       res.json({ batch: await updateBatchIf(batch, ["paused"], { status: inReview ? "review" : "running", cancel_requested_at: null }) });

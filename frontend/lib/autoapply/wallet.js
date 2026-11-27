@@ -178,13 +178,22 @@ export async function handleWalletWebhook({ db, body }) {
 }
 
 /**
- * Start a batch from the wallet. Plan check stays the existing getUserPlan rule (swap to requiresActivePlan once
- * feat/subscriptions lands). -> { batch, wallet }
+ * The plan gate for wallet batches: lib/entitlements.js `requiresActivePlan` (effective plan: lapsed, halted,
+ * cancelled-after-period and grace-expired subscriptions are Free). Tests may still inject a bare `getUserPlan`.
  */
-export async function startBatch({ db, getUserPlan, userId, body, must = [], now = new Date() }) {
+export async function assertActivePlan({ requiresActivePlan, getUserPlan }, userId) {
+  const gate = requiresActivePlan
+    ? await requiresActivePlan(userId)
+    : { ok: isEligiblePlan(await getUserPlan(userId)) };
+  if (!gate.ok) throw new AAError(403, "not_eligible", "AutoApply needs an active Pro or Max plan.");
+}
+
+/**
+ * Start a batch from the wallet. Needs an ACTIVE Pro/Max plan (requiresActivePlan). -> { batch, wallet }
+ */
+export async function startBatch({ db, requiresActivePlan, getUserPlan, userId, body, must = [], now = new Date() }) {
   const input = validateStartInput(body);
-  const plan = await getUserPlan(userId);
-  if (!isEligiblePlan(plan)) throw new AAError(403, "not_eligible", "AutoApply needs an active Pro or Max plan.");
+  await assertActivePlan({ requiresActivePlan, getUserPlan }, userId);
 
   const { data: prof, error: pErr } = await db.from("aa_profiles").select("consent_at").eq("user_id", userId).maybeSingle();
   if (pErr) throw pErr;

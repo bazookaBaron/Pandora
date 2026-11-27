@@ -322,3 +322,11 @@ test("convertible: the price paid per unused credit; only real, bought, open leg
   assert.equal(convertible({ ...b, status: "refunded" }).amount_paise, 0);
   assert.equal(convertible({ ...b, credits_used: 50 }).amount_paise, 0);
 });
+
+test("wallet plan gate: requiresActivePlan blocks lapsed plans, getUserPlan fallback still works", async () => {
+  const { assertActivePlan } = await import("../lib/autoapply/wallet.js");
+  await assert.rejects(() => assertActivePlan({ requiresActivePlan: async () => ({ ok: false, plan: "free" }) }, "u1"), (e) => e.code === "not_eligible" || e.status === 403);
+  await assertActivePlan({ requiresActivePlan: async () => ({ ok: true, plan: "pro" }) }, "u1");
+  await assertActivePlan({ getUserPlan: async () => "max" }, "u1");
+  await assert.rejects(() => assertActivePlan({ getUserPlan: async () => "free" }, "u1"));
+});
