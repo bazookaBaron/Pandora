@@ -3875,7 +3875,10 @@ app.post("/api/run", requireAuth, runLimiter, async (req, res) => {
       try {
         const runnerRes = await fetch(`${process.env.JAVA_RUNNER_URL}/run`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Runner-Secret": process.env.RUNNER_SHARED_SECRET || "",
+          },
           body: JSON.stringify({ files }),
           signal: AbortSignal.timeout(RUN_TIMEOUT_MS),
         });
@@ -3890,7 +3893,15 @@ app.post("/api/run", requireAuth, runLimiter, async (req, res) => {
           console.error("[java-runner proxy] non-JSON", runnerRes.status, redact(rawText.slice(0, 200)));
           return res.status(502).json({ message: "Code runner is unavailable. Try again shortly." });
         }
-        if (!runnerRes.ok) return res.status(runnerRes.status).json(data);
+        if (!runnerRes.ok) {
+          // Runner-side 401/403 (secret mismatch) or 5xx must NOT surface as 401 to the
+          // browser: apiClient treats 401 as session expiry and logs the user out.
+          if (runnerRes.status === 401 || runnerRes.status === 403 || runnerRes.status >= 500) {
+            console.error("[java-runner proxy] upstream status", runnerRes.status);
+            return res.status(502).json({ message: "Code runner is unavailable. Try again shortly." });
+          }
+          return res.status(runnerRes.status).json(data);
+        }
         return res.json(data);
       } catch (err) {
         console.error("[java-runner proxy]", redact(err.message));
