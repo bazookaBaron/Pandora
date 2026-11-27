@@ -318,9 +318,12 @@
 .pt-table tbody:last-child tr:last-child th, .pt-table tbody:last-child tr:last-child td { border-bottom: 0; }
 @media (max-width: 719px) {
     .pt-scroll { overflow: auto; max-height: 70vh; -webkit-overflow-scrolling: touch; }
-    .pt-table { min-width: 520px; }
+    /* All three plan columns fit on a phone: narrow value columns, wrapping feature names. */
+    .pt-table { min-width: 0; table-layout: fixed; font-size: 0.78rem; }
+    .pt-table th, .pt-table td { padding: 9px 4px; }
+    .pt-table td { font-size: 0.7rem; }
     .pt-table thead th { top: 0; }
-    .pt-table .pt-feature-col { position: sticky; left: 0; z-index: 1; min-width: 150px; background: var(--panel); }
+    .pt-table .pt-feature-col { position: sticky; left: 0; z-index: 1; width: 34%; min-width: 0; padding-left: 10px; overflow-wrap: anywhere; background: var(--panel); }
     .pt-table thead .pt-feature-col { z-index: 3; }
     .pt-table .pt-group th { position: sticky; left: 0; }
 }
