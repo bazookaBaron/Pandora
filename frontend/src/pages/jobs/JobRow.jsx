@@ -16,7 +16,7 @@ export default function JobRow({ j, showCompany = true, onOpen }) {
     return (
         <Row
             className="jobs-row"
-            leading={showCompany ? <JobLogo name={j.company} /> : undefined}
+            leading={showCompany ? <JobLogo name={j.company} logo={j.companyLogo} domain={j.companyDomain} slug={j.companySlug} /> : undefined}
             title={(
                 <span className="jobs-row-t">
                     <span className="jobs-row-role" title={title}>{title}</span>

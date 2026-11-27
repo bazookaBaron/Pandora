@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { COMPANY_DOMAIN_MAP } from '../../lib/companyDomains'
+import { logoSources } from '../../lib/companyLogo'
 import { relTime, postedTime } from '../../lib/jobUtils'
 
 // Shared bits for the Jobs section (JobsPage, JobsCompanyPage, JobSheet).
@@ -20,19 +20,22 @@ export function shortAge(j) {
     return r.replace(/ ago$/, '')
 }
 
-// 32px logo tile: the company favicon when we know its domain, else its initial.
+// 32px logo tile: the company logo (crawler logo -> favicon of its domain -> static
+// domain map), else its initial. A failing image falls through to the next source.
 // The initial is drawn from a data attribute (CSS ::before) so it never becomes
 // part of a heading's text.
-export function JobLogo({ name, size = 'md' }) {
-    const domain = name ? COMPANY_DOMAIN_MAP[name] : null
-    const [failed, setFailed] = useState(false)
+export function JobLogo({ name, size = 'md', logo, domain, slug }) {
+    const sources = logoSources({ logo, domain, name, slug, size: 64 })
+    const key = sources.join('|')
+    const [fail, setFail] = useState({ key, n: 0 })
+    const idx = fail.key === key ? fail.n : 0
     const initial = (name || '?').trim().charAt(0).toUpperCase() || '?'
     const cls = `jobs-logo${size === 'lg' ? ' is-lg' : ''}`
-    if (domain && !failed) {
+    if (idx < sources.length) {
         return (
             <span className={cls} aria-hidden="true">
-                <img src={`https://www.google.com/s2/favicons?sz=64&domain_url=${domain}`} alt="" width={20} height={20}
-                    loading="lazy" decoding="async" onError={() => setFailed(true)} />
+                <img src={sources[idx]} alt="" width={20} height={20}
+                    loading="lazy" decoding="async" onError={() => setFail({ key, n: idx + 1 })} />
             </span>
         )
     }

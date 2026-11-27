@@ -1,20 +1,24 @@
 import { useState } from 'react'
-import { COMPANY_DOMAIN_MAP } from '../../lib/companyDomains'
+import { logoSources } from '../../lib/companyLogo'
 
 /**
  * Single company logo chip.
- * Uses Google's high-quality favicon CDN (no CORS issues).
- * Falls back to styled text chip if domain is unknown or image fails.
+ * Source order: explicit logo -> Google favicon of `domain` -> favicon of the static
+ * domain map (name/slug, case-insensitive). Each failing image advances to the next;
+ * falls back to the styled text chip when none load.
  */
-export default function CompanyLogo({ company, style }) {
-    const domain = COMPANY_DOMAIN_MAP[company]
-    const [imgErr, setImgErr] = useState(false)
+export default function CompanyLogo({ company, style, logo, domain: domainProp, slug }) {
+    const sources = logoSources({ logo, domain: domainProp, name: company, slug, size: 32 })
+    const key = sources.join('|')
+    const [fail, setFail] = useState({ key, n: 0 })
+    const idx = fail.key === key ? fail.n : 0
+    const src = idx < sources.length ? sources[idx] : null
 
     const baseStyle = {
         display: 'inline-flex',
         alignItems: 'center',
         gap: 4,
-        padding: domain && !imgErr ? '2px 6px 2px 4px' : '1px 6px',
+        padding: src ? '2px 6px 2px 4px' : '1px 6px',
         borderRadius: 4,
         background: 'var(--subtle)',
         border: '1px solid var(--subtle-strong)',
@@ -27,9 +31,7 @@ export default function CompanyLogo({ company, style }) {
         ...style,
     }
 
-    if (domain && !imgErr) {
-        // Google Favicon CDN — no CORS, high quality, free
-        const src = `https://www.google.com/s2/favicons?sz=32&domain_url=${domain}`
+    if (src) {
         return (
             <span style={baseStyle} title={company}>
                 <img
@@ -38,7 +40,7 @@ export default function CompanyLogo({ company, style }) {
                     width={14}
                     height={14}
                     style={{ borderRadius: 2, display: 'block', flexShrink: 0 }}
-                    onError={() => setImgErr(true)}
+                    onError={() => setFail({ key, n: idx + 1 })}
                 />
                 {company}
             </span>

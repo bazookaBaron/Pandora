@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { COUPON_MESSAGES, CouponError, normCouponCode, redeemCoupon, releaseCoupon } from "./lib/coupons.js";
 import { spaceByCompany, feedWindow } from "./lib/jobsFeed.js";
+import { companyLogoFields } from "./lib/companyLogo.js";
 import express from "express";
 import compression from "compression";
 import helmet from "helmet";
@@ -2088,12 +2089,37 @@ function jobsDb() {
     : supabaseAdmin;
 }
 
+// crawler.company name + logo columns for a set of slugs -> { names, meta }.
+// logo_url / icon_url / domain only exist once the crawler schema migration
+// (`jobs migrate`) has been applied; until then PostgREST answers 42703 and we
+// transparently fall back to name-only so the jobs feed never breaks.
+let companyLogoColsMissingUntil = 0;
+async function fetchCompanyMeta(slugs) {
+  const names = {};
+  const meta = {};
+  if (!slugs.length) return { names, meta };
+  if (Date.now() >= companyLogoColsMissingUntil) {
+    const { data, error } = await jobsDb()
+      .from("company")
+      .select("slug, name, logo_url, icon_url, domain")
+      .in("slug", slugs);
+    if (!error) {
+      for (const c of data || []) { names[c.slug] = c.name; meta[c.slug] = c; }
+      return { names, meta };
+    }
+    companyLogoColsMissingUntil = Date.now() + 5 * 60_000; // retry the full select in 5 min
+  }
+  const { data: cRows } = await jobsDb().from("company").select("slug, name").in("slug", slugs);
+  for (const c of cRows || []) names[c.slug] = c.name;
+  return { names, meta };
+}
+
 // Map a raw crawler.job_posting row + resolved company name -> the shape
 // JobsPage.jsx renders. `companyTypeBySlug` is optional (a Map or plain
 // object) — omitted when the caller never needed company_type for this
 // request (e.g. no weighting/filter applied), in which case companyType is
 // just left blank rather than forcing an extra lookup.
-function normalizeJob(row, companyNameBySlug, companyTypeBySlug) {
+function normalizeJob(row, companyNameBySlug, companyTypeBySlug, companyMetaBySlug) {
   const company =
     (companyNameBySlug && companyNameBySlug[row.company_slug]) ||
     row.company_slug ||
@@ -2110,6 +2136,7 @@ function normalizeJob(row, companyNameBySlug, companyTypeBySlug) {
     company: String(company || ""),
     companySlug: row.company_slug || "",
     companyType,
+    ...companyLogoFields(companyMetaBySlug && companyMetaBySlug[row.company_slug]),
     location: row.location || "",
     locationType,
     country: row.country || "",
@@ -2613,17 +2640,10 @@ app.get("/api/jobs", catalogLimiter, optionalAuth, async (req, res) => {
       }
 
       // Resolve company display names for just this page's slugs.
-      let companyNameBySlug = {};
       const slugs = [...new Set(rows.map((r) => r.company_slug).filter(Boolean))];
-      if (slugs.length) {
-        const { data: cRows } = await jobsDb()
-          .from("company")
-          .select("slug, name")
-          .in("slug", slugs);
-        for (const c of cRows || []) companyNameBySlug[c.slug] = c.name;
-      }
+      const { names: companyNameBySlug, meta: companyMetaBySlug } = await fetchCompanyMeta(slugs);
 
-      const items = rows.map((r) => normalizeJob(r, companyNameBySlug, companyTypeMap)).filter((j) => j.url);
+      const items = rows.map((r) => normalizeJob(r, companyNameBySlug, companyTypeMap, companyMetaBySlug)).filter((j) => j.url);
 
       // Source facet for the dropdown (best-effort). Only ~7 distinct values
       // exist, so an 800-row sample is plenty; cached across all jobs requests.
