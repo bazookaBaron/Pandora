@@ -1,4 +1,4 @@
-# Subscriptions (Razorpay recurring)
+﻿# Subscriptions (Razorpay recurring)
 
 Pro/Max are sold only as Razorpay subscriptions. One-time orders remain for AutoApply/wallet.
 
@@ -7,7 +7,7 @@ Pro/Max are sold only as Razorpay subscriptions. One-time orders remain for Auto
 - RAZORPAY_SUBSCRIPTIONS_ENABLED=true (kill switch; off => pricing shows "Coming soon", no one-time fallback)
 - INR plans: RAZORPAY_PLAN_{PRO,MAX}_{MONTHLY,YEARLY}
 - USD plans: RAZORPAY_PLAN_{PRO,MAX}_{MONTHLY,YEARLY}_USD
-- TRUST_GEO_HEADERS=true when behind Cloudflare (uses cf-ipcountry); TRUST_PROXY_HOPS=1 (Railway only) or 2 (Cloudflare + Railway)
+- TRUST_GEO_HEADERS=true when behind Cloudflare (uses cf-ipcountry); TRUST_PROXY_HOPS=2 on Railway (verified 2026-11-28: its edge adds two X-Forwarded-For hops; with 1, req.ip is a proxy address that geoip maps to BR). Add 1 more if Cloudflare is put in front.
 
 ## Webhook events
 subscription.activated, .charged, .pending, .halted, .cancelled, .completed, .updated, payment.failed
